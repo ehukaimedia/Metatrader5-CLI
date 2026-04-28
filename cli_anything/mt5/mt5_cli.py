@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, project
+from cli_anything.mt5.core import account, market, project
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -215,3 +215,75 @@ def account_risk_cmd(ctx):
         output(err, obj["as_json"])
         return
     output(account.risk(obj["cfg"]), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Market command group
+# ---------------------------------------------------------------------------
+
+@main.group("market")
+@click.pass_context
+def market_group(ctx):
+    """Market data: symbol info, ticks, search, sessions."""
+    ctx.ensure_object(dict)
+
+
+@market_group.command("info")
+@click.argument("symbol")
+@click.pass_context
+def market_info_cmd(ctx, symbol):
+    """Symbol specification (bid/ask, pip size, volumes, etc.)."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(market.info(symbol), obj["as_json"])
+
+
+@market_group.command("tick")
+@click.argument("symbol")
+@click.pass_context
+def market_tick_cmd(ctx, symbol):
+    """Latest tick for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(market.tick(symbol), obj["as_json"])
+
+
+@market_group.command("search")
+@click.option("--pattern", required=True, help="Symbol search pattern (bare term auto-wrapped as *PATTERN*).")
+@click.pass_context
+def market_search_cmd(ctx, pattern):
+    """Search for symbols matching PATTERN."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(market.search(pattern), obj["as_json"])
+
+
+@market_group.command("session")
+@click.argument("symbol")
+@click.pass_context
+def market_session_cmd(ctx, symbol):
+    """Current trading session window for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(market.session(symbol), obj["as_json"])
+
+
+@market_group.command("sessions")
+@click.argument("symbol")
+@click.pass_context
+def market_sessions_cmd(ctx, symbol):
+    """Named FX session boundaries (UTC) for SYMBOL from the static table."""
+    obj = ctx.obj
+    output(market.sessions(symbol), obj["as_json"])

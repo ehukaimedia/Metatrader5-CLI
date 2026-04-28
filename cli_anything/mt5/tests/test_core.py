@@ -713,3 +713,92 @@ class TestAccount:
         data = json.loads(result.output)
         assert data["ok"] is True
         assert data["data"]["login"] == 77777
+
+
+# ===========================================================================
+# Task 7 — Market (core/market.py + CLI)
+# ===========================================================================
+
+class TestMarket:
+    def _make_sym(self, **kwargs):
+        from unittest.mock import MagicMock as MM
+        defaults = dict(
+            name="EURUSD", bid=1.08500, ask=1.08510, spread=10,
+            digits=5, trade_tick_value=1.0,
+            volume_min=0.01, volume_step=0.01, volume_max=100.0,
+            swap_long=-1.5, swap_short=0.5,
+            filling_mode=1, trade_mode=0,
+        )
+        defaults.update(kwargs)
+        return MM(**defaults)
+
+    def test_market_info_pip_size_eurusd_0_0001(self, mt5m):
+        from cli_anything.mt5.core import market
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info.return_value = self._make_sym(digits=5)
+        result = market.info("EURUSD")
+        assert result["ok"] is True
+        assert result["data"]["pip_size"] == pytest.approx(0.0001)
+
+    def test_market_info_pip_size_usdjpy_0_01(self, mt5m):
+        from cli_anything.mt5.core import market
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info.return_value = self._make_sym(name="USDJPY", digits=3)
+        result = market.info("USDJPY")
+        assert result["ok"] is True
+        assert result["data"]["pip_size"] == pytest.approx(0.01)
+
+    def test_market_info_calls_ensure_symbol(self, mt5m):
+        from cli_anything.mt5.core import market
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info.return_value = self._make_sym()
+        market.info("EURUSD")
+        mt5m.symbol_select.assert_called_with("EURUSD", True)
+
+    def test_market_tick_calls_ensure_symbol(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import market
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(time=1700000000, bid=1.085, ask=1.086, last=0.0, volume=0)
+        market.tick("EURUSD")
+        mt5m.symbol_select.assert_called_with("EURUSD", True)
+
+    def test_market_tick_iso8601(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import market
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(time=1700000000, bid=1.085, ask=1.086, last=0.0, volume=0)
+        result = market.tick("EURUSD")
+        assert result["ok"] is True
+        time_str = result["data"]["time"]
+        # Must parse as ISO-8601 without raising
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(time_str)
+        assert dt.tzinfo is not None  # timezone-aware
+
+    def test_market_search_auto_wraps_bare_pattern(self, mt5m):
+        from cli_anything.mt5.core import market
+        mt5m.symbols_get.return_value = []
+        market.search("EUR")
+        mt5m.symbols_get.assert_called_once_with(group="*EUR*")
+
+    def test_market_search_passes_explicit_glob_through(self, mt5m):
+        from cli_anything.mt5.core import market
+        mt5m.symbols_get.return_value = []
+        market.search("EUR*,GBP*")
+        mt5m.symbols_get.assert_called_once_with(group="EUR*,GBP*")
+
+    def test_market_sessions_returns_table_for_eurusd(self):
+        from cli_anything.mt5.core import market
+        result = market.sessions("EURUSD")
+        assert result["ok"] is True
+        data = result["data"]
+        assert set(data.keys()) == {"sydney", "tokyo", "london", "ny"}
+        assert "start_utc" in data["london"]
+        assert "end_utc" in data["london"]
+
+    def test_market_sessions_unknown_symbol_returns_error(self):
+        from cli_anything.mt5.core import market
+        result = market.sessions("UNKNOWN123")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_INVALID_SYMBOL"
