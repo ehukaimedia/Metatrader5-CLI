@@ -76,9 +76,10 @@ def load(overrides: dict | None = None) -> dict:
     if server_env is not None:
         cfg["server"] = str(server_env)
 
-    live_env = os.environ.get("MT5_LIVE")
-    if live_env is not None:
-        cfg["live"] = live_env == "1"
+    # MT5_LIVE is intentionally NOT merged here.  The live gate (spec §7.1)
+    # requires gate 1 to be satisfied by the config file or explicit override
+    # only; gate 3 checks MT5_LIVE directly in _compose_live_intent so that
+    # both gates remain independent.
 
     # Layer 4 — caller overrides (highest priority)
     if overrides is not None:

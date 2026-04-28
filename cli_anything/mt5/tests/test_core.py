@@ -127,7 +127,9 @@ class TestProject:
         cfg = project.load(overrides={"server": "X"})
         assert cfg["server"] == "X"
 
-    def test_load_live_env_truthy_values(self, tmp_path, monkeypatch):
+    def test_load_live_env_does_not_set_cfg_live(self, tmp_path, monkeypatch):
+        """MT5_LIVE must NOT affect cfg["live"]; gate 3 checks it directly
+        in _compose_live_intent so gates 1 and 3 stay independent (spec §7.1)."""
         from cli_anything.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"):
@@ -135,11 +137,7 @@ class TestProject:
 
         monkeypatch.setenv("MT5_LIVE", "1")
         cfg = project.load()
-        assert cfg["live"] is True
-
-        monkeypatch.setenv("MT5_LIVE", "0")
-        cfg = project.load()
-        assert cfg["live"] is False
+        assert cfg["live"] is False  # env var alone must not satisfy gate 1
 
         monkeypatch.delenv("MT5_LIVE")
         cfg = project.load()
@@ -500,6 +498,28 @@ class TestCLI:
         assert mt5_cli._compose_live_intent({"live": True}, True) is False
         monkeypatch.setenv("MT5_LIVE", "1")
         assert mt5_cli._compose_live_intent({"live": True}, True) is True
+
+    def test_live_gate_env_plus_flag_without_config_live_is_false(self, monkeypatch, tmp_path):
+        """End-to-end: MT5_LIVE=1 + --live with no config live=true → live_intent False.
+        Verifies gates 1 and 3 are independent (spec §7.1 P1 fix)."""
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("MT5_LIVE", "1")
+
+        captured = {}
+
+        def _fake_repl(ctx):
+            captured["live_intent"] = ctx.obj["live_intent"]
+
+        monkeypatch.setattr(mt5_cli, "_launch_repl", _fake_repl)
+        runner = CliRunner()
+        runner.invoke(mt5_cli.main, ["--live"])
+        assert captured.get("live_intent") is False
 
     def test_exit_code_1_for_risk_error(self):
         from cli_anything.mt5 import mt5_cli
