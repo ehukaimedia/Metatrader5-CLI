@@ -44,7 +44,13 @@ def resolve_magic(strategy_id: str | None, cfg: dict) -> int:
     if strategy_id:
         strategy_ids: dict = cfg.get("strategy_ids", {})
         if strategy_id in strategy_ids:
-            return int(strategy_ids[strategy_id])
+            mapped = int(strategy_ids[strategy_id])
+            if mapped >= 100000:
+                raise ValueError(
+                    f"Configured magic {mapped} for {strategy_id!r} must be < 100000 "
+                    f"to avoid collision with auto-derived range [100000, 180000)."
+                )
+            return mapped
 
         # Auto-derive
         magic = int(hashlib.sha256(strategy_id.encode()).hexdigest()[:8], 16) % 80000 + 100000
@@ -223,6 +229,8 @@ def check_order(
     # Guard 2 — Live gate
     # ------------------------------------------------------------------
     account_info = bridge.mt5_call("account_info")
+    if account_info is None:
+        return _fail("RISK_INVALID_INPUT", "account_info unavailable — MT5 may be disconnected.")
     if not is_live_intent and account_info.trade_mode == bridge.ACCOUNT_TRADE_MODE_REAL:
         return _fail(
             "RISK_LIVE_GATE_BLOCKED",
@@ -253,6 +261,8 @@ def check_order(
 
     tick = bridge.mt5_call("symbol_info_tick", symbol)
     sym_info = bridge.mt5_call("symbol_info", symbol)
+    if tick is None:
+        return _fail("RISK_INVALID_INPUT", "No tick data for symbol — quote may be unavailable.")
     if sym_info is None or sym_info.point == 0:
         return _fail("RISK_INVALID_INPUT", "Symbol info unavailable or point size is zero.")
     entry_price = tick.ask  # spec: use ask for both sides

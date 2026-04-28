@@ -202,6 +202,12 @@ class TestRisk:
         from cli_anything.mt5.core import risk
         assert risk.resolve_magic(None, cfg) == 88888
 
+    def test_resolve_magic_rejects_configured_magic_out_of_range(self, cfg):
+        from cli_anything.mt5.core import risk
+        cfg["strategy_ids"] = {"bad-strat": 150000}  # collides with auto-derived range
+        with pytest.raises(ValueError, match="must be < 100000"):
+            risk.resolve_magic("bad-strat", cfg)
+
     # --- compute_volume_from_risk_pct ---
     def test_compute_volume_from_risk_pct_basic(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
@@ -422,6 +428,25 @@ class TestRisk:
         result = risk.daily_loss(cfg)
         # realized = -15 + (-2) + (-0.5) = -17.5; floating = -30; total = -47.5
         assert result == pytest.approx(-47.5)
+
+    def test_check_order_rejects_account_info_none(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        mt5m.account_info.return_value = None
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_INVALID_INPUT"
+
+    def test_check_order_rejects_tick_none(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = None
+        mt5m.symbol_info.return_value = MM(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_INVALID_INPUT"
 
     def test_check_order_rejects_point_zero(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
