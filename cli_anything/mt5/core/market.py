@@ -66,9 +66,11 @@ def info(symbol: str) -> dict:
     """Return symbol specification (spec §6.2).
 
     Calls ``bridge.ensure_symbol`` before any MT5 query so the symbol is
-    visible in MarketWatch (spec §3 contract).
+    visible in MarketWatch (spec §3 contract).  Returns MT5_INVALID_SYMBOL
+    if the symbol cannot be added to Market Watch.
     """
-    bridge.ensure_symbol(symbol)
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     sym = bridge.mt5_call("symbol_info", symbol)
     if sym is None:
         return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} not found.")
@@ -97,9 +99,11 @@ def tick(symbol: str) -> dict:
     """Return the latest tick for *symbol* (spec §6.2).
 
     Time is converted to ISO-8601 UTC.  Calls ``bridge.ensure_symbol``
-    first (spec §3 contract).
+    first (spec §3 contract).  Returns MT5_INVALID_SYMBOL if the symbol
+    cannot be added to Market Watch.
     """
-    bridge.ensure_symbol(symbol)
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     t = bridge.mt5_call("symbol_info_tick", symbol)
     if t is None:
         return _fail("MT5_INVALID_SYMBOL", f"No tick data for {symbol!r}.")
@@ -145,17 +149,42 @@ def session(symbol: str) -> dict:
     Uses ``symbol_info_session_trade(symbol, day_of_week, session_index=0)``
     which returns a (from_seconds, to_seconds) tuple measured from midnight.
     MT5 day-of-week: SUNDAY=0, MONDAY=1, ..., SATURDAY=6.
+
+    Overnight sessions (e.g. 21:00→06:00) are handled correctly:
+    * If current time >= from_sec → session opened today; closes_at is tomorrow.
+    * If current time < to_sec   → we are in the tail of yesterday's session.
+    * Otherwise                  → between sessions; next open is today.
     """
-    bridge.ensure_symbol(symbol)
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     now = datetime.now(timezone.utc)
     mt5_dow = (now.weekday() + 1) % 7  # Python Mon=0→MT5 Mon=1; Sun=6→MT5 Sun=0
     result = bridge.mt5_call("symbol_info_session_trade", symbol, mt5_dow, 0)
     if result is None:
         return _fail("MT5_INVALID_SYMBOL", f"No session data for {symbol!r}.")
-    from_sec, to_sec = result
+    from_sec, to_sec = int(result[0]), int(result[1])
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    opens_at = midnight + timedelta(seconds=int(from_sec))
-    closes_at = midnight + timedelta(seconds=int(to_sec))
+    now_secs = int((now - midnight).total_seconds())
+
+    if to_sec > from_sec:
+        # Normal same-day session (e.g. 08:00→17:00)
+        opens_at = midnight + timedelta(seconds=from_sec)
+        closes_at = midnight + timedelta(seconds=to_sec)
+    else:
+        # Overnight session (e.g. 21:00→06:00)
+        if now_secs >= from_sec:
+            # Opening portion: session started today, closes tomorrow
+            opens_at = midnight + timedelta(seconds=from_sec)
+            closes_at = midnight + timedelta(days=1, seconds=to_sec)
+        elif now_secs < to_sec:
+            # Closing portion: still in yesterday's session tail
+            opens_at = midnight - timedelta(days=1) + timedelta(seconds=from_sec)
+            closes_at = midnight + timedelta(seconds=to_sec)
+        else:
+            # Between sessions: next open is today
+            opens_at = midnight + timedelta(seconds=from_sec)
+            closes_at = midnight + timedelta(days=1, seconds=to_sec)
+
     return {
         "ok": True,
         "data": {

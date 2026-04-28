@@ -755,6 +755,13 @@ class TestMarket:
         market.info("EURUSD")
         mt5m.symbol_select.assert_called_with("EURUSD", True)
 
+    def test_market_info_ensure_symbol_false_returns_error(self, mt5m):
+        from cli_anything.mt5.core import market
+        mt5m.symbol_select.return_value = False
+        result = market.info("INVALID")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_INVALID_SYMBOL"
+
     def test_market_tick_calls_ensure_symbol(self, mt5m):
         from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import market
