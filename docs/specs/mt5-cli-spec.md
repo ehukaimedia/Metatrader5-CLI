@@ -229,9 +229,14 @@ Metatrader5-CLI/
 
 ### Resolution order (highest wins)
 1. CLI flags (`--login`, `--server`, `--live`)
-2. Environment variables (`MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER`, `MT5_LIVE`)
+2. Environment variables for connection credentials: `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER`
 3. Config file (`~/.config/cli-anything-mt5.json`)
 4. Hardcoded defaults (live=false, max_positions=5, timeout=10000)
+
+> **`MT5_LIVE` is not a config-resolution layer.** It is live-gate #3 (§7.1)
+> and is checked directly by `_compose_live_intent` in the CLI layer, never
+> merged into `cfg["live"]`.  Setting `MT5_LIVE=1` without `"live": true` in
+> the config file does not enable live trading.
 
 ### Config commands
 ```

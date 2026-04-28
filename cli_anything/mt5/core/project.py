@@ -49,8 +49,16 @@ def load(overrides: dict | None = None) -> dict:
 
     1. DEFAULTS
     2. JSON file at CONFIG_PATH (if it exists)
-    3. Environment variables: MT5_LOGIN, MT5_PASSWORD, MT5_SERVER, MT5_LIVE
+    3. Environment variables: MT5_LOGIN, MT5_PASSWORD, MT5_SERVER
+       (connection credentials only — MT5_LIVE is NOT merged here; see note)
     4. *overrides* dict (CLI flags — highest priority)
+
+    Note on MT5_LIVE: the live-trading gate (spec §7.1) requires three
+    independent conditions.  Gate 1 — ``cfg["live"]`` — must be satisfied
+    by an explicit ``"live": true`` entry in the config file or by a caller
+    override; it is never set from the MT5_LIVE environment variable so that
+    gates 1 and 3 remain independently controlled.  Gate 3 checks MT5_LIVE
+    directly inside ``_compose_live_intent`` in ``mt5_cli.py``.
     """
     cfg: dict = dict(DEFAULTS)
 
