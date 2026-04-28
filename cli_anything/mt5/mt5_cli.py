@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import project
+from cli_anything.mt5.core import account, project
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -168,3 +168,50 @@ def config_test(ctx):
         {"ok": True, "data": {"connected": True, "server": obj["cfg"].get("server")}},
         obj["as_json"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Account command group
+# ---------------------------------------------------------------------------
+
+@main.group("account")
+@click.pass_context
+def account_group(ctx):
+    """Account information and risk status."""
+    ctx.ensure_object(dict)
+
+
+@account_group.command("info")
+@click.pass_context
+def account_info_cmd(ctx):
+    """Full account snapshot."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(account.info(), obj["as_json"])
+
+
+@account_group.command("balance")
+@click.pass_context
+def account_balance_cmd(ctx):
+    """Quick balance check."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(account.balance(), obj["as_json"])
+
+
+@account_group.command("risk")
+@click.pass_context
+def account_risk_cmd(ctx):
+    """Risk envelope status."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(account.risk(obj["cfg"]), obj["as_json"])

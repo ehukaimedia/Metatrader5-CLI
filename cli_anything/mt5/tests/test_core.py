@@ -613,3 +613,103 @@ class TestCLI:
         data = json.loads(result.output)
         assert data["ok"] is True
         assert data["data"]["connected"] is True
+
+
+# ===========================================================================
+# Task 6 — Account (core/account.py + CLI)
+# ===========================================================================
+
+class TestAccount:
+    def _make_acc(self, **kwargs):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        defaults = dict(
+            login=12345678, name="Test User", server="Trading.com-Demo",
+            currency="USD", balance=10000.0, equity=10000.0,
+            margin=0.0, free_margin=10000.0, margin_level=0.0,
+            leverage=50, profit=0.0,
+            trade_mode=bridge.ACCOUNT_TRADE_MODE_DEMO,
+            trade_allowed=True,
+        )
+        defaults.update(kwargs)
+        return MM(**defaults)
+
+    def test_account_info_happy_path(self, mt5m):
+        from cli_anything.mt5.core import account
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.account_info.return_value = self._make_acc(login=99999, currency="EUR")
+        result = account.info()
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["login"] == 99999
+        assert data["currency"] == "EUR"
+        assert data["trade_mode"] == "demo"
+        assert data["trade_allowed"] is True
+        assert "free_margin" in data
+        assert "leverage" in data
+
+    def test_account_info_returns_connection_error_when_none(self, mt5m):
+        from cli_anything.mt5.core import account
+        mt5m.account_info.return_value = None
+        result = account.info()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_CONNECTION_ERROR"
+
+    def test_account_info_trade_mode_string_mapping(self, mt5m):
+        from cli_anything.mt5.core import account
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        cases = [
+            (bridge.ACCOUNT_TRADE_MODE_DEMO, "demo"),
+            (bridge.ACCOUNT_TRADE_MODE_CONTEST, "contest"),
+            (bridge.ACCOUNT_TRADE_MODE_REAL, "real"),
+        ]
+        for raw_mode, expected_str in cases:
+            mt5m.account_info.return_value = self._make_acc(trade_mode=raw_mode)
+            result = account.info()
+            assert result["data"]["trade_mode"] == expected_str, f"trade_mode={raw_mode!r}"
+
+    def test_account_balance_subset_keys(self, mt5m):
+        from cli_anything.mt5.core import account
+        mt5m.account_info.return_value = self._make_acc(
+            balance=5000.0, equity=5100.0, currency="EUR"
+        )
+        result = account.balance()
+        assert result["ok"] is True
+        assert set(result["data"].keys()) == {"balance", "equity", "currency"}
+        assert result["data"]["balance"] == 5000.0
+        assert result["data"]["currency"] == "EUR"
+
+    def test_account_risk_composes_envelope_correctly(self, mt5m, cfg):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import account
+        mt5m.account_info.return_value = self._make_acc(
+            equity=10000.0, free_margin=8000.0, currency="USD"
+        )
+        mt5m.positions_get.return_value = [MM(profit=10.0)]
+        mt5m.history_deals_get.return_value = []
+        result = account.risk(cfg)
+        assert result["ok"] is True
+        data = result["data"]
+        assert set(data.keys()) == {
+            "max_positions", "max_daily_loss", "daily_loss_used",
+            "positions_used", "safe_to_trade", "currency",
+        }
+        assert data["positions_used"] == 1
+        assert data["safe_to_trade"] is True
+        assert data["currency"] == "USD"
+
+    def test_cli_account_info_json_mode(self, mt5m, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        mt5m.account_info.return_value = self._make_acc(login=77777)
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["--json", "account", "info"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["login"] == 77777
