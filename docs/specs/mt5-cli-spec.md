@@ -210,6 +210,7 @@ Metatrader5-CLI/
   "min_free_margin_pct": 20,
   "screenshot_path": "~/mt5-screenshots",
   "screenshot_monitor": 0,
+  "allow_hedging": false,
   "strategy_ids": {
     "gopher-gate": 12001,
     "fvg-sniper": 12002
@@ -224,6 +225,7 @@ Metatrader5-CLI/
 - `max_daily_loss` — denominated in **account currency** (read from `account_info().currency`), not USD.
 - `screenshot_monitor` — integer monitor index passed to `mss`. `0` = primary monitor. Set to `2` if MT5 is on a secondary display.
 - `strategy_ids` — map of human-readable strategy name → magic integer. Entries here take priority over auto-derivation. Magic integers must be `< 100000` to avoid colliding with the auto-derived range `[100000, 180000)`.
+- `allow_hedging` — `false` by default (Trading.com US enforces FIFO; no opposing positions on the same symbol). Set `true` only for non-US brokers that permit hedging.
 
 ### Resolution order (highest wins)
 1. CLI flags (`--login`, `--server`, `--live`)
