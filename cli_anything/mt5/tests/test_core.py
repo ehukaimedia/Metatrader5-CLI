@@ -809,3 +809,82 @@ class TestMarket:
         result = market.sessions("UNKNOWN123")
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_INVALID_SYMBOL"
+
+
+# ===========================================================================
+# Task 8 — Rates (core/rates.py)
+# ===========================================================================
+
+class TestRates:
+    _BAR = {
+        "time": 0, "open": 1.1000, "high": 1.1050,
+        "low": 1.0950, "close": 1.1020, "tick_volume": 500,
+    }
+    _TICK = {
+        "time": 0, "bid": 1.1000, "ask": 1.1002,
+        "last": 0.0, "volume": 1, "flags": 0,
+    }
+
+    def test_rates_fetch_returns_bars_array(self, mt5m):
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_rates_from_pos.return_value = [self._BAR, self._BAR]
+        result = rates.fetch("EURUSD", "H1", 2)
+        assert result["ok"] is True
+        assert len(result["data"]) == 2
+        assert "time" in result["data"][0]
+        assert "close" in result["data"][0]
+
+    def test_rates_fetch_invalid_timeframe_returns_error(self, mt5m):
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        result = rates.fetch("EURUSD", "INVALID", 10)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_INVALID_TIMEFRAME"
+
+    def test_rates_latest_uses_start_pos_1(self, mt5m):
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_rates_from_pos.return_value = [self._BAR]
+        rates.latest("EURUSD", "M1")
+        args = mt5m.copy_rates_from_pos.call_args[0]
+        # positional signature: (symbol, tf, start_pos, count)
+        assert args[2] == 1, f"Expected start_pos=1, got {args[2]}"
+        assert args[3] == 1, f"Expected count=1, got {args[3]}"
+
+    def test_rates_ticks_lookback_window_24h(self, mt5m):
+        from datetime import datetime, timedelta, timezone
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_ticks_from.return_value = [self._TICK] * 5
+        before = datetime.now(tz=timezone.utc) - timedelta(hours=24, seconds=5)
+        rates.ticks("EURUSD", 5)
+        after = datetime.now(tz=timezone.utc) - timedelta(hours=24) + timedelta(seconds=5)
+        date_from_arg = mt5m.copy_ticks_from.call_args[0][1]
+        assert before <= date_from_arg <= after, f"date_from={date_from_arg} not in 24h window"
+
+    def test_rates_ticks_slices_to_bars_count(self, mt5m):
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_ticks_from.return_value = [self._TICK] * 30
+        result = rates.ticks("EURUSD", 5)
+        assert result["ok"] is True
+        assert len(result["data"]) == 5
+
+    def test_rates_iso8601_conversion(self, mt5m):
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        bar_epoch = dict(self._BAR, time=0)  # POSIX 0 → 1970-01-01T00:00:00+00:00
+        mt5m.copy_rates_from_pos.return_value = [bar_epoch]
+        result = rates.fetch("EURUSD", "D1", 1)
+        assert result["ok"] is True
+        assert "1970-01-01" in result["data"][0]["time"]
+        assert "+00:00" in result["data"][0]["time"]
+
+    def test_rates_empty_response_returns_error_envelope(self, mt5m):
+        from cli_anything.mt5.core import rates
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_rates_from_pos.return_value = None
+        result = rates.fetch("EURUSD", "M5", 10)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_NO_DATA"

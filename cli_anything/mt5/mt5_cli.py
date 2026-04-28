@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, market, project
+from cli_anything.mt5.core import account, market, project, rates
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -287,3 +287,99 @@ def market_sessions_cmd(ctx, symbol):
     """Named FX session boundaries (UTC) for SYMBOL from the static table."""
     obj = ctx.obj
     output(market.sessions(symbol), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Rates command group
+# ---------------------------------------------------------------------------
+
+def _parse_date(date_str: str):
+    """Parse YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS to UTC-aware datetime."""
+    from datetime import datetime, timezone
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(date_str, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise click.BadParameter(f"Expected YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, got {date_str!r}.")
+
+
+@main.group("rates")
+@click.pass_context
+def rates_group(ctx):
+    """OHLCV bar and tick data."""
+    ctx.ensure_object(dict)
+
+
+@rates_group.command("fetch")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.argument("bars", type=int)
+@click.pass_context
+def rates_fetch_cmd(ctx, symbol, timeframe, bars):
+    """Fetch the last BARS OHLCV bars for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(rates.fetch(symbol, timeframe, bars), obj["as_json"])
+
+
+@rates_group.command("latest")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.pass_context
+def rates_latest_cmd(ctx, symbol, timeframe):
+    """Most-recently closed bar for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(rates.latest(symbol, timeframe), obj["as_json"])
+
+
+@rates_group.command("range")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.argument("date_from")
+@click.argument("date_to")
+@click.pass_context
+def rates_range_cmd(ctx, symbol, timeframe, date_from, date_to):
+    """OHLCV bars for SYMBOL / TIMEFRAME between DATE_FROM and DATE_TO."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(rates.range(symbol, timeframe, _parse_date(date_from), _parse_date(date_to)), obj["as_json"])
+
+
+@rates_group.command("ticks")
+@click.argument("symbol")
+@click.argument("bars", type=int)
+@click.pass_context
+def rates_ticks_cmd(ctx, symbol, bars):
+    """Last BARS ticks for SYMBOL using a 24-hour lookback."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(rates.ticks(symbol, bars), obj["as_json"])
+
+
+@rates_group.command("ticks-range")
+@click.argument("symbol")
+@click.argument("date_from")
+@click.argument("date_to")
+@click.pass_context
+def rates_ticks_range_cmd(ctx, symbol, date_from, date_to):
+    """All ticks for SYMBOL between DATE_FROM and DATE_TO."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(rates.ticks_range(symbol, _parse_date(date_from), _parse_date(date_to)), obj["as_json"])
