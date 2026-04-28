@@ -100,8 +100,9 @@ def connect(login, password, server, timeout: int = 10000) -> None:
 def disconnect() -> None:
     """Shut down the MT5 connection."""
     global _initialized
-    mt5.shutdown()
-    _initialized = False
+    with _lock:
+        mt5.shutdown()
+        _initialized = False
 
 
 def is_connected() -> bool:

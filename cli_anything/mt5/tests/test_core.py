@@ -50,6 +50,17 @@ class TestBridge:
         mt5m.symbol_select.assert_called_with("USDJPY", True)
         assert result is True
 
+    def test_disconnect_acquires_lock(self, mt5m):
+        """Regression: disconnect() must serialize mt5.shutdown() under the lock."""
+        from unittest.mock import MagicMock, patch
+        lock_spy = MagicMock()
+        lock_spy.__enter__ = MagicMock(return_value=None)
+        lock_spy.__exit__ = MagicMock(return_value=False)
+        with patch.object(bridge, "_lock", lock_spy):
+            bridge.disconnect()
+        lock_spy.__enter__.assert_called_once()
+        mt5m.shutdown.assert_called_once()
+
     def test_lock_is_threading_lock(self):
         assert isinstance(bridge._lock, type(threading.Lock()))
 
