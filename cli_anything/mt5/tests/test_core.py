@@ -485,3 +485,111 @@ class TestRisk:
         # 11th should fail
         r = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
         assert r["error"]["code"] == "RISK_RATE_LIMIT"
+
+
+# ===========================================================================
+# Task 5 — CLI scaffold (mt5_cli.py)
+# ===========================================================================
+
+class TestCLI:
+    def test_live_intent_requires_all_three(self, monkeypatch):
+        from cli_anything.mt5 import mt5_cli
+        assert mt5_cli._compose_live_intent({"live": False}, True) is False
+        assert mt5_cli._compose_live_intent({"live": True}, False) is False
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        assert mt5_cli._compose_live_intent({"live": True}, True) is False
+        monkeypatch.setenv("MT5_LIVE", "1")
+        assert mt5_cli._compose_live_intent({"live": True}, True) is True
+
+    def test_exit_code_1_for_risk_error(self):
+        from cli_anything.mt5 import mt5_cli
+        assert mt5_cli._exit_code_for("RISK_MAX_LOT_EXCEEDED") == 1
+        assert mt5_cli._exit_code_for("MT5_INVALID_REQUEST") == 1
+
+    def test_exit_code_2_for_connection_error(self):
+        from cli_anything.mt5 import mt5_cli
+        assert mt5_cli._exit_code_for("MT5_CONNECTION_ERROR") == 2
+
+    def test_output_human_mode_uses_red_for_error(self):
+        import click
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+
+        @click.command()
+        def _cmd():
+            mt5_cli.output(
+                {"ok": False, "error": {"code": "RISK_MAX_LOT_EXCEEDED", "message": "too big"}},
+                as_json=False,
+            )
+
+        runner = CliRunner()
+        result = runner.invoke(_cmd, [])
+        assert result.exit_code == 1
+        assert "RISK_MAX_LOT_EXCEEDED" in result.output
+
+    def test_main_no_args_invokes_repl_stub(self, monkeypatch, tmp_path):
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        called = []
+        monkeypatch.setattr(mt5_cli, "_launch_repl", lambda ctx: called.append(True))
+        runner = CliRunner()
+        runner.invoke(mt5_cli.main, [])
+        assert called, "REPL stub was not called when no subcommand is given"
+
+    def test_config_show_masks_password(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+
+        cfg_file = tmp_path / "cfg.json"
+        cfg_file.write_text(json.dumps({"password": "secret123"}))
+        monkeypatch.setattr(project, "CONFIG_PATH", cfg_file)
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["config", "show"])
+        assert result.exit_code == 0
+        assert "secret123" not in result.output
+        assert "***" in result.output
+
+    def test_config_show_json_mode_emits_envelope(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["--json", "config", "show"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert "data" in data
+
+    def test_config_test_success_envelope(self, mt5m, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["--json", "config", "test"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["connected"] is True
