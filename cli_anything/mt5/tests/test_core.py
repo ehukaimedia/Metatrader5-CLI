@@ -4,6 +4,7 @@ All tests use the MagicMock MetaTrader5 stub installed by conftest.py.
 No real MT5 terminal is required.
 """
 import threading
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -175,3 +176,287 @@ class TestProject:
         project.save(data)
         loaded = project.load()
         assert loaded["strategy_ids"] == {"gopher-gate": 12001}
+
+
+# ===========================================================================
+# Task 4 — Risk (core/risk.py)
+# ===========================================================================
+
+class TestRisk:
+    # --- resolve_magic ---
+    def test_resolve_magic_uses_config_map(self, cfg):
+        from cli_anything.mt5.core import risk
+        cfg["strategy_ids"] = {"gopher-gate": 12001}
+        assert risk.resolve_magic("gopher-gate", cfg) == 12001
+
+    def test_resolve_magic_auto_derives_in_range_100k_180k(self, cfg):
+        from cli_anything.mt5.core import risk
+        magic = risk.resolve_magic("my-strategy", cfg)
+        assert 100000 <= magic < 180000
+
+    def test_resolve_magic_deterministic(self, cfg):
+        from cli_anything.mt5.core import risk
+        assert risk.resolve_magic("my-strategy", cfg) == risk.resolve_magic("my-strategy", cfg)
+
+    def test_resolve_magic_default_when_no_id(self, cfg):
+        from cli_anything.mt5.core import risk
+        assert risk.resolve_magic(None, cfg) == 88888
+
+    # --- compute_volume_from_risk_pct ---
+    def test_compute_volume_from_risk_pct_basic(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        # equity=10000, risk_pct=1.0 → risk=$100
+        # sl_distance = abs(155.00 - 154.50) / 0.001 = 500 points
+        # volume = 100 / (500 * 0.9) = 0.222... → rounds to volume_step 0.01 → 0.22
+        mt5m.account_info.return_value = MagicMock(equity=10000.0)
+        mt5m.symbol_info.return_value = MagicMock(
+            point=0.001, volume_min=0.01, volume_max=100.0,
+            volume_step=0.01, trade_tick_value=0.9,
+        )
+        vol = risk.compute_volume_from_risk_pct("USDJPY", 1.0, 155.00, 154.50, cfg)
+        assert isinstance(vol, float)
+        assert vol == pytest.approx(0.22, abs=0.01)
+
+    def test_compute_volume_rounds_to_volume_step(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        mt5m.account_info.return_value = MagicMock(equity=10000.0)
+        mt5m.symbol_info.return_value = MagicMock(
+            point=0.0001, volume_min=0.01, volume_max=100.0,
+            volume_step=0.05, trade_tick_value=1.0,
+        )
+        # sl_distance = abs(1.1000 - 1.0950) / 0.0001 = 50 points
+        # volume = (10000*0.5/100) / (50 * 1.0) = 50/50 = 1.0 → multiple of 0.05
+        vol = risk.compute_volume_from_risk_pct("EURUSD", 0.5, 1.1000, 1.0950, cfg)
+        assert vol % 0.05 < 1e-9 or abs(vol % 0.05 - 0.05) < 1e-9
+
+    def test_compute_volume_clamps_to_volume_min_max(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        mt5m.account_info.return_value = MagicMock(equity=100.0)  # tiny account
+        mt5m.symbol_info.return_value = MagicMock(
+            point=0.001, volume_min=0.10, volume_max=100.0,
+            volume_step=0.01, trade_tick_value=0.9,
+        )
+        vol = risk.compute_volume_from_risk_pct("USDJPY", 0.01, 155.00, 154.50, cfg)
+        assert vol >= 0.10  # clamped up to volume_min
+
+    # --- check_order guards (one per guard) ---
+    def _happy_path_setup(self, mt5m, cfg):
+        """Configure mt5m so check_order passes all guards."""
+        mt5m.account_info.return_value = MagicMock(
+            trade_mode=0, equity=10000.0, free_margin=8000.0,
+        )
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = MagicMock(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MagicMock(point=0.001)
+        mt5m.history_deals_get.return_value = []
+
+    def test_check_order_happy_path_passes(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result == {"ok": True}
+
+    def test_check_order_rejects_strategy_id_too_long(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        long_id = "x" * 32
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, long_id, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_STRATEGY_ID_TOO_LONG"
+
+    def test_check_order_rejects_live_gate(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        mt5m.account_info.return_value = MagicMock(
+            trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL,
+            equity=10000.0, free_margin=8000.0,
+        )
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = MagicMock(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MagicMock(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+
+    def test_check_order_live_intent_true_passes_gate(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        # When is_live_intent=True, live gate should NOT fire even on real account
+        mt5m.account_info.return_value = MagicMock(
+            trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL,
+            equity=10000.0, free_margin=8000.0,
+        )
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = MagicMock(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MagicMock(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=True)
+        assert result == {"ok": True}
+
+    def test_check_order_rejects_symbol_not_allowed(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        cfg["symbol_allowlist"] = ["EURUSD"]
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_SYMBOL_NOT_ALLOWED"
+
+    def test_check_order_rejects_max_lot_exceeded(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        result = risk.check_order("USDJPY", "buy", 2.0, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_MAX_LOT_EXCEEDED"
+
+    def test_check_order_rejects_no_stop_loss(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        result = risk.check_order("USDJPY", "buy", 0.10, None, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_NO_STOP_LOSS"
+
+    def test_check_order_rejects_sl_too_close(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        # entry=155.00, sl=154.99 → distance = abs(155.00-154.99)/0.001 = 10 points < 50
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.99, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_NO_STOP_LOSS"
+
+    def test_check_order_rejects_spread_too_wide(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        mt5m.account_info.return_value = MagicMock(
+            trade_mode=0, equity=10000.0, free_margin=8000.0,
+        )
+        mt5m.positions_get.return_value = []
+        # spread = (ask - bid) / point = (155.10 - 154.99) / 0.001 = 110 points > 30
+        mt5m.symbol_info_tick.return_value = MagicMock(ask=155.10, bid=154.99)
+        mt5m.symbol_info.return_value = MagicMock(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_SPREAD_TOO_WIDE"
+
+    def test_check_order_rejects_hedge(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        # Existing BUY position on USDJPY; new order is also BUY so no hedge
+        # Test: existing BUY, new SELL → hedge blocked
+        existing = MM(symbol="USDJPY", type=0)  # type 0 = ORDER_TYPE_BUY
+        mt5m.positions_get.return_value = [existing]
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "sell", 0.10, 155.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_HEDGE_BLOCKED"
+
+    def test_check_order_rejects_max_positions(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.positions_get.return_value = [MM(symbol="GBPUSD", type=0, profit=0)] * 5  # max_positions=5
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_MAX_POSITIONS"
+
+    def test_check_order_rejects_insufficient_margin(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        # free_margin = 100, equity = 10000 → 1% < 20%
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=100.0)
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_INSUFFICIENT_MARGIN"
+
+    def test_check_order_rejects_max_daily_loss(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.positions_get.return_value = [MM(profit=-30.0)]  # floating -30
+        # Realized deals: profit=-20, comm=-1, swap=-0.5 → realized = -21.5
+        # Total = -30 + (-21.5) = -51.5 <= -50 → fires
+        deal = MM(profit=-20.0, commission=-1.0, swap=-0.5)
+        mt5m.history_deals_get.return_value = [deal]
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0.001)
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_MAX_DAILY_LOSS"
+
+    def test_check_order_rejects_rate_limit(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        cfg["max_orders_per_minute"] = 3
+        for _ in range(3):
+            r = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+            assert r == {"ok": True}
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_RATE_LIMIT"
+
+    def test_rate_limiter_does_not_consume_slot_on_earlier_failure(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        self._happy_path_setup(mt5m, cfg)
+        cfg["max_orders_per_minute"] = 2
+        # Make guard #4 (max lot) fail → slot should NOT be consumed
+        for _ in range(5):
+            r = risk.check_order("USDJPY", "buy", 99.0, 154.50, None, cfg, is_live_intent=False)
+            assert r["error"]["code"] == "RISK_MAX_LOT_EXCEEDED"
+        assert len(risk._rate_limiter) == 0  # no slots consumed
+
+    # --- daily_loss ---
+    def test_daily_loss_includes_realized_and_floating(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.positions_get.return_value = [MM(profit=-20.0), MM(profit=-10.0)]  # floating -30
+        deal = MM(profit=-15.0, commission=-2.0, swap=-0.5)
+        mt5m.history_deals_get.return_value = [deal]
+        result = risk.daily_loss(cfg)
+        # realized = -15 + (-2) + (-0.5) = -17.5; floating = -30; total = -47.5
+        assert result == pytest.approx(-47.5)
+
+    def test_check_order_rejects_point_zero(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_INVALID_INPUT"
+
+    def test_check_order_rejects_equity_zero(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        from unittest.mock import MagicMock as MM
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=0.0, free_margin=0.0)
+        mt5m.positions_get.return_value = []
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0.001)
+        mt5m.history_deals_get.return_value = []
+        result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_INSUFFICIENT_MARGIN"
+
+    # --- rate limiter sliding window ---
+    def test_rate_limiter_sliding_window(self, mt5m, cfg):
+        from cli_anything.mt5.core import risk
+        import time
+        self._happy_path_setup(mt5m, cfg)
+        cfg["max_orders_per_minute"] = 10
+        # Fill 10 slots successfully
+        for _ in range(10):
+            r = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+            assert r == {"ok": True}
+        # 11th should fail
+        r = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
+        assert r["error"]["code"] == "RISK_RATE_LIMIT"
