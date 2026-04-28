@@ -658,7 +658,7 @@ mt5 history stats --from TODAY --json                       # → session summar
 
 | Question | Resolution |
 |---|---|
-| **Volume calculation via `--risk-pct`** | **Yes** — added to all order commands. Computes volume from `equity × risk_pct / (sl_pips × trade_tick_value)`. Mutually exclusive with `--volume`. |
+| **Volume calculation via `--risk-pct`** | **Yes** — added to all order commands. Computes volume from `equity × risk_pct / (sl_distance_points × trade_tick_value)`. Mutually exclusive with `--volume`. |
 | **Tick subscription / streaming** | **Deferred to v2.** FX strategies poll; streaming requires a persistent process loop outside the CLI's command model. |
 | **SKILL.md agent doc** | Written alongside implementation. First documented workflow: `market search` → `market info` → `analyze topdown` → `order dryrun` → `order market`. |
 | **Screenshot multi-monitor targeting** | **`--monitor INT` flag added** to `screenshot take`. Default `0` (primary). MT5 is on monitor 2 in production config — set `screenshot_path` and `screenshot_monitor: 2` in config. |
