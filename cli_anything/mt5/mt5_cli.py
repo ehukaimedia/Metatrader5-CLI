@@ -314,10 +314,10 @@ def rates_group(ctx):
 @rates_group.command("fetch")
 @click.argument("symbol")
 @click.argument("timeframe")
-@click.argument("bars", type=int)
+@click.option("--bars", required=True, type=int, help="Number of bars to fetch.")
 @click.pass_context
 def rates_fetch_cmd(ctx, symbol, timeframe, bars):
-    """Fetch the last BARS OHLCV bars for SYMBOL / TIMEFRAME."""
+    """Fetch the last --bars OHLCV bars for SYMBOL / TIMEFRAME."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
     if err:
@@ -343,11 +343,11 @@ def rates_latest_cmd(ctx, symbol, timeframe):
 @rates_group.command("range")
 @click.argument("symbol")
 @click.argument("timeframe")
-@click.argument("date_from")
-@click.argument("date_to")
+@click.option("--from", "date_from", required=True, help="Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--to", "date_to", required=True, help="End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
 @click.pass_context
 def rates_range_cmd(ctx, symbol, timeframe, date_from, date_to):
-    """OHLCV bars for SYMBOL / TIMEFRAME between DATE_FROM and DATE_TO."""
+    """OHLCV bars for SYMBOL / TIMEFRAME in [--from, --to]."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
     if err:
@@ -358,10 +358,10 @@ def rates_range_cmd(ctx, symbol, timeframe, date_from, date_to):
 
 @rates_group.command("ticks")
 @click.argument("symbol")
-@click.argument("bars", type=int)
+@click.option("--bars", required=True, type=int, help="Number of ticks to return.")
 @click.pass_context
 def rates_ticks_cmd(ctx, symbol, bars):
-    """Last BARS ticks for SYMBOL using a 24-hour lookback."""
+    """Last --bars ticks for SYMBOL using a 24-hour lookback."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
     if err:
@@ -372,11 +372,11 @@ def rates_ticks_cmd(ctx, symbol, bars):
 
 @rates_group.command("ticks-range")
 @click.argument("symbol")
-@click.argument("date_from")
-@click.argument("date_to")
+@click.option("--from", "date_from", required=True, help="Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--to", "date_to", required=True, help="End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
 @click.pass_context
 def rates_ticks_range_cmd(ctx, symbol, date_from, date_to):
-    """All ticks for SYMBOL between DATE_FROM and DATE_TO."""
+    """All ticks for SYMBOL in [--from, --to]."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
     if err:

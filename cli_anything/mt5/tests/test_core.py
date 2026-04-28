@@ -888,3 +888,81 @@ class TestRates:
         result = rates.fetch("EURUSD", "M5", 10)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_NO_DATA"
+
+    def test_rates_invalid_timeframe_does_not_call_ensure_symbol(self, mt5m):
+        """Timeframe validation must happen before symbol_select (P2 fix)."""
+        from cli_anything.mt5.core import rates
+        rates.fetch("EURUSD", "BOGUS", 10)
+        mt5m.symbol_select.assert_not_called()
+
+
+# ===========================================================================
+# Task 8 — Rates CLI smoke tests
+# ===========================================================================
+
+class TestRatesCLI:
+    _BAR = {
+        "time": 0, "open": 1.1000, "high": 1.1050,
+        "low": 1.0950, "close": 1.1020, "tick_volume": 500,
+    }
+    _TICK = {
+        "time": 0, "bid": 1.1000, "ask": 1.1002,
+        "last": 0.0, "volume": 1, "flags": 0,
+    }
+
+    def _runner_and_env(self, monkeypatch, tmp_path):
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        return CliRunner(), mt5_cli
+
+    def test_cli_rates_fetch_option_form(self, mt5m, monkeypatch, tmp_path):
+        import json
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_rates_from_pos.return_value = [self._BAR]
+        result = runner.invoke(mt5_cli.main, ["--json", "rates", "fetch", "EURUSD", "H1", "--bars", "1"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert len(data["data"]) == 1
+
+    def test_cli_rates_ticks_option_form(self, mt5m, monkeypatch, tmp_path):
+        import json
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_ticks_from.return_value = [self._TICK] * 10
+        result = runner.invoke(mt5_cli.main, ["--json", "rates", "ticks", "EURUSD", "--bars", "5"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert len(data["data"]) == 5
+
+    def test_cli_rates_range_from_to_options(self, mt5m, monkeypatch, tmp_path):
+        import json
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_rates_range.return_value = [self._BAR]
+        result = runner.invoke(
+            mt5_cli.main,
+            ["--json", "rates", "range", "EURUSD", "D1", "--from", "2024-01-01", "--to", "2024-01-02"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+
+    def test_cli_rates_ticks_range_from_to_options(self, mt5m, monkeypatch, tmp_path):
+        import json
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        mt5m.symbol_select.return_value = True
+        mt5m.copy_ticks_range.return_value = [self._TICK]
+        result = runner.invoke(
+            mt5_cli.main,
+            ["--json", "rates", "ticks-range", "EURUSD", "--from", "2024-01-01", "--to", "2024-01-02"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True

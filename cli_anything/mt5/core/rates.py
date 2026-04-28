@@ -61,11 +61,11 @@ def _tick_to_dict(row) -> dict:
 
 def fetch(symbol: str, timeframe: str, bars: int) -> dict:
     """Return the last *bars* OHLCV bars for *symbol* / *timeframe* (spec §6.3)."""
-    if not bridge.ensure_symbol(symbol):
-        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     tf, err = _resolve_tf(timeframe)
     if err:
         return err
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     raw = bridge.mt5_call("copy_rates_from_pos", symbol, tf, 0, bars)
     if raw is None or len(raw) == 0:
         return _fail("MT5_NO_DATA", f"No rate data for {symbol!r} / {timeframe}.")
@@ -77,11 +77,11 @@ def latest(symbol: str, timeframe: str) -> dict:
 
     Uses ``start_pos=1`` to skip the live forming bar.
     """
-    if not bridge.ensure_symbol(symbol):
-        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     tf, err = _resolve_tf(timeframe)
     if err:
         return err
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     raw = bridge.mt5_call("copy_rates_from_pos", symbol, tf, 1, 1)
     if raw is None or len(raw) == 0:
         return _fail("MT5_NO_DATA", f"No rate data for {symbol!r} / {timeframe}.")
@@ -90,11 +90,11 @@ def latest(symbol: str, timeframe: str) -> dict:
 
 def range(symbol: str, timeframe: str, date_from: datetime, date_to: datetime) -> dict:  # noqa: A001
     """Return all OHLCV bars in [*date_from*, *date_to*] for *symbol* / *timeframe*."""
-    if not bridge.ensure_symbol(symbol):
-        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     tf, err = _resolve_tf(timeframe)
     if err:
         return err
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
     raw = bridge.mt5_call("copy_rates_range", symbol, tf, date_from, date_to)
     if raw is None or len(raw) == 0:
         return _fail("MT5_NO_DATA", f"No rate data for {symbol!r} / {timeframe} in range.")
