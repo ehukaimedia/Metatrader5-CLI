@@ -10,8 +10,8 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import pandas_ta as ta  # noqa: F401  (imported for its DataFrame accessor)
 
-from cli_anything.mt5.core import rates as rates_module
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.core import rates as rates_module
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 
 def _fail(code: str, message: str) -> dict:

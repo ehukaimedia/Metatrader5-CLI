@@ -25,7 +25,7 @@ else:
 
 import pytest  # noqa: E402  (must come after sys.modules injection)
 
-from cli_anything.mt5.utils import mt5_backend as bridge  # noqa: E402
+from metatrader5_cli.mt5.utils import mt5_backend as bridge  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def reset_bridge():
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
     """Autouse: clear sliding-window rate limiter between tests."""
-    from cli_anything.mt5.core import risk
+    from metatrader5_cli.mt5.core import risk
     risk._rate_limiter.clear()
     yield
     risk._rate_limiter.clear()

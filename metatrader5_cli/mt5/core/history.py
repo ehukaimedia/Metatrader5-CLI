@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from cli_anything.mt5.utils import mt5_backend as bridge
-from cli_anything.mt5.core import risk
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.core import risk
 
 
 def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:

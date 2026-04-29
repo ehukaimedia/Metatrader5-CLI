@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 
 # ===========================================================================
@@ -18,10 +18,10 @@ from cli_anything.mt5.utils import mt5_backend as bridge
 class TestPackageImports:
     def test_bridge_importable(self):
         """Proves package layout + conftest mock are wired correctly."""
-        from cli_anything.mt5.utils import mt5_backend  # noqa: F401
+        from metatrader5_cli.mt5.utils import mt5_backend  # noqa: F401
 
     def test_project_importable(self):
-        from cli_anything.mt5.core import project  # noqa: F401
+        from metatrader5_cli.mt5.core import project  # noqa: F401
 
 
 # ===========================================================================
@@ -100,7 +100,7 @@ class TestBridge:
 
 class TestProject:
     def test_load_returns_defaults_when_no_file_no_env(self, tmp_path, monkeypatch):
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
             monkeypatch.delenv(var, raising=False)
@@ -112,7 +112,7 @@ class TestProject:
 
     def test_load_file_overrides_defaults(self, tmp_path, monkeypatch):
         import json
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         cfg_file = tmp_path / "cfg.json"
         cfg_file.write_text(json.dumps({"login": 99999, "server": "Demo"}))
         monkeypatch.setattr(project, "CONFIG_PATH", cfg_file)
@@ -125,7 +125,7 @@ class TestProject:
 
     def test_load_env_overrides_file(self, tmp_path, monkeypatch):
         import json
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         cfg_file = tmp_path / "cfg.json"
         cfg_file.write_text(json.dumps({"login": 12345678}))
         monkeypatch.setattr(project, "CONFIG_PATH", cfg_file)
@@ -137,7 +137,7 @@ class TestProject:
         assert cfg["login"] == 99
 
     def test_load_overrides_win(self, tmp_path, monkeypatch):
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
             monkeypatch.delenv(var, raising=False)
@@ -147,7 +147,7 @@ class TestProject:
     def test_load_live_env_does_not_set_cfg_live(self, tmp_path, monkeypatch):
         """MT5_LIVE must NOT affect cfg["live"]; gate 3 checks it directly
         in _compose_live_intent so gates 1 and 3 stay independent (spec §7.1)."""
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"):
             monkeypatch.delenv(var, raising=False)
@@ -161,7 +161,7 @@ class TestProject:
         assert cfg["live"] is False
 
     def test_save_round_trip(self, tmp_path, monkeypatch):
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         target = tmp_path / "cfg.json"
         monkeypatch.setattr(project, "CONFIG_PATH", target)
         data = {**project.DEFAULTS, "login": 777, "server": "TestSrv"}
@@ -174,7 +174,7 @@ class TestProject:
         assert loaded["server"] == "TestSrv"
 
     def test_mask_secrets_replaces_password(self):
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         cfg = {**project.DEFAULTS, "password": "super-secret"}
         masked = project.mask_secrets(cfg)
         assert masked["password"] == "***"
@@ -182,7 +182,7 @@ class TestProject:
 
     def test_strategy_ids_round_trips_through_save_load(self, tmp_path, monkeypatch):
         import json
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5.core import project
         target = tmp_path / "cfg.json"
         monkeypatch.setattr(project, "CONFIG_PATH", target)
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
@@ -200,32 +200,32 @@ class TestProject:
 class TestRisk:
     # --- resolve_magic ---
     def test_resolve_magic_uses_config_map(self, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         cfg["strategy_ids"] = {"gopher-gate": 12001}
         assert risk.resolve_magic("gopher-gate", cfg) == 12001
 
     def test_resolve_magic_auto_derives_in_range_100k_180k(self, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         magic = risk.resolve_magic("my-strategy", cfg)
         assert 100000 <= magic < 180000
 
     def test_resolve_magic_deterministic(self, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         assert risk.resolve_magic("my-strategy", cfg) == risk.resolve_magic("my-strategy", cfg)
 
     def test_resolve_magic_default_when_no_id(self, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         assert risk.resolve_magic(None, cfg) == 88888
 
     def test_resolve_magic_rejects_configured_magic_out_of_range(self, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         cfg["strategy_ids"] = {"bad-strat": 150000}  # collides with auto-derived range
         with pytest.raises(ValueError, match="must be < 100000"):
             risk.resolve_magic("bad-strat", cfg)
 
     # --- compute_volume_from_risk_pct ---
     def test_compute_volume_from_risk_pct_basic(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         # equity=10000, risk_pct=1.0 → risk=$100
         # sl_distance = abs(155.00 - 154.50) / 0.001 = 500 points
         # volume = 100 / (500 * 0.9) = 0.222... → rounds to volume_step 0.01 → 0.22
@@ -239,7 +239,7 @@ class TestRisk:
         assert vol == pytest.approx(0.22, abs=0.01)
 
     def test_compute_volume_rounds_to_volume_step(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         mt5m.account_info.return_value = MagicMock(equity=10000.0)
         mt5m.symbol_info.return_value = MagicMock(
             point=0.0001, volume_min=0.01, volume_max=100.0,
@@ -251,7 +251,7 @@ class TestRisk:
         assert vol % 0.05 < 1e-9 or abs(vol % 0.05 - 0.05) < 1e-9
 
     def test_compute_volume_clamps_to_volume_min_max(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         mt5m.account_info.return_value = MagicMock(equity=100.0)  # tiny account
         mt5m.symbol_info.return_value = MagicMock(
             point=0.001, volume_min=0.10, volume_max=100.0,
@@ -272,13 +272,13 @@ class TestRisk:
         mt5m.history_deals_get.return_value = []
 
     def test_check_order_happy_path_passes(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
         assert result == {"ok": True}
 
     def test_check_order_rejects_strategy_id_too_long(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         long_id = "x" * 32
         result = risk.check_order("USDJPY", "buy", 0.10, 154.50, long_id, cfg, is_live_intent=False)
@@ -286,7 +286,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_STRATEGY_ID_TOO_LONG"
 
     def test_check_order_rejects_live_gate(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         mt5m.account_info.return_value = MagicMock(
             trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL,
             equity=10000.0, margin_free=8000.0,
@@ -300,7 +300,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
 
     def test_check_order_live_intent_true_passes_gate(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         # When is_live_intent=True, live gate should NOT fire even on real account
         mt5m.account_info.return_value = MagicMock(
             trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL,
@@ -314,7 +314,7 @@ class TestRisk:
         assert result == {"ok": True}
 
     def test_check_order_rejects_symbol_not_allowed(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         cfg["symbol_allowlist"] = ["EURUSD"]
         result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
@@ -322,21 +322,21 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_SYMBOL_NOT_ALLOWED"
 
     def test_check_order_rejects_max_lot_exceeded(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         result = risk.check_order("USDJPY", "buy", 2.0, 154.50, None, cfg, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_MAX_LOT_EXCEEDED"
 
     def test_check_order_rejects_no_stop_loss(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         result = risk.check_order("USDJPY", "buy", 0.10, None, None, cfg, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_NO_STOP_LOSS"
 
     def test_check_order_rejects_sl_too_close(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         # entry=155.00, sl=154.99 → distance = abs(155.00-154.99)/0.001 = 10 points < 50
         result = risk.check_order("USDJPY", "buy", 0.10, 154.99, None, cfg, is_live_intent=False)
@@ -344,7 +344,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_NO_STOP_LOSS"
 
     def test_check_order_rejects_spread_too_wide(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         mt5m.account_info.return_value = MagicMock(
             trade_mode=0, equity=10000.0, margin_free=8000.0,
         )
@@ -358,7 +358,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_SPREAD_TOO_WIDE"
 
     def test_check_order_rejects_hedge(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         # Existing BUY position on USDJPY; new order is also BUY so no hedge
@@ -373,7 +373,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_HEDGE_BLOCKED"
 
     def test_check_order_rejects_max_positions(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = [MM(symbol="GBPUSD", type=0, profit=0)] * 5  # max_positions=5
@@ -385,7 +385,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_MAX_POSITIONS"
 
     def test_check_order_rejects_insufficient_margin(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         # free_margin = 100, equity = 10000 → 1% < 20%
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=100.0)
@@ -398,7 +398,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_INSUFFICIENT_MARGIN"
 
     def test_check_order_rejects_max_daily_loss(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = [MM(profit=-30.0)]  # floating -30
@@ -413,7 +413,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_MAX_DAILY_LOSS"
 
     def test_check_order_rejects_rate_limit(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         cfg["max_orders_per_minute"] = 3
         for _ in range(3):
@@ -424,7 +424,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_RATE_LIMIT"
 
     def test_rate_limiter_does_not_consume_slot_on_earlier_failure(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
         cfg["max_orders_per_minute"] = 2
         # Make guard #4 (max lot) fail → slot should NOT be consumed
@@ -435,7 +435,7 @@ class TestRisk:
 
     # --- daily_loss ---
     def test_daily_loss_includes_realized_and_floating(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.positions_get.return_value = [MM(profit=-20.0), MM(profit=-10.0)]  # floating -30
         deal = MM(profit=-15.0, commission=-2.0, swap=-0.5)
@@ -445,14 +445,14 @@ class TestRisk:
         assert result == pytest.approx(-47.5)
 
     def test_check_order_rejects_account_info_none(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         mt5m.account_info.return_value = None
         result = risk.check_order("USDJPY", "buy", 0.10, 154.50, None, cfg, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_INVALID_INPUT"
 
     def test_check_order_rejects_tick_none(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = []
@@ -464,7 +464,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_INVALID_INPUT"
 
     def test_check_order_rejects_point_zero(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = []
@@ -476,7 +476,7 @@ class TestRisk:
         assert result["error"]["code"] == "RISK_INVALID_INPUT"
 
     def test_check_order_rejects_equity_zero(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=0.0, margin_free=0.0)
         mt5m.positions_get.return_value = []
@@ -489,7 +489,7 @@ class TestRisk:
 
     # --- rate limiter sliding window ---
     def test_rate_limiter_sliding_window(self, mt5m, cfg):
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import risk
         import time
         self._happy_path_setup(mt5m, cfg)
         cfg["max_orders_per_minute"] = 10
@@ -508,7 +508,7 @@ class TestRisk:
 
 class TestCLI:
     def test_live_intent_requires_all_three(self, monkeypatch):
-        from cli_anything.mt5 import mt5_cli
+        from metatrader5_cli.mt5 import mt5_cli
         assert mt5_cli._compose_live_intent({"live": False}, True) is False
         assert mt5_cli._compose_live_intent({"live": True}, False) is False
         monkeypatch.delenv("MT5_LIVE", raising=False)
@@ -520,8 +520,8 @@ class TestCLI:
         """End-to-end: MT5_LIVE=1 + --live with no config live=true → live_intent False.
         Verifies gates 1 and 3 are independent (spec §7.1 P1 fix)."""
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
 
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"):
@@ -539,18 +539,18 @@ class TestCLI:
         assert captured.get("live_intent") is False
 
     def test_exit_code_1_for_risk_error(self):
-        from cli_anything.mt5 import mt5_cli
+        from metatrader5_cli.mt5 import mt5_cli
         assert mt5_cli._exit_code_for("RISK_MAX_LOT_EXCEEDED") == 1
         assert mt5_cli._exit_code_for("MT5_INVALID_REQUEST") == 1
 
     def test_exit_code_2_for_connection_error(self):
-        from cli_anything.mt5 import mt5_cli
+        from metatrader5_cli.mt5 import mt5_cli
         assert mt5_cli._exit_code_for("MT5_CONNECTION_ERROR") == 2
 
     def test_output_human_mode_uses_red_for_error(self):
         import click
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
+        from metatrader5_cli.mt5 import mt5_cli
 
         @click.command()
         def _cmd():
@@ -566,8 +566,8 @@ class TestCLI:
 
     def test_main_no_args_invokes_repl_stub(self, monkeypatch, tmp_path):
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
 
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
@@ -582,8 +582,8 @@ class TestCLI:
     def test_config_show_masks_password(self, monkeypatch, tmp_path):
         import json
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
 
         cfg_file = tmp_path / "cfg.json"
         cfg_file.write_text(json.dumps({"password": "secret123"}))
@@ -600,8 +600,8 @@ class TestCLI:
     def test_config_show_json_mode_emits_envelope(self, monkeypatch, tmp_path):
         import json
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
 
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
@@ -617,8 +617,8 @@ class TestCLI:
     def test_config_test_success_envelope(self, mt5m, monkeypatch, tmp_path):
         import json
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
 
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
@@ -639,7 +639,7 @@ class TestCLI:
 class TestAccount:
     def _make_acc(self, **kwargs):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         defaults = dict(
             login=12345678, name="Test User", server="Trading.com-Demo",
             currency="USD", balance=10000.0, equity=10000.0,
@@ -652,8 +652,8 @@ class TestAccount:
         return MM(**defaults)
 
     def test_account_info_happy_path(self, mt5m):
-        from cli_anything.mt5.core import account
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import account
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         mt5m.account_info.return_value = self._make_acc(login=99999, currency="EUR")
         result = account.info()
         assert result["ok"] is True
@@ -666,15 +666,15 @@ class TestAccount:
         assert "leverage" in data
 
     def test_account_info_returns_connection_error_when_none(self, mt5m):
-        from cli_anything.mt5.core import account
+        from metatrader5_cli.mt5.core import account
         mt5m.account_info.return_value = None
         result = account.info()
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_CONNECTION_ERROR"
 
     def test_account_info_trade_mode_string_mapping(self, mt5m):
-        from cli_anything.mt5.core import account
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import account
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         cases = [
             (bridge.ACCOUNT_TRADE_MODE_DEMO, "demo"),
             (bridge.ACCOUNT_TRADE_MODE_CONTEST, "contest"),
@@ -686,7 +686,7 @@ class TestAccount:
             assert result["data"]["trade_mode"] == expected_str, f"trade_mode={raw_mode!r}"
 
     def test_account_balance_subset_keys(self, mt5m):
-        from cli_anything.mt5.core import account
+        from metatrader5_cli.mt5.core import account
         mt5m.account_info.return_value = self._make_acc(
             balance=5000.0, equity=5100.0, currency="EUR"
         )
@@ -698,7 +698,7 @@ class TestAccount:
 
     def test_account_risk_composes_envelope_correctly(self, mt5m, cfg):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import account
+        from metatrader5_cli.mt5.core import account
         mt5m.account_info.return_value = self._make_acc(
             equity=10000.0, margin_free=8000.0, currency="USD"
         )
@@ -718,8 +718,8 @@ class TestAccount:
     def test_cli_account_info_json_mode(self, mt5m, monkeypatch, tmp_path):
         import json
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
             monkeypatch.delenv(var, raising=False)
@@ -750,7 +750,7 @@ class TestMarket:
         return MM(**defaults)
 
     def test_market_info_pip_size_eurusd_0_0001(self, mt5m):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info.return_value = self._make_sym(digits=5)
         result = market.info("EURUSD")
@@ -759,7 +759,7 @@ class TestMarket:
         assert result["data"]["point"] == pytest.approx(0.00001)
 
     def test_market_info_pip_size_usdjpy_0_01(self, mt5m):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info.return_value = self._make_sym(name="USDJPY", digits=3)
         result = market.info("USDJPY")
@@ -767,14 +767,14 @@ class TestMarket:
         assert result["data"]["pip_size"] == pytest.approx(0.01)
 
     def test_market_info_calls_ensure_symbol(self, mt5m):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info.return_value = self._make_sym()
         market.info("EURUSD")
         mt5m.symbol_select.assert_called_with("EURUSD", True)
 
     def test_market_info_ensure_symbol_false_returns_error(self, mt5m):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbol_select.return_value = False
         result = market.info("INVALID")
         assert result["ok"] is False
@@ -782,7 +782,7 @@ class TestMarket:
 
     def test_market_tick_calls_ensure_symbol(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(time=1700000000, bid=1.085, ask=1.086, last=0.0, volume=0)
         market.tick("EURUSD")
@@ -790,7 +790,7 @@ class TestMarket:
 
     def test_market_tick_iso8601(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(time=1700000000, bid=1.085, ask=1.086, last=0.0, volume=0)
         result = market.tick("EURUSD")
@@ -802,19 +802,19 @@ class TestMarket:
         assert dt.tzinfo is not None  # timezone-aware
 
     def test_market_search_auto_wraps_bare_pattern(self, mt5m):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbols_get.return_value = []
         market.search("EUR")
         mt5m.symbols_get.assert_called_once_with(group="*EUR*")
 
     def test_market_search_passes_explicit_glob_through(self, mt5m):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         mt5m.symbols_get.return_value = []
         market.search("EUR*,GBP*")
         mt5m.symbols_get.assert_called_once_with(group="EUR*,GBP*")
 
     def test_market_sessions_returns_table_for_eurusd(self):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         result = market.sessions("EURUSD")
         assert result["ok"] is True
         data = result["data"]
@@ -823,7 +823,7 @@ class TestMarket:
         assert "end_utc" in data["london"]
 
     def test_market_sessions_unknown_symbol_returns_error(self):
-        from cli_anything.mt5.core import market
+        from metatrader5_cli.mt5.core import market
         result = market.sessions("UNKNOWN123")
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_INVALID_SYMBOL"
@@ -844,7 +844,7 @@ class TestRates:
     }
 
     def test_rates_fetch_returns_bars_array(self, mt5m):
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         mt5m.copy_rates_from_pos.return_value = [self._BAR, self._BAR]
         result = rates.fetch("EURUSD", "H1", 2)
@@ -854,14 +854,14 @@ class TestRates:
         assert "close" in result["data"][0]
 
     def test_rates_fetch_invalid_timeframe_returns_error(self, mt5m):
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         result = rates.fetch("EURUSD", "INVALID", 10)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_INVALID_TIMEFRAME"
 
     def test_rates_latest_uses_start_pos_1(self, mt5m):
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         mt5m.copy_rates_from_pos.return_value = [self._BAR]
         rates.latest("EURUSD", "M1")
@@ -872,7 +872,7 @@ class TestRates:
 
     def test_rates_ticks_lookback_window_24h(self, mt5m):
         from datetime import datetime, timedelta, timezone
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         mt5m.copy_ticks_from.return_value = [self._TICK] * 5
         before = datetime.now(tz=timezone.utc) - timedelta(hours=24, seconds=5)
@@ -882,7 +882,7 @@ class TestRates:
         assert before <= date_from_arg <= after, f"date_from={date_from_arg} not in 24h window"
 
     def test_rates_ticks_slices_to_bars_count(self, mt5m):
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         mt5m.copy_ticks_from.return_value = [self._TICK] * 30
         result = rates.ticks("EURUSD", 5)
@@ -890,7 +890,7 @@ class TestRates:
         assert len(result["data"]) == 5
 
     def test_rates_iso8601_conversion(self, mt5m):
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         bar_epoch = dict(self._BAR, time=0)  # POSIX 0 → 1970-01-01T00:00:00+00:00
         mt5m.copy_rates_from_pos.return_value = [bar_epoch]
@@ -900,7 +900,7 @@ class TestRates:
         assert "+00:00" in result["data"][0]["time"]
 
     def test_rates_empty_response_returns_error_envelope(self, mt5m):
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         mt5m.symbol_select.return_value = True
         mt5m.copy_rates_from_pos.return_value = None
         result = rates.fetch("EURUSD", "M5", 10)
@@ -909,7 +909,7 @@ class TestRates:
 
     def test_rates_invalid_timeframe_does_not_call_ensure_symbol(self, mt5m):
         """Timeframe validation must happen before symbol_select (P2 fix)."""
-        from cli_anything.mt5.core import rates
+        from metatrader5_cli.mt5.core import rates
         rates.fetch("EURUSD", "BOGUS", 10)
         mt5m.symbol_select.assert_not_called()
 
@@ -930,8 +930,8 @@ class TestRatesCLI:
 
     def _runner_and_env(self, monkeypatch, tmp_path):
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
             monkeypatch.delenv(var, raising=False)
@@ -1010,7 +1010,7 @@ class TestIndicator:
         ]
 
     def _mock_fetch(self, monkeypatch, bars=None):
-        from cli_anything.mt5.core import indicator, rates as rates_module
+        from metatrader5_cli.mt5.core import indicator, rates as rates_module
         data = bars if bars is not None else self._bars
         monkeypatch.setattr(rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": data})
         return indicator
@@ -1081,7 +1081,7 @@ class TestIndicator:
         assert last == pytest.approx(0.08626112, rel=1e-4)
 
     def test_indicator_propagates_rates_error_envelope(self, monkeypatch):
-        from cli_anything.mt5.core import indicator, rates as rates_module
+        from metatrader5_cli.mt5.core import indicator, rates as rates_module
         err = {"ok": False, "error": {"code": "MT5_NO_DATA", "message": "no data", "mt5_retcode": None}}
         monkeypatch.setattr(rates_module, "fetch", lambda *a, **kw: err)
         result = indicator.ema("EURUSD", "H1", period=5)
@@ -1157,7 +1157,7 @@ class TestIndicator:
         assert result["data"]["zones"][0]["formed_at"] == "2024-01-01T01:00:00+00:00"
 
     def test_indicator_list_returns_seven_entries(self):
-        from cli_anything.mt5.core import indicator
+        from metatrader5_cli.mt5.core import indicator
         result = indicator.list_available()
         assert result["ok"] is True
         assert len(result["data"]) == 7
@@ -1194,7 +1194,7 @@ class TestAnalyze:
         return rows
 
     def test_topdown_classifies_trend_bullish_when_price_above_ema_with_positive_slope(self, monkeypatch):
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         monkeypatch.setattr(analyze, "_classify_tf", lambda s, tf, bars: dict(self._TF_BULLISH, timeframe=tf))
         result = analyze.topdown("EURUSD", ["H1"])
         assert result["ok"] is True
@@ -1203,7 +1203,7 @@ class TestAnalyze:
 
     def test_topdown_confluence_score_unanimous(self, monkeypatch):
         import pytest
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         monkeypatch.setattr(analyze, "_classify_tf", lambda s, tf, bars: dict(self._TF_BULLISH, timeframe=tf))
         result = analyze.topdown("EURUSD", ["H1", "H4"])
         assert result["ok"] is True
@@ -1212,7 +1212,7 @@ class TestAnalyze:
 
     def test_topdown_confluence_score_mixed(self, monkeypatch):
         import pytest
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         tf_map = {"H1": self._TF_BULLISH, "H4": self._TF_BULLISH, "D1": self._TF_BEARISH}
         monkeypatch.setattr(
             analyze, "_classify_tf",
@@ -1224,7 +1224,7 @@ class TestAnalyze:
         assert result["data"]["confluence_score"] == pytest.approx(2 / 3)
 
     def test_structure_detects_swing_high_with_n_5(self, monkeypatch):
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         bars = self._bars(n=20, pivot_high_idx=10, pivot_low_idx=5)
         monkeypatch.setattr(analyze.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": bars})
         result = analyze.structure("EURUSD", "H1", bars=20, pivot_n=5)
@@ -1232,7 +1232,7 @@ class TestAnalyze:
         assert any(abs(sh["price"] - 2.0) < 1e-9 for sh in result["data"]["swing_highs"])
 
     def test_structure_support_resistance_relative_to_current_price(self, monkeypatch):
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         bars = self._bars(n=20, pivot_high_idx=10, pivot_low_idx=5, close=0.95)
         monkeypatch.setattr(analyze.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": bars})
         result = analyze.structure("EURUSD", "H1", bars=20, pivot_n=5)
@@ -1241,7 +1241,7 @@ class TestAnalyze:
         assert data["resistance"] > data["current_price"]
 
     def test_structure_pivot_n_param_overrides_default(self, monkeypatch):
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         # Bar at index 3 has high=2.0; pivot_n=1 → range(1,19) → detected;
         # pivot_n=5 → range(5,15) → index 3 not in range → not detected.
         bars = self._bars(n=20, pivot_high_idx=3)
@@ -1252,7 +1252,7 @@ class TestAnalyze:
         assert not any(abs(sh["price"] - 2.0) < 1e-9 for sh in result_n5["data"]["swing_highs"])
 
     def test_bias_uses_default_timeframes_d1_h4_h1(self, monkeypatch):
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         captured = {}
 
         def mock_topdown(symbol, timeframes, bars=200):
@@ -1287,8 +1287,8 @@ class TestAnalyzeCLI:
 
     def _runner_and_env(self, monkeypatch, tmp_path):
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import project
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
         monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
         for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
             monkeypatch.delenv(var, raising=False)
@@ -1297,7 +1297,7 @@ class TestAnalyzeCLI:
     def test_cli_analyze_topdown_repeated_timeframes(self, monkeypatch, tmp_path):
         """--timeframes D1 --timeframes H4 --timeframes H1 (Click-native repeated form)."""
         import json
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
         monkeypatch.setattr(
             analyze, "_classify_tf",
@@ -1315,7 +1315,7 @@ class TestAnalyzeCLI:
     def test_cli_analyze_topdown_comma_separated_timeframes(self, monkeypatch, tmp_path):
         """--timeframes D1,H4,H1 (single-option comma-separated form, matches spec §6.5 notation)."""
         import json
-        from cli_anything.mt5.core import analyze
+        from metatrader5_cli.mt5.core import analyze
         runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
         monkeypatch.setattr(
             analyze, "_classify_tf",
@@ -1360,7 +1360,7 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_risk_check_blocks_order_send(self, mt5m, monkeypatch, cfg):
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(ask=1.1001)
         monkeypatch.setattr(
@@ -1379,7 +1379,7 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_volume_xor_risk_pct_required(self, mt5m, cfg):
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         # Neither provided
         r1 = order_module.place_market("EURUSD", "buy", sl=1.09, cfg=cfg, is_live_intent=False)
         assert r1["ok"] is False
@@ -1395,7 +1395,7 @@ class TestOrder:
 
     def test_place_market_happy_path(self, mt5m, monkeypatch, cfg):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
         mt5m.symbol_info.return_value = MM(filling_mode=1)
@@ -1416,14 +1416,14 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_filling_auto_picks_FOK_when_bitmask_is_1(self, mt5m, monkeypatch, cfg):
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         self._setup_market_mocks(mt5m, filling_mode=1)  # bit 0 → FOK
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         order_module.place_market(
             "EURUSD", "buy", volume=0.1, sl=1.09, filling="auto", cfg=cfg, is_live_intent=False,
         )
         request = mt5m.order_send.call_args[0][0]
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         assert request["type_filling"] == bridge.ORDER_FILLING_FOK
 
     # ------------------------------------------------------------------
@@ -1432,7 +1432,7 @@ class TestOrder:
 
     def test_place_market_returns_filling_mode_bitmask_on_10030(self, mt5m, monkeypatch, cfg):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         self._setup_market_mocks(mt5m, filling_mode=5)
         mt5m.order_send.return_value = MM(retcode=10030, order=0, comment="Invalid fill")
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
@@ -1448,7 +1448,7 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_strategy_id_echoed_in_envelope(self, mt5m, monkeypatch, cfg):
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         self._setup_market_mocks(mt5m)
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         result = order_module.place_market(
@@ -1463,7 +1463,7 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_default_magic_88888_when_no_strategy_id(self, mt5m, monkeypatch, cfg):
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         self._setup_market_mocks(mt5m)
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         order_module.place_market(
@@ -1479,7 +1479,7 @@ class TestOrder:
 
     def test_place_market_auto_derived_magic_in_100k_180k_range(self, mt5m, monkeypatch, cfg):
         import hashlib
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         self._setup_market_mocks(mt5m)
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         strategy_id = "unknown_strategy"
@@ -1498,8 +1498,8 @@ class TestOrder:
 
     def test_modify_uses_SLTP_action_for_position_ticket(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import order as order_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         mt5m.positions_get.return_value = [MM(symbol="EURUSD", sl=1.09, tp=1.12)]
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
         result = order_module.modify(99001, sl=1.08)
@@ -1514,8 +1514,8 @@ class TestOrder:
 
     def test_modify_uses_MODIFY_action_for_pending_ticket(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import order as order_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         mt5m.positions_get.return_value = []
         mt5m.orders_get.return_value = [MM(symbol="EURUSD", price_open=1.10, sl=1.09, tp=1.12, type_time=0, time_expiration=0)]
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
@@ -1531,8 +1531,8 @@ class TestOrder:
 
     def test_cancel_uses_REMOVE_action(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import order as order_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         mt5m.account_info.return_value = MM(trade_mode=0)
         mt5m.orders_get.return_value = [MM(symbol="EURUSD")]
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
@@ -1548,7 +1548,7 @@ class TestOrder:
 
     def test_poll_fill_returns_filled_true_when_position_appears(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         mt5m.positions_get.return_value = [MM(ticket=55555)]
         result = order_module.poll_fill(55555, timeout_ms=5000)
         assert result["ok"] is True
@@ -1562,7 +1562,7 @@ class TestOrder:
     def test_poll_fill_returns_filled_false_on_timeout(self, mt5m, monkeypatch):
         import time
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         mt5m.positions_get.return_value = []
         mt5m.orders_get.return_value = [MM(ticket=55556)]  # pending still present
         monkeypatch.setattr(time, "sleep", lambda s: None)
@@ -1577,7 +1577,7 @@ class TestOrder:
 
     def test_dryrun_calls_order_check_not_order_send(self, mt5m, monkeypatch, cfg):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
         mt5m.symbol_info.return_value = MM(filling_mode=1)
@@ -1595,7 +1595,7 @@ class TestOrder:
 
     def test_dryrun_rejects_nonzero_order_check_retcode(self, mt5m, monkeypatch, cfg):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
         mt5m.symbol_info.return_value = MM(filling_mode=1)
@@ -1614,7 +1614,7 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_strategy_id_stored_in_mt5_comment(self, mt5m, monkeypatch, cfg):
-        from cli_anything.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import order as order_module
         self._setup_market_mocks(mt5m)
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         order_module.place_market(
@@ -1635,8 +1635,8 @@ class TestOrder:
         consume_rate_limit=False path end-to-end.
         """
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import order as order_module
-        from cli_anything.mt5.core import risk
+        from metatrader5_cli.mt5.core import order as order_module
+        from metatrader5_cli.mt5.core import risk
         # Wire up all guards so check_order passes without short-circuiting
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
@@ -1680,7 +1680,7 @@ class TestPosition:
     # ------------------------------------------------------------------
 
     def test_list_returns_all_positions_when_no_symbol(self, mt5m):
-        from cli_anything.mt5.core import position as position_module
+        from metatrader5_cli.mt5.core import position as position_module
         p1 = self._make_pos(ticket=10001, symbol="EURUSD")
         p2 = self._make_pos(ticket=10002, symbol="USDJPY", type=1)
         mt5m.positions_get.return_value = [p1, p2]
@@ -1696,7 +1696,7 @@ class TestPosition:
     # ------------------------------------------------------------------
 
     def test_list_filters_by_symbol(self, mt5m):
-        from cli_anything.mt5.core import position as position_module
+        from metatrader5_cli.mt5.core import position as position_module
         mt5m.positions_get.return_value = [self._make_pos(symbol="EURUSD")]
         result = position_module.list("EURUSD")
         assert result["ok"] is True
@@ -1709,8 +1709,8 @@ class TestPosition:
 
     def test_close_constructs_opposite_side_deal_request(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import position as position_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         pos = self._make_pos(ticket=10001, type=0)  # BUY position
         mt5m.account_info.return_value = MM(trade_mode=0)
         mt5m.positions_get.return_value = [pos]
@@ -1729,7 +1729,7 @@ class TestPosition:
 
     def test_close_all_continues_on_per_ticket_failure(self, mt5m, monkeypatch):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
+        from metatrader5_cli.mt5.core import position as position_module
         mt5m.account_info.return_value = MM(trade_mode=0)
         p1 = self._make_pos(ticket=10001)
         p2 = self._make_pos(ticket=10002)
@@ -1759,7 +1759,7 @@ class TestPosition:
     def test_breakeven_buy_with_zero_buffer_sets_sl_to_open_price(self, mt5m):
         import pytest
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
+        from metatrader5_cli.mt5.core import position as position_module
         mt5m.account_info.return_value = MM(trade_mode=0)
         pos = self._make_pos(ticket=10001, type=0, price_open=1.1000, tp=1.12)
         mt5m.positions_get.return_value = [pos]
@@ -1778,7 +1778,7 @@ class TestPosition:
     def test_breakeven_buy_with_5_point_buffer_sets_sl_above_open(self, mt5m):
         import pytest
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
+        from metatrader5_cli.mt5.core import position as position_module
         mt5m.account_info.return_value = MM(trade_mode=0)
         pos = self._make_pos(ticket=10001, type=0, price_open=1.1000, tp=1.12)
         mt5m.positions_get.return_value = [pos]
@@ -1796,7 +1796,7 @@ class TestPosition:
     def test_breakeven_sell_with_5_point_buffer_sets_sl_below_open(self, mt5m):
         import pytest
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
+        from metatrader5_cli.mt5.core import position as position_module
         mt5m.account_info.return_value = MM(trade_mode=0)
         pos = self._make_pos(ticket=10003, type=1, price_open=1.1000, tp=1.09)  # SELL
         mt5m.positions_get.return_value = [pos]
@@ -1813,8 +1813,8 @@ class TestPosition:
 
     def test_close_blocked_on_live_account_without_live_intent(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import position as position_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         mt5m.account_info.return_value = MM(trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL)
         result = position_module.close(10001, is_live_intent=False)
         assert result["ok"] is False
@@ -1827,8 +1827,8 @@ class TestPosition:
 
     def test_move_sl_blocked_on_live_account_without_live_intent(self, mt5m):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.core import position as position_module
-        from cli_anything.mt5.utils import mt5_backend as bridge
+        from metatrader5_cli.mt5.core import position as position_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
         mt5m.account_info.return_value = MM(trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL)
         result = position_module.move_sl(10001, 1.0900, is_live_intent=False)
         assert result["ok"] is False
@@ -1871,7 +1871,7 @@ class TestHistory:
 
     def test_orders_filters_by_strategy_id_via_resolved_magic(self, mt5m):
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         cfg = {"magic": 88888, "strategy_ids": {"scalper": 88888}}
         o1 = self._make_order(ticket=20001, magic=88888)
         o2 = self._make_order(ticket=20002, magic=99999)
@@ -1893,7 +1893,7 @@ class TestHistory:
 
     def test_deals_filters_by_symbol(self, mt5m):
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         d1 = self._make_deal(ticket=30001, symbol="EURUSD")
         d2 = self._make_deal(ticket=30002, symbol="USDJPY")
         mt5m.history_deals_get.return_value = [d1, d2]
@@ -1914,7 +1914,7 @@ class TestHistory:
     def test_stats_computes_win_rate_and_profit_factor(self, mt5m):
         import pytest
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         d1 = self._make_deal(ticket=30001, profit=10.0, time=1)
         d2 = self._make_deal(ticket=30002, profit=5.0, time=2)
         d3 = self._make_deal(ticket=30003, profit=-4.0, time=3)
@@ -1938,7 +1938,7 @@ class TestHistory:
     def test_stats_max_drawdown_on_known_curve(self, mt5m):
         import pytest
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         # equity curve: +10 → 10, -15 → -5, +8 → 3
         # peak:          10        10       10
         # drawdown:       0        15        7
@@ -1959,7 +1959,7 @@ class TestHistory:
 
     def test_stats_without_strategy_id_aggregates_all(self, mt5m):
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         d1 = self._make_deal(ticket=30001, profit=10.0, magic=88888, time=1)
         d2 = self._make_deal(ticket=30002, profit=5.0, magic=99999, time=2)
         mt5m.history_deals_get.return_value = [d1, d2]
@@ -1977,7 +1977,7 @@ class TestHistory:
     def test_stats_zero_trades_returns_zeros_not_nan(self, mt5m):
         import math
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         mt5m.history_deals_get.return_value = []
         date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
         date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
@@ -1995,7 +1995,7 @@ class TestHistory:
 
     def test_strategy_id_without_cfg_returns_error(self, mt5m):
         from datetime import datetime, timezone
-        from cli_anything.mt5.core import history as history_module
+        from metatrader5_cli.mt5.core import history as history_module
         date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
         date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
         for fn in (history_module.orders, history_module.deals, history_module.stats):
@@ -2030,7 +2030,7 @@ class TestScreenshot:
     # ------------------------------------------------------------------
 
     def test_take_uses_cfg_monitor_when_arg_none(self, tmp_path, monkeypatch):
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
         mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
         monkeypatch.setattr(ss_module, "mss", mock_mss)
 
@@ -2049,7 +2049,7 @@ class TestScreenshot:
     # ------------------------------------------------------------------
 
     def test_take_arg_monitor_overrides_cfg(self, tmp_path, monkeypatch):
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
         mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
         monkeypatch.setattr(ss_module, "mss", mock_mss)
 
@@ -2070,7 +2070,7 @@ class TestScreenshot:
 
     def test_take_window_match_failure_returns_error(self, tmp_path, monkeypatch):
         import sys
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
         mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
         monkeypatch.setattr(ss_module, "mss", mock_mss)
 
@@ -2101,7 +2101,7 @@ class TestScreenshot:
     # ------------------------------------------------------------------
 
     def test_take_cfg_monitor_2_on_two_monitor_setup_no_indexerror(self, tmp_path, monkeypatch):
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
         # Only 2 physical monitors → mss.monitors = [all, primary, secondary] (len=3)
         mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
         monkeypatch.setattr(ss_module, "mss", mock_mss)
@@ -2122,7 +2122,7 @@ class TestScreenshot:
 
     def test_annotate_writes_output_file_with_pillow_call(self, tmp_path):
         from PIL import Image
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
 
         img = Image.new("RGB", (50, 50), color=(0, 0, 0))
         input_path = str(tmp_path / "input.png")
@@ -2140,7 +2140,7 @@ class TestScreenshot:
 
     def test_list_filters_pngs_and_sorts_by_mtime(self, tmp_path):
         import os
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
 
         f_old = tmp_path / "old.png"
         f_old.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
@@ -2168,8 +2168,8 @@ class TestScreenshot:
     def test_screenshot_tda_captures_usdjpy_six_timeframes(self, tmp_path, monkeypatch):
         import os
         from PIL import Image
-        from cli_anything.mt5.core import chart as chart_module
-        from cli_anything.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import chart as chart_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
 
         timeframes = ["D1", "H4", "H1", "M15", "M5", "M1"]
 
@@ -2231,7 +2231,7 @@ class TestKillSwitch:
 
     def test_kill_switch_requires_confirmation_unless_yes(self, mt5m):
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
+        from metatrader5_cli.mt5 import mt5_cli
         runner = CliRunner()
         result = runner.invoke(mt5_cli.main, ["kill-switch"], input="n\n")
         assert result.exit_code == 0
@@ -2246,8 +2246,8 @@ class TestKillSwitch:
     def test_kill_switch_continues_on_per_ticket_failure(self, mt5m, monkeypatch):
         from unittest.mock import MagicMock as MM
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import position as pos_mod, order as ord_mod
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import position as pos_mod, order as ord_mod
 
         mt5m.initialize.return_value = True
 
@@ -2284,8 +2284,8 @@ class TestKillSwitch:
 
     def test_kill_switch_returns_combined_results(self, mt5m, monkeypatch):
         from click.testing import CliRunner
-        from cli_anything.mt5 import mt5_cli
-        from cli_anything.mt5.core import position as pos_mod, order as ord_mod
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import position as pos_mod, order as ord_mod
 
         mt5m.initialize.return_value = True
 
@@ -2319,14 +2319,14 @@ class TestRepl:
 
     def test_repl_banner_shows_server_and_balance(self, mt5m, monkeypatch):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.utils.repl_skin import ReplSkin
+        from metatrader5_cli.mt5.utils.repl_skin import ReplSkin
 
         mt5m.account_info.return_value = MM(
             balance=10119.50, currency="USD", server="Trading.com-Demo",
             equity=10119.50, margin_free=8000.0, trade_mode=0,
         )
 
-        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+        monkeypatch.setattr("metatrader5_cli.mt5.utils.repl_skin.PromptSession",
                             MM(return_value=MM()))
 
         skin = ReplSkin({"server": "Trading.com-Demo", "magic": 88888})
@@ -2342,11 +2342,11 @@ class TestRepl:
     def test_repl_remembers_last_symbol_in_prompt(self, monkeypatch):
         import click as _click
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.utils.repl_skin import ReplSkin
+        from metatrader5_cli.mt5.utils.repl_skin import ReplSkin
 
         mock_session = MM()
         mock_session.prompt.side_effect = ["market tick EURUSD", EOFError()]
-        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+        monkeypatch.setattr("metatrader5_cli.mt5.utils.repl_skin.PromptSession",
                             MM(return_value=mock_session))
 
         skin = ReplSkin({"server": "Demo", "magic": 88888})
@@ -2366,11 +2366,11 @@ class TestRepl:
 
     def test_repl_reconnects_on_connection_error(self, monkeypatch):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.utils.repl_skin import ReplSkin
-        from cli_anything.mt5.utils import mt5_backend as bridge
-        import cli_anything.mt5.mt5_cli as mt5_cli_mod
+        from metatrader5_cli.mt5.utils.repl_skin import ReplSkin
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
+        import metatrader5_cli.mt5.mt5_cli as mt5_cli_mod
 
-        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+        monkeypatch.setattr("metatrader5_cli.mt5.utils.repl_skin.PromptSession",
                             MM(return_value=MM()))
 
         skin = ReplSkin({"server": "Demo"})
@@ -2402,11 +2402,11 @@ class TestRepl:
 
     def test_repl_surfaces_error_when_reconnect_fails(self, monkeypatch):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.utils.repl_skin import ReplSkin
-        from cli_anything.mt5.utils import mt5_backend as bridge
-        import cli_anything.mt5.mt5_cli as mt5_cli_mod
+        from metatrader5_cli.mt5.utils.repl_skin import ReplSkin
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
+        import metatrader5_cli.mt5.mt5_cli as mt5_cli_mod
 
-        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+        monkeypatch.setattr("metatrader5_cli.mt5.utils.repl_skin.PromptSession",
                             MM(return_value=MM()))
 
         skin = ReplSkin({"server": "Demo"})
@@ -2432,11 +2432,11 @@ class TestRepl:
 
     def test_repl_reconnects_on_systemexit_2(self, monkeypatch):
         from unittest.mock import MagicMock as MM
-        from cli_anything.mt5.utils.repl_skin import ReplSkin
-        from cli_anything.mt5.utils import mt5_backend as bridge
-        import cli_anything.mt5.mt5_cli as mt5_cli_mod
+        from metatrader5_cli.mt5.utils.repl_skin import ReplSkin
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
+        import metatrader5_cli.mt5.mt5_cli as mt5_cli_mod
 
-        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+        monkeypatch.setattr("metatrader5_cli.mt5.utils.repl_skin.PromptSession",
                             MM(return_value=MM()))
 
         skin = ReplSkin({"server": "Demo"})
@@ -2497,7 +2497,7 @@ class TestDocs:
         monkeypatch.delenv("MT5_DEMO_INTEGRATION", raising=False)
 
         # Remove any cached import so the module-level skip guard re-runs
-        monkeypatch.delitem(sys.modules, "cli_anything.mt5.tests.test_e2e", raising=False)
+        monkeypatch.delitem(sys.modules, "metatrader5_cli.mt5.tests.test_e2e", raising=False)
 
         with pytest.raises(pytest.skip.Exception):
-            importlib.import_module("cli_anything.mt5.tests.test_e2e")
+            importlib.import_module("metatrader5_cli.mt5.tests.test_e2e")

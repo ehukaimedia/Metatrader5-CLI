@@ -6,8 +6,8 @@ through ``bridge.mt5_call()``.
 """
 from __future__ import annotations
 
-from cli_anything.mt5.utils import mt5_backend as bridge
-from cli_anything.mt5.core import risk as risk_module
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.core import risk as risk_module
 
 # Map raw MT5 trade_mode integers to human-readable strings (spec §7.1).
 _TRADE_MODE_MAP: dict = {

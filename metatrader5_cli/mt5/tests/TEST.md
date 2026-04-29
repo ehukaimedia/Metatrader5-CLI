@@ -9,13 +9,13 @@ All unit tests live in `test_core.py` and mock the `MetaTrader5` package via
 
 ```bash
 # Run the full suite
-python -m pytest cli_anything/mt5/tests/test_core.py -v
+python -m pytest metatrader5_cli/mt5/tests/test_core.py -v
 
 # Run a specific class
-python -m pytest cli_anything/mt5/tests/test_core.py::TestOrder -v
+python -m pytest metatrader5_cli/mt5/tests/test_core.py::TestOrder -v
 
 # Stop on first failure
-python -m pytest cli_anything/mt5/tests/test_core.py -x
+python -m pytest metatrader5_cli/mt5/tests/test_core.py -x
 ```
 
 ---
@@ -31,7 +31,7 @@ require a running MetaTrader 5 terminal connected to a **demo account**.
 export MT5_DEMO_INTEGRATION=1        # Linux / macOS / WSL
 $env:MT5_DEMO_INTEGRATION = "1"      # PowerShell (Windows)
 
-python -m pytest cli_anything/mt5/tests/test_e2e.py -v
+python -m pytest metatrader5_cli/mt5/tests/test_e2e.py -v
 ```
 
 ### What they cover
@@ -49,7 +49,7 @@ All integration tests carry `@pytest.mark.integration`.  To run only unit
 tests (skipping integration even if the env var is set):
 
 ```bash
-python -m pytest -m "not integration" cli_anything/mt5/tests/
+python -m pytest -m "not integration" metatrader5_cli/mt5/tests/
 ```
 
 ---
@@ -74,7 +74,7 @@ with an informative message.  Do not remove or weaken this guard.
 Add this to your CI pipeline to run only unit tests (safe, no MT5 needed):
 
 ```yaml
-- run: python -m pytest cli_anything/mt5/tests/test_core.py -v
+- run: python -m pytest metatrader5_cli/mt5/tests/test_core.py -v
 ```
 
 To enable integration tests in a CI environment that has MT5 running:
@@ -82,5 +82,5 @@ To enable integration tests in a CI environment that has MT5 running:
 ```yaml
 env:
   MT5_DEMO_INTEGRATION: "1"
-- run: python -m pytest cli_anything/mt5/tests/ -v
+- run: python -m pytest metatrader5_cli/mt5/tests/ -v
 ```

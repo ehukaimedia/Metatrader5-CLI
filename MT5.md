@@ -1,7 +1,7 @@
 # MT5 CLI — Operator SOP
 
 Quick reference for humans operating the CLI.  For agent-facing capability
-docs see `cli_anything/mt5/skills/SKILL.md`.
+docs see `metatrader5_cli/mt5/skills/SKILL.md`.
 
 > **`--json` and `--live` are top-level flags** and must come before the
 > subcommand: `mt5 --json account info`, not `mt5 account info --json`.

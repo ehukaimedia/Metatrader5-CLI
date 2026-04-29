@@ -184,8 +184,8 @@ The implementation is broker-agnostic. It defaults to matching the standard MT5 
 Agents can also import the core API directly:
 
 ```python
-from cli_anything.mt5.core import account, indicator, market, order, project, rates
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.core import account, indicator, market, order, project, rates
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 cfg = project.load()
 bridge.connect(
@@ -234,14 +234,14 @@ FVG output is zone-based, not loose-line based. Each gap owns its boundaries:
 Unit suite:
 
 ```powershell
-python -m pytest cli_anything/mt5/tests/test_core.py -v
+python -m pytest metatrader5_cli/mt5/tests/test_core.py -v
 ```
 
 Live demo integration suite:
 
 ```powershell
 $env:MT5_DEMO_INTEGRATION = "1"
-python -m pytest cli_anything/mt5/tests/test_e2e.py -v
+python -m pytest metatrader5_cli/mt5/tests/test_e2e.py -v
 ```
 
 The integration suite asserts the account is not real, performs a dry-run, places a 0.01-lot demo USDJPY order, confirms fill, closes it, and verifies history.

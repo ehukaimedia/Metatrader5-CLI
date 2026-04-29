@@ -17,7 +17,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import InMemoryHistory
 
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # Heuristic: a symbol looks like 3–8 consecutive uppercase ASCII letters.
 _SYMBOL_RE = re.compile(r"^[A-Z]{3,8}$")
@@ -46,7 +46,7 @@ class ReplSkin:
 
     def _banner(self) -> str:
         """Build the startup banner line from cfg + live account info."""
-        from cli_anything.mt5.core import account  # noqa: PLC0415 (lazy — avoids circular import)
+        from metatrader5_cli.mt5.core import account  # noqa: PLC0415 (lazy — avoids circular import)
 
         server = self.cfg.get("server", "MT5")
         info = account.info()
@@ -81,7 +81,7 @@ class ReplSkin:
 
     def run(self) -> None:
         """Start the REPL loop (blocks until user types 'exit' or Ctrl-D)."""
-        from cli_anything.mt5 import mt5_cli  # noqa: PLC0415 (lazy — avoids circular import at module level)
+        from metatrader5_cli.mt5 import mt5_cli  # noqa: PLC0415 (lazy — avoids circular import at module level)
 
         click.echo(self._banner())
 

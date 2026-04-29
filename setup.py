@@ -18,7 +18,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "mt5 = cli_anything.mt5.mt5_cli:main",
+            "mt5 = metatrader5_cli.mt5.mt5_cli:main",
         ],
     },
     python_requires=">=3.10",

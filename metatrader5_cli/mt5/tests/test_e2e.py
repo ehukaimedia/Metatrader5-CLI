@@ -5,7 +5,7 @@ These tests require a running MetaTrader 5 terminal connected to a **demo
 account**.  They are skipped by default and must be opted into explicitly:
 
     export MT5_DEMO_INTEGRATION=1
-    python -m pytest cli_anything/mt5/tests/test_e2e.py -v
+    python -m pytest metatrader5_cli/mt5/tests/test_e2e.py -v
 
 NEVER run these tests against a real (live) account.  The module-level safety
 guard aborts the entire module if the connected account is live.
@@ -30,7 +30,7 @@ if os.environ.get("MT5_DEMO_INTEGRATION") != "1":
 # Imports (only reached when MT5_DEMO_INTEGRATION=1)
 # ---------------------------------------------------------------------------
 
-from cli_anything.mt5.core import (
+from metatrader5_cli.mt5.core import (
     account,
     history,
     indicator,
@@ -40,7 +40,7 @@ from cli_anything.mt5.core import (
     project,
     rates,
 )
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
 # Connect to MT5 terminal before safety assertion

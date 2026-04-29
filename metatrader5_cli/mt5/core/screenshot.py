@@ -216,7 +216,7 @@ def tda(
     settle_seconds: float = 0.5,
 ) -> dict:
     """Capture a visual top-down-analysis screenshot set for one symbol."""
-    from cli_anything.mt5.core import chart  # noqa: PLC0415
+    from metatrader5_cli.mt5.core import chart  # noqa: PLC0415
 
     frames: list[dict] = []
     output_root = _resolve_dir(output_dir, cfg)

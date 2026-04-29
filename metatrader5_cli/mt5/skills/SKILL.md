@@ -133,7 +133,7 @@ Two strategies with different IDs always isolate, even without config.
 Import the core layer directly — no subprocess required:
 
 ```python
-from cli_anything.mt5.core import account, indicator, market, order, position, rates
+from metatrader5_cli.mt5.core import account, indicator, market, order, position, rates
 
 info = account.info()                    # {"ok": True, "data": {...}}
 tick = market.tick("EURUSD")

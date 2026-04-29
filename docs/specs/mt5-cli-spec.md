@@ -89,7 +89,7 @@
 The `core/` layer is explicitly designed to be importable by strategy-layer consumers. Core modules are pure functions — no Click dependency, no REPL, no argv parsing. The same JSON envelope that the CLI's `--json` flag emits is returned as a Python dict.
 
 ```python
-from cli_anything.mt5.core import account, market, rates, order, position, history
+from metatrader5_cli.mt5.core import account, market, rates, order, position, history
 
 # Every core call returns the same envelope the CLI's --json flag does:
 acct = account.info()
@@ -123,8 +123,8 @@ bars = rates.fetch("USDJPY", "M5", bars=100)
 
 | Consumer type | Purpose | Typical entry point |
 |---|---|---|
-| `mt5` CLI | Interactive and scripted shell invocation | `cli_anything.mt5.mt5_cli:main` |
-| Autonomous trading runtime | Strategy-layer daemon: orchestrator, session-level gates, position manager. Imports `cli_anything.mt5.core.*` directly. CLI risk envelope is the per-order floor; the runtime adds stateful session-level gates (consecutive losses, equity floor, daily loss cap, news blackout) on top — **never relaxes the floor**. Any agentic team can build such a runtime against this library. | runtime-specific |
+| `mt5` CLI | Interactive and scripted shell invocation | `metatrader5_cli.mt5.mt5_cli:main` |
+| Autonomous trading runtime | Strategy-layer daemon: orchestrator, session-level gates, position manager. Imports `metatrader5_cli.mt5.core.*` directly. CLI risk envelope is the per-order floor; the runtime adds stateful session-level gates (consecutive losses, equity floor, daily loss cap, news blackout) on top — **never relaxes the floor**. Any agentic team can build such a runtime against this library. | runtime-specific |
 | Backtest harness | Replay historical bars through strategy code via `rates.range()` and `rates.ticks_range()` | runtime-specific |
 | Multi-strategy orchestrator | Runs multiple `--strategy-id`-tagged strategies in one process; filters performance via `history.stats(strategy_id=...)` | runtime-specific |
 
@@ -152,7 +152,7 @@ bars = rates.fetch("USDJPY", "M5", bars=100)
 Metatrader5-CLI/
 ├── setup.py
 ├── MT5.md                          # Agent-facing SOP
-├── cli_anything/
+├── metatrader5_cli/
 │   └── mt5/
 │       ├── __main__.py
 │       ├── mt5_cli.py              # Root CLI + REPL (~500 LOC)
@@ -566,7 +566,7 @@ install_requires=[
 
 ```
 console_scripts:
-  mt5 = cli_anything.mt5.mt5_cli:main
+  mt5 = metatrader5_cli.mt5.mt5_cli:main
 ```
 
 ### Platform constraint

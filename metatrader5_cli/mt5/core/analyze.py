@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from cli_anything.mt5.core import indicator as indicator_module
-from cli_anything.mt5.core import rates as rates_module
+from metatrader5_cli.mt5.core import indicator as indicator_module
+from metatrader5_cli.mt5.core import rates as rates_module
 
 
 def _fail(code: str, message: str) -> dict:

@@ -6,7 +6,7 @@ through ``bridge.mt5_call()`` (indirectly, via the bridge module).
 """
 from __future__ import annotations
 
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 
 def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:

@@ -12,8 +12,8 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, analyze, chart, history, indicator, market, order, position, project, rates, screenshot
-from cli_anything.mt5.utils import mt5_backend as bridge
+from metatrader5_cli.mt5.core import account, analyze, chart, history, indicator, market, order, position, project, rates, screenshot
+from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,7 +89,7 @@ def output(data: dict, as_json: bool) -> None:
 
 def _launch_repl(ctx) -> None:
     """Launch the interactive REPL."""
-    from cli_anything.mt5.utils.repl_skin import ReplSkin  # noqa: PLC0415 (lazy)
+    from metatrader5_cli.mt5.utils.repl_skin import ReplSkin  # noqa: PLC0415 (lazy)
     obj = ctx.obj
     ReplSkin(obj["cfg"]).run()
 
