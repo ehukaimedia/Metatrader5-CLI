@@ -1179,10 +1179,67 @@ class TestAnalyze:
                     "bias": "bullish",
                     "confluence_score": 1.0,
                     "timeframes": {},
-                    "notes": [],
+                    "notes": ["D1: bullish — price above EMA20, RSI 55.0 (neutral RSI)"],
                 },
             }
 
         monkeypatch.setattr(analyze, "topdown", mock_topdown)
-        analyze.bias("EURUSD")
+        result = analyze.bias("EURUSD")
         assert captured["timeframes"] == ["D1", "H4", "H1"]
+        assert isinstance(result["data"]["reasoning"], str), "reasoning must be a str per spec §6.5"
+
+
+# ===========================================================================
+# Task 10 — Analyze CLI smoke tests
+# ===========================================================================
+
+class TestAnalyzeCLI:
+    _TF_RESULT = {
+        "trend": "bullish", "last_close": 1.25, "ema_20": 1.20,
+        "ema_slope": 0.01, "rsi_14": 55.0, "price_vs_ema": "above",
+    }
+
+    def _runner_and_env(self, monkeypatch, tmp_path):
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import project
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        return CliRunner(), mt5_cli
+
+    def test_cli_analyze_topdown_repeated_timeframes(self, monkeypatch, tmp_path):
+        """--timeframes D1 --timeframes H4 --timeframes H1 (Click-native repeated form)."""
+        import json
+        from cli_anything.mt5.core import analyze
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            analyze, "_classify_tf",
+            lambda s, tf, bars: dict(self._TF_RESULT, timeframe=tf),
+        )
+        result = runner.invoke(mt5_cli.main, [
+            "--json", "analyze", "topdown", "EURUSD",
+            "--timeframes", "D1", "--timeframes", "H4", "--timeframes", "H1",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert set(data["data"]["timeframes"].keys()) == {"D1", "H4", "H1"}
+
+    def test_cli_analyze_topdown_comma_separated_timeframes(self, monkeypatch, tmp_path):
+        """--timeframes D1,H4,H1 (single-option comma-separated form, matches spec §6.5 notation)."""
+        import json
+        from cli_anything.mt5.core import analyze
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            analyze, "_classify_tf",
+            lambda s, tf, bars: dict(self._TF_RESULT, timeframe=tf),
+        )
+        result = runner.invoke(mt5_cli.main, [
+            "--json", "analyze", "topdown", "EURUSD",
+            "--timeframes", "D1,H4,H1",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert set(data["data"]["timeframes"].keys()) == {"D1", "H4", "H1"}

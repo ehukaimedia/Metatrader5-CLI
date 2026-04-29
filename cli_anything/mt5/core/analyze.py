@@ -183,6 +183,6 @@ def bias(symbol: str) -> dict:
             "symbol": symbol,
             "bias": data["bias"],
             "confidence": data["confluence_score"],
-            "reasoning": data["notes"],
+            "reasoning": "\n".join(data["notes"]),
         },
     }

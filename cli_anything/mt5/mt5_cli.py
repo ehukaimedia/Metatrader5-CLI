@@ -516,7 +516,9 @@ def analyze_group(ctx):
 
 @analyze_group.command("topdown")
 @click.argument("symbol")
-@click.option("--timeframes", multiple=True, required=True, help="Timeframes to analyse (repeat for each).")
+@click.option("--timeframes", multiple=True, required=True,
+              help="Timeframes to analyse.  Repeat (--timeframes D1 --timeframes H4) or "
+                   "pass comma/space-separated in one value (--timeframes D1,H4,H1).")
 @click.option("--bars", default=200, show_default=True, type=int, help="Bars to fetch per timeframe.")
 @click.pass_context
 def analyze_topdown_cmd(ctx, symbol, timeframes, bars):
@@ -526,7 +528,8 @@ def analyze_topdown_cmd(ctx, symbol, timeframes, bars):
     if err:
         output(err, obj["as_json"])
         return
-    output(analyze.topdown(symbol, list(timeframes), bars), obj["as_json"])
+    tf_list = [t for v in timeframes for t in v.replace(",", " ").split() if t]
+    output(analyze.topdown(symbol, tf_list, bars), obj["as_json"])
 
 
 @analyze_group.command("structure")
