@@ -1002,25 +1002,34 @@ class TestIndicator:
         ind = self._mock_fetch(monkeypatch)
         result = ind.ema("EURUSD", "H1", period=5, bars=10)
         assert result["ok"] is True
-        assert len(result["data"]["values"]) > 0
-        last = result["data"]["values"][-1]["value"]
-        assert last == pytest.approx(1.3967078189, rel=1e-5)
+        data = result["data"]
+        assert data["symbol"] == "EURUSD"
+        assert data["timeframe"] == "H1"
+        assert len(data["values"]) > 0
+        last = data["values"][-1]
+        assert "ema" in last, "values rows must use 'ema' key per spec §6.4"
+        assert "value" not in last
+        assert last["ema"] == pytest.approx(1.3967078189, rel=1e-5)
 
     def test_sma_known_input_produces_known_output(self, monkeypatch):
         import pytest
         ind = self._mock_fetch(monkeypatch)
         result = ind.sma("EURUSD", "H1", period=5, bars=10)
         assert result["ok"] is True
-        last = result["data"]["values"][-1]["value"]
-        assert last == pytest.approx(1.39, rel=1e-6)
+        last = result["data"]["values"][-1]
+        assert "sma" in last, "values rows must use 'sma' key per spec §6.4"
+        assert "value" not in last
+        assert last["sma"] == pytest.approx(1.39, rel=1e-6)
 
     def test_rsi_known_input_produces_known_output(self, monkeypatch):
         import pytest
         ind = self._mock_fetch(monkeypatch)
         result = ind.rsi("EURUSD", "H1", period=5, bars=10)
         assert result["ok"] is True
-        last = result["data"]["values"][-1]["value"]
-        assert last == pytest.approx(90.690827, rel=1e-4)
+        last = result["data"]["values"][-1]
+        assert "rsi" in last, "values rows must use 'rsi' key per spec §6.4"
+        assert "value" not in last
+        assert last["rsi"] == pytest.approx(90.690827, rel=1e-4)
 
     def test_macd_known_input_produces_known_output(self, monkeypatch):
         import pytest
@@ -1029,7 +1038,9 @@ class TestIndicator:
         assert result["ok"] is True
         assert len(result["data"]["values"]) > 0
         last = result["data"]["values"][-1]
-        assert "macd" in last and "signal" in last and "hist" in last
+        assert "macd" in last and "signal" in last
+        assert "histogram" in last, "MACD rows must use 'histogram' key per spec §6.4"
+        assert "hist" not in last
         assert last["macd"] == pytest.approx(0.0521203061, rel=1e-4)
 
     def test_bb_known_input_produces_known_output(self, monkeypatch):

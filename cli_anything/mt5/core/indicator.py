@@ -16,10 +16,10 @@ def _fail(code: str, message: str) -> dict:
     return {"ok": False, "error": {"code": code, "message": message, "mt5_retcode": None}}
 
 
-def _values_with_time(df: pd.DataFrame, col: str) -> list[dict]:
-    """Return [{time, value}] for *col*, dropping NaN rows."""
+def _values_with_time(df: pd.DataFrame, col: str, field: str) -> list[dict]:
+    """Return [{time, <field>}] for *col*, dropping NaN rows."""
     return [
-        {"time": row["time"], "value": float(row[col])}
+        {"time": row["time"], field: float(row[col])}
         for _, row in df.iterrows()
         if not pd.isna(row[col])
     ]
@@ -37,7 +37,13 @@ def ema(symbol: str, timeframe: str, period: int, bars: int = 100) -> dict:
     df = pd.DataFrame(result["data"])
     df.ta.ema(length=period, append=True)
     col = f"EMA_{period}"
-    return {"ok": True, "data": {"period": period, "values": _values_with_time(df, col)}}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol, "timeframe": timeframe, "period": period,
+            "values": _values_with_time(df, col, "ema"),
+        },
+    }
 
 
 def sma(symbol: str, timeframe: str, period: int, bars: int = 100) -> dict:
@@ -48,7 +54,13 @@ def sma(symbol: str, timeframe: str, period: int, bars: int = 100) -> dict:
     df = pd.DataFrame(result["data"])
     df.ta.sma(length=period, append=True)
     col = f"SMA_{period}"
-    return {"ok": True, "data": {"period": period, "values": _values_with_time(df, col)}}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol, "timeframe": timeframe, "period": period,
+            "values": _values_with_time(df, col, "sma"),
+        },
+    }
 
 
 def rsi(symbol: str, timeframe: str, period: int, bars: int = 100) -> dict:
@@ -59,7 +71,13 @@ def rsi(symbol: str, timeframe: str, period: int, bars: int = 100) -> dict:
     df = pd.DataFrame(result["data"])
     df.ta.rsi(length=period, append=True)
     col = f"RSI_{period}"
-    return {"ok": True, "data": {"period": period, "values": _values_with_time(df, col)}}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol, "timeframe": timeframe, "period": period,
+            "values": _values_with_time(df, col, "rsi"),
+        },
+    }
 
 
 def macd(
@@ -81,15 +99,22 @@ def macd(
     sig_col  = f"MACDs_{fast}_{slow}_{signal}"
     rows = [
         {
-            "time":   row["time"],
-            "macd":   float(row[macd_col]),
-            "signal": float(row[sig_col]),
-            "hist":   float(row[hist_col]),
+            "time":      row["time"],
+            "macd":      float(row[macd_col]),
+            "signal":    float(row[sig_col]),
+            "histogram": float(row[hist_col]),
         }
         for _, row in df.iterrows()
         if not pd.isna(row.get(macd_col))
     ]
-    return {"ok": True, "data": {"fast": fast, "slow": slow, "signal": signal, "values": rows}}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol, "timeframe": timeframe,
+            "fast": fast, "slow": slow, "signal": signal,
+            "values": rows,
+        },
+    }
 
 
 def bb(
@@ -113,14 +138,21 @@ def bb(
     rows = [
         {
             "time":  row["time"],
-            "lower": float(row[lower_col]),
-            "mid":   float(row[mid_col]),
             "upper": float(row[upper_col]),
+            "mid":   float(row[mid_col]),
+            "lower": float(row[lower_col]),
         }
         for _, row in df.iterrows()
         if not pd.isna(row.get(lower_col))
     ]
-    return {"ok": True, "data": {"period": period, "std": std, "values": rows}}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol, "timeframe": timeframe,
+            "period": period, "std": std,
+            "values": rows,
+        },
+    }
 
 
 def atr(symbol: str, timeframe: str, period: int = 14, bars: int = 100) -> dict:
@@ -137,7 +169,13 @@ def atr(symbol: str, timeframe: str, period: int = 14, bars: int = 100) -> dict:
         for i, v in enumerate(atr_series)
         if not pd.isna(v)
     ]
-    return {"ok": True, "data": {"period": period, "values": rows}}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol, "timeframe": timeframe,
+            "period": period, "values": rows,
+        },
+    }
 
 
 def list_available() -> dict:
