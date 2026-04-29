@@ -1778,6 +1778,9 @@ class TestHistory:
         assert len(result["data"]) == 1
         assert result["data"][0]["ticket"] == 20001
         assert result["data"][0]["strategy_id"] == "scalper"
+        # Timestamps must be ISO-8601 UTC strings, not raw integers
+        ts = result["data"][0]["time_setup"]
+        assert isinstance(ts, str) and ts.endswith("+00:00")
 
     # ------------------------------------------------------------------
     # Test 2 — deals filters by symbol
@@ -1795,6 +1798,9 @@ class TestHistory:
         assert result["ok"] is True
         assert len(result["data"]) == 1
         assert result["data"][0]["symbol"] == "EURUSD"
+        # Deal time must be ISO-8601 UTC string, not a raw integer
+        ts = result["data"][0]["time"]
+        assert isinstance(ts, str) and ts.endswith("+00:00")
 
     # ------------------------------------------------------------------
     # Test 3 — stats computes win_rate and profit_factor
@@ -1877,3 +1883,20 @@ class TestHistory:
         for key in ("win_rate", "total_profit", "avg_profit", "avg_loss", "profit_factor", "max_drawdown"):
             assert not math.isnan(data[key]), f"{key} should not be NaN"
             assert data[key] == 0.0
+
+    # ------------------------------------------------------------------
+    # Test 7 — strategy_id without cfg returns structured error
+    # ------------------------------------------------------------------
+
+    def test_strategy_id_without_cfg_returns_error(self, mt5m):
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        for fn in (history_module.orders, history_module.deals, history_module.stats):
+            result = fn(date_from, date_to, strategy_id="scalper")  # cfg omitted (None)
+            assert result["ok"] is False, f"{fn.__name__} should fail without cfg"
+            assert result["error"]["code"] == "RISK_INVALID_INPUT"
+        # MT5 should not have been called — guard fires before any bridge call
+        mt5m.history_orders_get.assert_not_called()
+        mt5m.history_deals_get.assert_not_called()

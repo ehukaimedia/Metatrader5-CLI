@@ -6,7 +6,7 @@ through ``bridge.mt5_call()``.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cli_anything.mt5.utils import mt5_backend as bridge
 from cli_anything.mt5.core import risk
@@ -40,6 +40,11 @@ def _magic_to_strategy_id(magic: int, cfg: dict | None) -> str | None:
     return next((k for k, v in cfg.get("strategy_ids", {}).items() if int(v) == magic), None)
 
 
+def _epoch_to_iso(epoch: int | float) -> str:
+    """Convert a Unix-epoch integer to an ISO-8601 UTC string (matches rates.py convention)."""
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+
+
 def _order_to_dict(order, cfg: dict | None) -> dict:
     return {
         "ticket": order.ticket,
@@ -49,8 +54,8 @@ def _order_to_dict(order, cfg: dict | None) -> dict:
         "price": order.price_open,
         "sl": order.sl,
         "tp": order.tp,
-        "time_setup": order.time_setup,
-        "time_done": order.time_done,
+        "time_setup": _epoch_to_iso(order.time_setup),
+        "time_done": _epoch_to_iso(order.time_done),
         "state": _ORDER_STATE_STR.get(order.state, str(order.state)),
         "magic": order.magic,
         "strategy_id": _magic_to_strategy_id(order.magic, cfg),
@@ -68,7 +73,7 @@ def _deal_to_dict(deal) -> dict:
         "profit": deal.profit,
         "commission": deal.commission,
         "swap": deal.swap,
-        "time": deal.time,
+        "time": _epoch_to_iso(deal.time),
         "magic": deal.magic,
     }
 
@@ -87,7 +92,11 @@ def orders(
     """Return historical orders in [date_from, date_to].
 
     Filters in Python by symbol and/or resolved magic (strategy_id).
+    ``cfg`` is required when ``strategy_id`` is supplied.
     """
+    if strategy_id and cfg is None:
+        return _fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+
     raw = bridge.mt5_call("history_orders_get", date_from, date_to)
     if raw is None:
         return _fail("MT5_NO_DATA", "history_orders_get returned None.")
@@ -95,7 +104,7 @@ def orders(
     result = list(raw)
     if symbol:
         result = [o for o in result if o.symbol == symbol]
-    if strategy_id and cfg is not None:
+    if strategy_id:
         magic = risk.resolve_magic(strategy_id, cfg)
         result = [o for o in result if o.magic == magic]
 
@@ -116,7 +125,11 @@ def deals(
     """Return historical deals in [date_from, date_to].
 
     Filters in Python by symbol and/or resolved magic (strategy_id).
+    ``cfg`` is required when ``strategy_id`` is supplied.
     """
+    if strategy_id and cfg is None:
+        return _fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+
     raw = bridge.mt5_call("history_deals_get", date_from, date_to)
     if raw is None:
         return _fail("MT5_NO_DATA", "history_deals_get returned None.")
@@ -124,7 +137,7 @@ def deals(
     result = list(raw)
     if symbol:
         result = [d for d in result if d.symbol == symbol]
-    if strategy_id and cfg is not None:
+    if strategy_id:
         magic = risk.resolve_magic(strategy_id, cfg)
         result = [d for d in result if d.magic == magic]
 
@@ -144,14 +157,18 @@ def stats(
     """Compute performance statistics for deals in [date_from, date_to].
 
     Optionally scoped to one strategy_id (matched via resolved magic).
+    ``cfg`` is required when ``strategy_id`` is supplied.
     Returns zeros (not NaN) when there are no deals.
     """
+    if strategy_id and cfg is None:
+        return _fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+
     raw = bridge.mt5_call("history_deals_get", date_from, date_to)
     if raw is None:
         return _fail("MT5_NO_DATA", "history_deals_get returned None.")
 
     deal_list = sorted(raw, key=lambda d: d.time)
-    if strategy_id and cfg is not None:
+    if strategy_id:
         magic = risk.resolve_magic(strategy_id, cfg)
         deal_list = [d for d in deal_list if d.magic == magic]
 
