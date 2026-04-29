@@ -1308,8 +1308,12 @@ class TestOrder:
     # ------------------------------------------------------------------
 
     def test_place_market_happy_path(self, mt5m, monkeypatch, cfg):
+        from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import order as order_module
-        self._setup_market_mocks(mt5m)
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
+        mt5m.symbol_info.return_value = MM(filling_mode=1)
+        mt5m.order_send.return_value = MM(retcode=10009, order=99001, comment="OK", time=1700000000)
         monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         result = order_module.place_market(
             "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg, is_live_intent=False,
@@ -1317,7 +1321,9 @@ class TestOrder:
         assert result["ok"] is True
         assert result["data"]["ticket"] == 99001
         assert result["data"]["symbol"] == "EURUSD"
-        assert result["data"]["side"] == "buy"
+        assert result["data"]["type"] == "buy"
+        assert "price" in result["data"]
+        assert "time" in result["data"]
 
     # ------------------------------------------------------------------
     # Test 4 — auto filling picks FOK when bitmask bit 0 is set
@@ -1479,7 +1485,7 @@ class TestOrder:
         assert result["data"]["ticket"] == 55556
 
     # ------------------------------------------------------------------
-    # Test 14 — dryrun calls order_check, not order_send
+    # Test 14 — dryrun runs risk envelope then calls order_check, not order_send
     # ------------------------------------------------------------------
 
     def test_dryrun_calls_order_check_not_order_send(self, mt5m, monkeypatch, cfg):
@@ -1489,10 +1495,26 @@ class TestOrder:
         mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
         mt5m.symbol_info.return_value = MM(filling_mode=1)
         mt5m.order_check.return_value = MM(margin=100.0, margin_free=9900.0, margin_level=5000.0, profit=0.0, retcode=0)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
         result = order_module.dryrun(
-            "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg,
+            "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg, is_live_intent=False,
         )
         assert result["ok"] is True
         assert result["data"]["dry_run"] is True
         mt5m.order_send.assert_not_called()
         mt5m.order_check.assert_called_once()
+
+    # ------------------------------------------------------------------
+    # Test 15 — strategy_id stored in MT5 comment field (spec §6.7)
+    # ------------------------------------------------------------------
+
+    def test_place_market_strategy_id_stored_in_mt5_comment(self, mt5m, monkeypatch, cfg):
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09,
+            strategy_id="gopher-gate", cfg=cfg, is_live_intent=False,
+        )
+        request = mt5m.order_send.call_args[0][0]
+        assert request["comment"] == "gopher-gate"

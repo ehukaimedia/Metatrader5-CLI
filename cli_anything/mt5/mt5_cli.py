@@ -736,5 +736,6 @@ def order_dryrun_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, strategy_id, m
         strategy_id=strategy_id, magic=magic,
         deviation=deviation, filling=filling,
         cfg=obj["cfg"],
+        is_live_intent=obj["live_intent"],
     )
     output(result, obj["as_json"])

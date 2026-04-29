@@ -50,12 +50,13 @@ def _finalize_order(
     symbol: str,
     side: str,
     volume: float,
+    price: float,
     sl: float,
     tp: float | None,
     magic: int,
     strategy_id: str | None,
 ) -> dict:
-    """Map order_send result to a JSON envelope."""
+    """Map order_send result to a JSON envelope (spec §6.7 output keys)."""
     if result is None:
         return _fail("MT5_ORDER_REJECTED", "order_send returned None.", mt5_retcode=None)
 
@@ -67,10 +68,12 @@ def _finalize_order(
             "data": {
                 "ticket": result.order,
                 "symbol": symbol,
-                "side": side,
+                "type": side,
                 "volume": volume,
+                "price": price,
                 "sl": sl,
                 "tp": tp,
+                "time": getattr(result, "time", None),
                 "magic": magic,
                 "strategy_id": strategy_id,
                 "retcode": retcode,
@@ -148,13 +151,13 @@ def place_market(
         "tp": tp if tp is not None else 0.0,
         "deviation": deviation,
         "magic": resolved_magic,
-        "comment": comment or "",
+        "comment": comment or strategy_id or "",
         "type_time": bridge.ORDER_TIME_GTC,
         "type_filling": resolved_filling,
     }
 
     result = bridge.mt5_call("order_send", request)
-    return _finalize_order(result, symbol, side, float(volume), sl, tp, resolved_magic, strategy_id)
+    return _finalize_order(result, symbol, side, float(volume), entry_price, sl, tp, resolved_magic, strategy_id)
 
 
 # ---------------------------------------------------------------------------
@@ -211,14 +214,14 @@ def place_limit(
         "sl": sl,
         "tp": tp if tp is not None else 0.0,
         "magic": resolved_magic,
-        "comment": "",
+        "comment": strategy_id or "",
         "type_time": bridge.ORDER_TIME_SPECIFIED if expiry else bridge.ORDER_TIME_GTC,
         "expiration": expiry if expiry else 0,
         "type_filling": resolved_filling,
     }
 
     result = bridge.mt5_call("order_send", request)
-    return _finalize_order(result, symbol, side, float(volume), sl, tp, resolved_magic, strategy_id)
+    return _finalize_order(result, symbol, side, float(volume), price, sl, tp, resolved_magic, strategy_id)
 
 
 # ---------------------------------------------------------------------------
@@ -275,14 +278,14 @@ def place_stop(
         "sl": sl,
         "tp": tp if tp is not None else 0.0,
         "magic": resolved_magic,
-        "comment": "",
+        "comment": strategy_id or "",
         "type_time": bridge.ORDER_TIME_SPECIFIED if expiry else bridge.ORDER_TIME_GTC,
         "expiration": expiry if expiry else 0,
         "type_filling": resolved_filling,
     }
 
     result = bridge.mt5_call("order_send", request)
-    return _finalize_order(result, symbol, side, float(volume), sl, tp, resolved_magic, strategy_id)
+    return _finalize_order(result, symbol, side, float(volume), price, sl, tp, resolved_magic, strategy_id)
 
 
 # ---------------------------------------------------------------------------
@@ -399,10 +402,11 @@ def dryrun(
     deviation: int = 20,
     filling: str = "auto",
     cfg: dict,
+    is_live_intent: bool,
 ) -> dict:
-    """Validate an order without placing it.
+    """Validate an order without placing it (spec §7.3).
 
-    Calls ``order_check`` (NOT ``order_send``).  No risk envelope applied.
+    Runs the full risk envelope then calls ``order_check`` (NOT ``order_send``).
     Returns margin, margin_free, margin_level, profit, retcode.
     """
     if (volume is None) == (risk_pct is None):
@@ -422,6 +426,12 @@ def dryrun(
             return vol
         volume = vol
 
+    risk_result = risk_module.check_order(
+        symbol, side, volume, sl, strategy_id, cfg, is_live_intent=is_live_intent
+    )
+    if not risk_result["ok"]:
+        return risk_result
+
     resolved_magic = magic if magic is not None else risk_module.resolve_magic(strategy_id, cfg)
     resolved_filling = _resolve_filling(symbol, filling)
     order_type = bridge.ORDER_TYPE_BUY if side.lower() == "buy" else bridge.ORDER_TYPE_SELL
@@ -436,7 +446,7 @@ def dryrun(
         "tp": tp if tp is not None else 0.0,
         "deviation": deviation,
         "magic": resolved_magic,
-        "comment": "",
+        "comment": strategy_id or "",
         "type_time": bridge.ORDER_TIME_GTC,
         "type_filling": resolved_filling,
     }
