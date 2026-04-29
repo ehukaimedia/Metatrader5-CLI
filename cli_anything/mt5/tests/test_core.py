@@ -1551,3 +1551,147 @@ class TestOrder:
         assert len(risk._rate_limiter) == slots_before, (
             "dryrun must not consume a rate-limit slot"
         )
+
+
+# ===========================================================================
+# Task 12 — Positions (core/position.py + CLI)
+# ===========================================================================
+
+class TestPosition:
+
+    @staticmethod
+    def _make_pos(**kwargs):
+        from unittest.mock import MagicMock as MM
+        defaults = dict(
+            ticket=10001, symbol="EURUSD", type=0,
+            volume=0.1, price_open=1.1000, sl=1.09, tp=1.12,
+            profit=5.0, swap=-0.5, magic=88888,
+        )
+        defaults.update(kwargs)
+        return MM(**defaults)
+
+    # ------------------------------------------------------------------
+    # Test 1 — list returns all positions when no symbol given
+    # ------------------------------------------------------------------
+
+    def test_list_returns_all_positions_when_no_symbol(self, mt5m):
+        from cli_anything.mt5.core import position as position_module
+        p1 = self._make_pos(ticket=10001, symbol="EURUSD")
+        p2 = self._make_pos(ticket=10002, symbol="USDJPY", type=1)
+        mt5m.positions_get.return_value = [p1, p2]
+        result = position_module.list()
+        assert result["ok"] is True
+        assert len(result["data"]) == 2
+        tickets = {d["ticket"] for d in result["data"]}
+        assert tickets == {10001, 10002}
+        mt5m.positions_get.assert_called_once_with()
+
+    # ------------------------------------------------------------------
+    # Test 2 — list filters by symbol via positions_get(symbol=...)
+    # ------------------------------------------------------------------
+
+    def test_list_filters_by_symbol(self, mt5m):
+        from cli_anything.mt5.core import position as position_module
+        mt5m.positions_get.return_value = [self._make_pos(symbol="EURUSD")]
+        result = position_module.list("EURUSD")
+        assert result["ok"] is True
+        assert len(result["data"]) == 1
+        mt5m.positions_get.assert_called_once_with(symbol="EURUSD")
+
+    # ------------------------------------------------------------------
+    # Test 3 — close constructs opposite-side DEAL with position=ticket
+    # ------------------------------------------------------------------
+
+    def test_close_constructs_opposite_side_deal_request(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import position as position_module
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        pos = self._make_pos(ticket=10001, type=0)  # BUY position
+        mt5m.positions_get.return_value = [pos]
+        mt5m.symbol_info_tick.return_value = MM(ask=1.1010, bid=1.1005)
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = position_module.close(10001)
+        assert result["ok"] is True
+        request = mt5m.order_send.call_args[0][0]
+        assert request["action"] == bridge.TRADE_ACTION_DEAL
+        assert request["type"] == bridge.ORDER_TYPE_SELL  # opposite of BUY
+        assert request["position"] == 10001
+
+    # ------------------------------------------------------------------
+    # Test 4 — close_all continues on per-ticket failure
+    # ------------------------------------------------------------------
+
+    def test_close_all_continues_on_per_ticket_failure(self, mt5m, monkeypatch):
+        from cli_anything.mt5.core import position as position_module
+        p1 = self._make_pos(ticket=10001)
+        p2 = self._make_pos(ticket=10002)
+        mt5m.positions_get.return_value = [p1, p2]
+        close_results = [
+            {"ok": False, "error": {"code": "MT5_ORDER_REJECTED", "message": "rejected", "mt5_retcode": 10006}},
+            {"ok": True, "data": {"ticket": 10002, "result": "closed", "profit": 5.0}},
+        ]
+        call_idx = [0]
+
+        def mock_close(ticket, volume=None):
+            r = close_results[call_idx[0]]
+            call_idx[0] += 1
+            return r
+
+        monkeypatch.setattr(position_module, "close", mock_close)
+        result = position_module.close_all()
+        assert result["ok"] is True
+        assert len(result["data"]) == 2
+        assert result["data"][0]["result"] == "error"
+        assert result["data"][1]["result"] == "closed"
+
+    # ------------------------------------------------------------------
+    # Test 5 — breakeven BUY with zero buffer sets SL to open price
+    # ------------------------------------------------------------------
+
+    def test_breakeven_buy_with_zero_buffer_sets_sl_to_open_price(self, mt5m):
+        import pytest
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import position as position_module
+        pos = self._make_pos(ticket=10001, type=0, price_open=1.1000, tp=1.12)
+        mt5m.positions_get.return_value = [pos]
+        mt5m.symbol_info.return_value = MM(point=0.00001)
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = position_module.breakeven(10001, buffer_points=0)
+        assert result["ok"] is True
+        assert result["data"]["sl_set_to"] == pytest.approx(1.1000)
+        request = mt5m.order_send.call_args[0][0]
+        assert request["sl"] == pytest.approx(1.1000)
+
+    # ------------------------------------------------------------------
+    # Test 6 — breakeven BUY with 5-point buffer sets SL above open
+    # ------------------------------------------------------------------
+
+    def test_breakeven_buy_with_5_point_buffer_sets_sl_above_open(self, mt5m):
+        import pytest
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import position as position_module
+        pos = self._make_pos(ticket=10001, type=0, price_open=1.1000, tp=1.12)
+        mt5m.positions_get.return_value = [pos]
+        mt5m.symbol_info.return_value = MM(point=0.00001)
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = position_module.breakeven(10001, buffer_points=5)
+        assert result["ok"] is True
+        expected_sl = 1.1000 + 5 * 0.00001
+        assert result["data"]["sl_set_to"] == pytest.approx(expected_sl)
+
+    # ------------------------------------------------------------------
+    # Test 7 — breakeven SELL with 5-point buffer sets SL below open
+    # ------------------------------------------------------------------
+
+    def test_breakeven_sell_with_5_point_buffer_sets_sl_below_open(self, mt5m):
+        import pytest
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import position as position_module
+        pos = self._make_pos(ticket=10003, type=1, price_open=1.1000, tp=1.09)  # SELL
+        mt5m.positions_get.return_value = [pos]
+        mt5m.symbol_info.return_value = MM(point=0.00001)
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = position_module.breakeven(10003, buffer_points=5)
+        assert result["ok"] is True
+        expected_sl = 1.1000 - 5 * 0.00001
+        assert result["data"]["sl_set_to"] == pytest.approx(expected_sl)

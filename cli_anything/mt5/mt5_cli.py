@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, analyze, indicator, market, order, project, rates
+from cli_anything.mt5.core import account, analyze, indicator, market, order, position, project, rates
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -739,3 +739,96 @@ def order_dryrun_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, strategy_id, m
         is_live_intent=obj["live_intent"],
     )
     output(result, obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Position command group
+# ---------------------------------------------------------------------------
+
+@main.group("position")
+@click.pass_context
+def position_group(ctx):
+    """Open position management: list, show, close, move SL, breakeven."""
+    ctx.ensure_object(dict)
+
+
+@position_group.command("list")
+@click.option("--symbol", default=None, help="Filter by symbol.")
+@click.pass_context
+def position_list_cmd(ctx, symbol):
+    """List all open positions (optionally filtered by --symbol)."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(position.list(symbol), obj["as_json"])
+
+
+@position_group.command("show")
+@click.argument("ticket", type=int)
+@click.pass_context
+def position_show_cmd(ctx, ticket):
+    """Show detail for a single open position TICKET."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(position.show(ticket), obj["as_json"])
+
+
+@position_group.command("close")
+@click.argument("ticket", type=int)
+@click.option("--volume", type=float, default=None, help="Partial close volume (default: full).")
+@click.pass_context
+def position_close_cmd(ctx, ticket, volume):
+    """Close (fully or partially) the open position TICKET."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(position.close(ticket, volume), obj["as_json"])
+
+
+@position_group.command("close-all")
+@click.option("--symbol", default=None, help="Close only positions for SYMBOL.")
+@click.pass_context
+def position_close_all_cmd(ctx, symbol):
+    """Close all open positions (optionally restricted to --symbol)."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(position.close_all(symbol), obj["as_json"])
+
+
+@position_group.command("move-sl")
+@click.argument("ticket", type=int)
+@click.option("--sl", required=True, type=float, help="New stop-loss price.")
+@click.pass_context
+def position_move_sl_cmd(ctx, ticket, sl):
+    """Move the stop-loss for open position TICKET to --sl."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(position.move_sl(ticket, sl), obj["as_json"])
+
+
+@position_group.command("breakeven")
+@click.argument("ticket", type=int)
+@click.option("--buffer-points", "buffer_points", default=0, show_default=True, type=int,
+              help="Extra points beyond open price in the trade's favour.")
+@click.pass_context
+def position_breakeven_cmd(ctx, ticket, buffer_points):
+    """Move SL to breakeven (open price ± buffer) for position TICKET."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(position.breakeven(ticket, buffer_points), obj["as_json"])
