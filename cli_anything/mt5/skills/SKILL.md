@@ -11,8 +11,8 @@ you will encounter, and the JSON envelope contract.
 Before any analysis or order, confirm the broker-exact symbol name:
 
 ```bash
-mt5 market search USD          # returns all symbols containing "USD"
-mt5 market search EURUSD       # exact match check
+mt5 market search --pattern USD          # returns all symbols containing "USD"
+mt5 market search --pattern EURUSD      # exact match check
 ```
 
 Broker symbol names differ: `EURUSD`, `EURUSD.`, `EURUSDm`, `FX:EURUSD`.
@@ -27,7 +27,7 @@ Execute this sequence in order for every trading decision:
 
 ```bash
 # 1. Verify symbol (Step 0 — mandatory)
-mt5 market search USDJPY
+mt5 market search --pattern USDJPY
 
 # 2. Inspect tick and spread
 mt5 --json market info USDJPY
@@ -116,7 +116,7 @@ Tag each strategy's orders for isolated history filtering:
 mt5 --json order market EURUSD buy --volume 0.01 --sl 1.0800 \
     --strategy-id gopher-gate
 
-mt5 --json history stats --from 2026-01-01 --strategy-id gopher-gate
+mt5 --json history stats --from 2026-01-01 --to 2026-01-31 --strategy-id gopher-gate
 ```
 
 Magic resolution order:

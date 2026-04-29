@@ -24,7 +24,7 @@ Options → Expert Advisors → "Allow algorithmic trading"** is enabled.
 ## 2. Top-down analysis before a trade
 
 ```bash
-mt5 market search USDJPY                           # confirm broker symbol name
+mt5 market search --pattern USDJPY                 # confirm broker symbol name
 mt5 --json market info USDJPY                      # tick, spread, volume limits
 mt5 --json analyze topdown USDJPY \
     --timeframes MN1,W1,D1,H4,H1,M15
@@ -80,9 +80,9 @@ positions or orders failed to close.
 
 ```bash
 mt5 --json history orders --from 2026-01-01 --to 2026-01-31
-mt5 --json history deals  --from 2026-01-01 --symbol USDJPY
-mt5 --json history stats  --from 2026-01-01
-mt5 --json history stats  --from 2026-01-01 --strategy-id gopher-gate
+mt5 --json history deals  --from 2026-01-01 --to 2026-01-31 --symbol USDJPY
+mt5 --json history stats  --from 2026-01-01 --to 2026-01-31
+mt5 --json history stats  --from 2026-01-01 --to 2026-01-31 --strategy-id gopher-gate
 ```
 
 ---
