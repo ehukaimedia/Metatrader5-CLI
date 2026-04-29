@@ -1929,14 +1929,14 @@ class TestScreenshot:
         mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
         monkeypatch.setattr(ss_module, "mss", mock_mss)
 
-        cfg = {"screenshot_monitor": 1, "screenshot_path": str(tmp_path)}
+        cfg = {"screenshot_monitor": 2, "screenshot_path": str(tmp_path)}
         result = ss_module.take(
             output_path=str(tmp_path / "s.png"),
             window_substring="",  # skip pygetwindow
             cfg=cfg,
         )
         assert result["ok"] is True
-        # cfg["screenshot_monitor"]=1 → monitors[1+1] = monitors[2]
+        # cfg["screenshot_monitor"]=2 (positive) → sct.monitors[2] directly
         mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
 
     # ------------------------------------------------------------------
@@ -1952,11 +1952,11 @@ class TestScreenshot:
         result = ss_module.take(
             output_path=str(tmp_path / "s.png"),
             window_substring="",
-            monitor=1,  # arg says 1 → should win
+            monitor=2,  # arg says 2 (second physical) → should win over cfg=0
             cfg=cfg,
         )
         assert result["ok"] is True
-        # monitor arg=1 → monitors[1+1] = monitors[2]
+        # monitor arg=2 (positive) → sct.monitors[2] directly
         mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
 
     # ------------------------------------------------------------------
@@ -1986,7 +1986,27 @@ class TestScreenshot:
         mock_sct.grab.assert_called_once_with(mock_sct.monitors[1])
 
     # ------------------------------------------------------------------
-    # Test 4 — annotate writes output file with Pillow
+    # Test 4 — screenshot_monitor: 2 does not IndexError on a 2-monitor setup
+    # ------------------------------------------------------------------
+
+    def test_take_cfg_monitor_2_on_two_monitor_setup_no_indexerror(self, tmp_path, monkeypatch):
+        from cli_anything.mt5.core import screenshot as ss_module
+        # Only 2 physical monitors → mss.monitors = [all, primary, secondary] (len=3)
+        mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
+        monkeypatch.setattr(ss_module, "mss", mock_mss)
+
+        cfg = {"screenshot_monitor": 2, "screenshot_path": str(tmp_path)}
+        result = ss_module.take(
+            output_path=str(tmp_path / "s.png"),
+            window_substring="",
+            cfg=cfg,
+        )
+        assert result["ok"] is True
+        # 2 → sct.monitors[2] (second physical); NOT sct.monitors[3] which would IndexError
+        mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
+
+    # ------------------------------------------------------------------
+    # Test 5 — annotate writes output file with Pillow
     # ------------------------------------------------------------------
 
     def test_annotate_writes_output_file_with_pillow_call(self, tmp_path):
@@ -2004,7 +2024,7 @@ class TestScreenshot:
         assert (tmp_path / "output.png").exists()
 
     # ------------------------------------------------------------------
-    # Test 5 — list filters PNGs and sorts by mtime
+    # Test 6 — list filters PNGs and sorts by mtime
     # ------------------------------------------------------------------
 
     def test_list_filters_pngs_and_sorts_by_mtime(self, tmp_path):

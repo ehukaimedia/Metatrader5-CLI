@@ -79,7 +79,12 @@ def take(
             pass
 
     with mss.mss() as sct:
-        target = region if window_matched else sct.monitors[monitor_idx + 1]
+        # monitor_idx mapping:
+        #   0   → sct.monitors[1]  (primary; 0 is the spec's alias for "primary")
+        #   n>0 → sct.monitors[n]  (mss 1-based physical index; matches Windows "Monitor n")
+        # This prevents config value 2 from becoming sct.monitors[3] on a 2-monitor setup.
+        mss_idx = 1 if monitor_idx == 0 else monitor_idx
+        target = region if window_matched else sct.monitors[mss_idx]
         shot = sct.grab(target)
         mss.tools.to_png(shot.rgb, shot.size, output=output_path)
 
