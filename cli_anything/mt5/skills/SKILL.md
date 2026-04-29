@@ -30,22 +30,22 @@ Execute this sequence in order for every trading decision:
 mt5 market search USDJPY
 
 # 2. Inspect tick and spread
-mt5 market info USDJPY --json
+mt5 --json market info USDJPY
 
 # 3. Multi-timeframe bias
-mt5 analyze topdown USDJPY --timeframes MN1,W1,D1,H4,H1,M15 --json
+mt5 --json analyze topdown USDJPY --timeframes MN1,W1,D1,H4,H1,M15
 
 # 4. Key structure levels
-mt5 analyze structure USDJPY H4 --bars 200 --json
+mt5 --json analyze structure USDJPY H4 --bars 200
 
 # 5. Dry-run before committing
-mt5 order dryrun USDJPY buy --volume 0.01 --sl 158.50 --json
+mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 158.50
 
 # 6. Place the order only if dry-run returns ok:true
-mt5 order market USDJPY buy --volume 0.01 --sl 158.50 --json
+mt5 --json order market USDJPY buy --volume 0.01 --sl 158.50
 
 # 7. Confirm the position opened
-mt5 position list --symbol USDJPY --json
+mt5 --json position list --symbol USDJPY
 ```
 
 **Never skip step 5 (dry-run).**  A dry-run runs the local risk envelope
@@ -113,10 +113,10 @@ Always branch on `result["ok"]` before reading `result["data"]`.
 Tag each strategy's orders for isolated history filtering:
 
 ```bash
-mt5 order market EURUSD buy --volume 0.01 --sl 1.0800 \
-    --strategy-id gopher-gate --json
+mt5 --json order market EURUSD buy --volume 0.01 --sl 1.0800 \
+    --strategy-id gopher-gate
 
-mt5 history stats --from 2026-01-01 --strategy-id gopher-gate --json
+mt5 --json history stats --from 2026-01-01 --strategy-id gopher-gate
 ```
 
 Magic resolution order:
@@ -133,11 +133,12 @@ Two strategies with different IDs always isolate, even without config.
 Import the core layer directly — no subprocess required:
 
 ```python
-from cli_anything.mt5.core import account, analyze, market, order, position, rates
+from cli_anything.mt5.core import account, indicator, market, order, position, rates
 
-info = account.info()            # {"ok": True, "data": {...}}
+info = account.info()                    # {"ok": True, "data": {...}}
 tick = market.tick("EURUSD")
-r    = rates.get("EURUSD", "H1", bars=200)
+r    = rates.fetch("EURUSD", "H1", bars=200)   # list of OHLCV dicts
+ema  = indicator.ema("EURUSD", "H1", period=20)
 result = order.place_market(
     "EURUSD", "buy",
     volume=0.01, sl=1.0800,

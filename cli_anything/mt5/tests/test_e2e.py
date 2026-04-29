@@ -40,31 +40,44 @@ from cli_anything.mt5.core import (
     project,
     rates,
 )
+from cli_anything.mt5.utils import mt5_backend as bridge
+
+# ---------------------------------------------------------------------------
+# Connect to MT5 terminal before safety assertion
+# ---------------------------------------------------------------------------
+
+_CFG: dict = project.load()
+
+try:
+    bridge.connect(
+        login=_CFG.get("login"),
+        password=_CFG.get("password"),
+        server=_CFG.get("server", ""),
+        timeout=_CFG.get("timeout", 10000),
+    )
+except ConnectionError as _connect_exc:
+    pytest.skip(
+        f"MT5 terminal not reachable: {_connect_exc}",
+        allow_module_level=True,
+    )
 
 # ---------------------------------------------------------------------------
 # Safety guard — abort entire module on a real account
 # ---------------------------------------------------------------------------
 
 _acct = account.info()
-assert _acct.get("ok"), f"account.info() failed: {_acct}"
+assert _acct.get("ok"), f"account.info() failed after connect: {_acct}"
 assert _acct["data"]["trade_mode"] != "real", (
     "SAFETY ABORT: connected account is a real (live) account. "
     "Integration tests must only run on demo accounts."
 )
 
 # ---------------------------------------------------------------------------
-# Module-level config (loaded once)
-# ---------------------------------------------------------------------------
-
-_CFG: dict = project.load()
-
-# ---------------------------------------------------------------------------
-# API smoke check (import-level, always verifies callable shapes)
+# API smoke check (runs without MT5 — verifies callable shapes only)
 # ---------------------------------------------------------------------------
 
 def test_core_apis_are_callable():
-    """Verify the core API functions exist and are callable without MT5."""
-    import inspect
+    """Verify the core API functions exist and are callable."""
     assert callable(account.info)
     assert callable(rates.fetch)
     assert callable(indicator.ema)
@@ -104,12 +117,10 @@ class TestE2ERoundTrip:
     # ------------------------------------------------------------------
 
     def test_rates_and_ema(self):
-        # Fetch H1 rates for EURUSD (100 bars)
         r = rates.fetch("EURUSD", "H1", bars=100)
         assert r["ok"] is True, r
         assert len(r["data"]) >= 10
 
-        # Compute EMA on close prices
         ema_result = indicator.ema("EURUSD", "H1", period=20, bars=100)
         assert ema_result["ok"] is True, ema_result
         values = ema_result["data"]["values"]
@@ -123,7 +134,6 @@ class TestE2ERoundTrip:
     def test_market_order_round_trip(self):
         symbol = "EURUSD"
 
-        # Verify symbol is available
         info = market.info(symbol)
         assert info["ok"] is True, f"market.info failed: {info}"
 
@@ -135,7 +145,6 @@ class TestE2ERoundTrip:
         point = info["data"].get("point", 0.00001)
         sl = round(ask - 150 * point, 5)
 
-        # Place a 0.01-lot demo buy
         result = order.place_market(
             symbol, "buy",
             volume=0.01,
@@ -147,15 +156,12 @@ class TestE2ERoundTrip:
         ticket = result["data"]["ticket"]
         assert isinstance(ticket, int)
 
-        # Poll until fill confirmed (up to 10 s)
         fill = order.poll_fill(ticket, timeout_ms=10_000)
         assert fill["ok"] is True
         assert fill["data"]["filled"] is True, "Order was not filled within 10 s"
 
-        # Brief pause for position to appear
         time.sleep(1)
 
-        # Confirm position is open
         pos_list = position.list(symbol=symbol)
         assert pos_list["ok"] is True
         open_tickets = [p["ticket"] for p in pos_list["data"]]
@@ -163,14 +169,11 @@ class TestE2ERoundTrip:
             f"Ticket {ticket} not in open positions: {open_tickets}"
         )
 
-        # Close the position
         close_result = position.close(ticket, is_live_intent=False)
         assert close_result["ok"] is True, f"position.close failed: {close_result}"
 
-        # Brief pause so history has time to record the deal
         time.sleep(2)
 
-        # Verify the deal appears in history
         from datetime import date, timezone, datetime
         today = date.today()
         date_from = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)

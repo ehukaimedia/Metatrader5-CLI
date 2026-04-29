@@ -3,14 +3,17 @@
 Quick reference for humans operating the CLI.  For agent-facing capability
 docs see `cli_anything/mt5/skills/SKILL.md`.
 
+> **`--json` and `--live` are top-level flags** and must come before the
+> subcommand: `mt5 --json account info`, not `mt5 account info --json`.
+
 ---
 
 ## 1. Connect and verify
 
 ```bash
-mt5 config test          # ping terminal; shows server + balance
-mt5 account info --json  # full account snapshot
-mt5 account risk --json  # risk envelope status (positions used, daily loss, etc.)
+mt5 config test               # ping terminal; shows server + balance
+mt5 --json account info       # full account snapshot
+mt5 --json account risk       # risk envelope status (positions used, daily loss, etc.)
 ```
 
 If `config test` fails, check that MetaTrader 5 is running and **Tools →
@@ -21,11 +24,11 @@ Options → Expert Advisors → "Allow algorithmic trading"** is enabled.
 ## 2. Top-down analysis before a trade
 
 ```bash
-mt5 market search USDJPY            # confirm broker symbol name
-mt5 market info  USDJPY --json      # tick, spread, volume limits
-mt5 analyze topdown USDJPY \
-    --timeframes MN1,W1,D1,H4,H1,M15 --json
-mt5 analyze structure USDJPY H4 --bars 200 --json
+mt5 market search USDJPY                           # confirm broker symbol name
+mt5 --json market info USDJPY                      # tick, spread, volume limits
+mt5 --json analyze topdown USDJPY \
+    --timeframes MN1,W1,D1,H4,H1,M15
+mt5 --json analyze structure USDJPY H4 --bars 200
 mt5 screenshot take --output ~/charts/usdjpy-h4.png
 ```
 
@@ -34,25 +37,24 @@ mt5 screenshot take --output ~/charts/usdjpy-h4.png
 ## 3. Place an order — dry-run first
 
 ```bash
-# Broker-validates margin and fill mode; no order sent
-mt5 order dryrun USDJPY buy --volume 0.10 --sl 158.50 --tp 154.00 --json
+# Local risk gates + broker order_check(); no order sent
+mt5 --json order dryrun USDJPY buy --volume 0.10 --sl 158.50 --tp 154.00
 
 # Place only if dry-run ok:true
-mt5 order market USDJPY buy --volume 0.10 --sl 158.50 --tp 154.00 --json
+mt5 --json order market USDJPY buy --volume 0.10 --sl 158.50 --tp 154.00
 
 # Confirm fill
-mt5 position list --symbol USDJPY --json
+mt5 --json position list --symbol USDJPY
 
 # Move to breakeven once in profit
-mt5 position breakeven TICKET_ID --json
+mt5 --json position breakeven TICKET_ID
 ```
 
-For a live (real-money) account every mutating command additionally requires:
-- `--live` flag on the command
+For a live (real-money) account every mutating command additionally requires
+all three live-gate conditions simultaneously:
+- `mt5 --live ...` flag on the invocation
 - `MT5_LIVE=1` environment variable
 - `"live": true` in `~/.config/cli-anything-mt5.json`
-
-All three must be true simultaneously; any one missing blocks the trade.
 
 ---
 
@@ -77,10 +79,10 @@ positions or orders failed to close.
 ## 5. History and performance
 
 ```bash
-mt5 history orders --from 2026-01-01 --to 2026-01-31 --json
-mt5 history deals  --from 2026-01-01 --symbol USDJPY --json
-mt5 history stats  --from 2026-01-01 --json
-mt5 history stats  --from 2026-01-01 --strategy-id gopher-gate --json
+mt5 --json history orders --from 2026-01-01 --to 2026-01-31
+mt5 --json history deals  --from 2026-01-01 --symbol USDJPY
+mt5 --json history stats  --from 2026-01-01
+mt5 --json history stats  --from 2026-01-01 --strategy-id gopher-gate
 ```
 
 ---
@@ -88,7 +90,7 @@ mt5 history stats  --from 2026-01-01 --strategy-id gopher-gate --json
 ## 6. Interactive REPL
 
 ```bash
-mt5 repl
+mt5          # launch REPL (no subcommand = REPL mode)
 ```
 
 Features: arrow-key history, tab completion on command names, prompt shows
@@ -103,7 +105,7 @@ last-used symbol (`mt5 (USDJPY)>`), auto-reconnects once on disconnect.
 | 10009 | `TRADE_RETCODE_DONE` | Order fully executed — success |
 | 10008 | `TRADE_RETCODE_PLACED` | Placed but not yet filled — run `order poll-fill TICKET` |
 | 10006 | `TRADE_RETCODE_REJECT` | Rejected by broker — check symbol, volume, margin |
-| 10030 | `TRADE_RETCODE_INVALID_FILL` | Wrong filling mode — add `filling = "FOK"` to config |
+| 10030 | `TRADE_RETCODE_INVALID_FILL` | Wrong filling mode — add `"filling": "FOK"` to config |
 | 10027 | `TRADE_RETCODE_NOT_ALLOWED` | Algo trading disabled — enable in MT5 → Options → Expert Advisors |
 | 10013 | `TRADE_RETCODE_INVALID_STOPS` | SL/TP too close to price — increase buffer |
 | 10016 | `TRADE_RETCODE_INVALID_VOLUME` | Volume outside broker min/max or not a valid step |
