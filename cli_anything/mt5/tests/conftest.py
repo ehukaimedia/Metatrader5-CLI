@@ -3,6 +3,7 @@ pytest configuration — MT5 mock installed at module level so that
 `import MetaTrader5 as mt5` inside mt5_backend.py picks up the mock
 before any test module imports the bridge.
 """
+import os
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -12,10 +13,15 @@ from unittest.mock import MagicMock
 # This must be module-level (not inside a fixture) so that
 # `import MetaTrader5 as mt5` in mt5_backend.py resolves to the mock.
 # ---------------------------------------------------------------------------
-_mt5_mock = MagicMock(name="MetaTrader5")
-_mt5_mock.initialize.return_value = True
-_mt5_mock.last_error.return_value = (1, "Success")
-sys.modules["MetaTrader5"] = _mt5_mock
+_USE_REAL_MT5 = os.environ.get("MT5_DEMO_INTEGRATION") == "1"
+
+if _USE_REAL_MT5:
+    _mt5_mock = None
+else:
+    _mt5_mock = MagicMock(name="MetaTrader5")
+    _mt5_mock.initialize.return_value = True
+    _mt5_mock.last_error.return_value = (1, "Success")
+    sys.modules["MetaTrader5"] = _mt5_mock
 
 import pytest  # noqa: E402  (must come after sys.modules injection)
 
@@ -29,6 +35,8 @@ from cli_anything.mt5.utils import mt5_backend as bridge  # noqa: E402
 @pytest.fixture
 def mt5m():
     """Yield the MT5 mock, reset before and after each test."""
+    if _USE_REAL_MT5:
+        pytest.skip("mt5m mock fixture is unavailable during live MT5 integration runs.")
     _mt5_mock.reset_mock()
     _mt5_mock.initialize.return_value = True
     _mt5_mock.last_error.return_value = (1, "Success")

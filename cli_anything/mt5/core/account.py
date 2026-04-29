@@ -47,7 +47,7 @@ def info() -> dict:
             "balance": acc.balance,
             "equity": acc.equity,
             "margin": acc.margin,
-            "free_margin": acc.free_margin,
+            "free_margin": acc.margin_free,
             "margin_level": acc.margin_level,
             "leverage": acc.leverage,
             "profit": acc.profit,
@@ -93,7 +93,7 @@ def risk(cfg: dict) -> dict:
     if acc.equity <= 0:
         margin_ok = False
     else:
-        margin_ok = acc.free_margin / acc.equity * 100 >= cfg["min_free_margin_pct"]
+        margin_ok = acc.margin_free / acc.equity * 100 >= cfg["min_free_margin_pct"]
 
     return {
         "ok": True,

@@ -321,7 +321,7 @@ def check_order(
     # ------------------------------------------------------------------
     if account_info.equity <= 0:
         return _fail("RISK_INSUFFICIENT_MARGIN", "Account equity is zero or negative.")
-    free_margin_pct = account_info.free_margin / account_info.equity * 100
+    free_margin_pct = account_info.margin_free / account_info.equity * 100
     if free_margin_pct < cfg["min_free_margin_pct"]:
         return _fail(
             "RISK_INSUFFICIENT_MARGIN",

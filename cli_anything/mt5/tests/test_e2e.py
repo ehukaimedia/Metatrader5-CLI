@@ -117,11 +117,11 @@ class TestE2ERoundTrip:
     # ------------------------------------------------------------------
 
     def test_rates_and_ema(self):
-        r = rates.fetch("EURUSD", "H1", bars=100)
+        r = rates.fetch("USDJPY", "H1", bars=100)
         assert r["ok"] is True, r
         assert len(r["data"]) >= 10
 
-        ema_result = indicator.ema("EURUSD", "H1", period=20, bars=100)
+        ema_result = indicator.ema("USDJPY", "H1", period=20, bars=100)
         assert ema_result["ok"] is True, ema_result
         values = ema_result["data"]["values"]
         assert len(values) >= 1
@@ -132,7 +132,7 @@ class TestE2ERoundTrip:
     # ------------------------------------------------------------------
 
     def test_market_order_round_trip(self):
-        symbol = "EURUSD"
+        symbol = "USDJPY"
 
         info = market.info(symbol)
         assert info["ok"] is True, f"market.info failed: {info}"
@@ -144,6 +144,15 @@ class TestE2ERoundTrip:
         # SL placed 150 points below ask for a buy
         point = info["data"].get("point", 0.00001)
         sl = round(ask - 150 * point, 5)
+
+        dryrun = order.dryrun(
+            symbol, "buy",
+            volume=0.01,
+            sl=sl,
+            cfg=_CFG,
+            is_live_intent=False,
+        )
+        assert dryrun["ok"] is True, f"dryrun failed: {dryrun}"
 
         result = order.place_market(
             symbol, "buy",

@@ -505,6 +505,13 @@ def dryrun(
     result = bridge.mt5_call("order_check", request)
     if result is None:
         return _fail("MT5_ORDER_REJECTED", "order_check returned None.")
+    retcode = getattr(result, "retcode", None)
+    if retcode not in (0, bridge.TRADE_RETCODE_DONE, bridge.TRADE_RETCODE_PLACED):
+        return _fail(
+            "MT5_ORDER_REJECTED",
+            getattr(result, "comment", None) or "order_check rejected request.",
+            mt5_retcode=retcode,
+        )
 
     return {
         "ok": True,

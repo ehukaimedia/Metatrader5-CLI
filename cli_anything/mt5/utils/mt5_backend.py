@@ -85,12 +85,15 @@ def connect(login, password, server, timeout: int = 10000) -> None:
         # Double-checked locking: re-test inside the lock to be safe.
         if _initialized:
             return
-        ok = mt5.initialize(
-            login=login,
-            password=password,
-            server=server,
-            timeout=timeout,
-        )
+        if login is not None and password is not None:
+            ok = mt5.initialize(
+                login=login,
+                password=password,
+                server=server,
+                timeout=timeout,
+            )
+        else:
+            ok = mt5.initialize()
         if not ok:
             raise ConnectionError("MT5 initialize failed")
         _initialized = True
@@ -117,7 +120,10 @@ def mt5_call(fn_name: str, *args, **kwargs):
     code.  Core modules call this instead of touching mt5 directly.
     """
     with _lock:
-        return getattr(mt5, fn_name)(*args, **kwargs)
+        fn = getattr(mt5, fn_name)
+        if kwargs:
+            return fn(*args, **kwargs)
+        return fn(*args)
 
 
 def ensure_symbol(symbol: str) -> bool:
@@ -140,12 +146,15 @@ def reconnect_once(cfg: dict) -> bool:
     with _lock:
         mt5.shutdown()
         _initialized = False
-        ok = mt5.initialize(
-            login=cfg.get("login"),
-            password=cfg.get("password"),
-            server=cfg.get("server"),
-            timeout=cfg.get("timeout", 10000),
-        )
+        if cfg.get("login") is not None and cfg.get("password") is not None:
+            ok = mt5.initialize(
+                login=cfg.get("login"),
+                password=cfg.get("password"),
+                server=cfg.get("server"),
+                timeout=cfg.get("timeout", 10000),
+            )
+        else:
+            ok = mt5.initialize()
         if ok:
             _initialized = True
         return bool(ok)

@@ -39,6 +39,23 @@ class TestBridge:
         with pytest.raises(ConnectionError):
             bridge.connect("u", "p", "srv")
 
+    def test_connect_without_password_uses_bare_initialize(self, mt5m):
+        """Regression: MT5 rejects password=None; logged-in terminals use bare initialize()."""
+        bridge.connect(105112007, None, "Trading.comMarkets-MT5")
+        mt5m.initialize.assert_called_once_with()
+
+    def test_reconnect_without_password_uses_bare_initialize(self, mt5m):
+        """Regression: reconnect_once follows the same bare-initialize path."""
+        result = bridge.reconnect_once({
+            "login": 105112007,
+            "password": None,
+            "server": "Trading.comMarkets-MT5",
+            "timeout": 10000,
+        })
+        assert result is True
+        mt5m.shutdown.assert_called_once()
+        mt5m.initialize.assert_called_once_with()
+
     def test_mt5_call_dispatches_under_lock(self, mt5m):
         bridge.connect("u", "p", "srv")
         bridge.mt5_call("account_info")
@@ -247,7 +264,7 @@ class TestRisk:
     def _happy_path_setup(self, mt5m, cfg):
         """Configure mt5m so check_order passes all guards."""
         mt5m.account_info.return_value = MagicMock(
-            trade_mode=0, equity=10000.0, free_margin=8000.0,
+            trade_mode=0, equity=10000.0, margin_free=8000.0,
         )
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = MagicMock(ask=155.00, bid=154.99)
@@ -272,7 +289,7 @@ class TestRisk:
         from cli_anything.mt5.core import risk
         mt5m.account_info.return_value = MagicMock(
             trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL,
-            equity=10000.0, free_margin=8000.0,
+            equity=10000.0, margin_free=8000.0,
         )
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = MagicMock(ask=155.00, bid=154.99)
@@ -287,7 +304,7 @@ class TestRisk:
         # When is_live_intent=True, live gate should NOT fire even on real account
         mt5m.account_info.return_value = MagicMock(
             trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL,
-            equity=10000.0, free_margin=8000.0,
+            equity=10000.0, margin_free=8000.0,
         )
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = MagicMock(ask=155.00, bid=154.99)
@@ -329,7 +346,7 @@ class TestRisk:
     def test_check_order_rejects_spread_too_wide(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         mt5m.account_info.return_value = MagicMock(
-            trade_mode=0, equity=10000.0, free_margin=8000.0,
+            trade_mode=0, equity=10000.0, margin_free=8000.0,
         )
         mt5m.positions_get.return_value = []
         # spread = (ask - bid) / point = (155.10 - 154.99) / 0.001 = 110 points > 30
@@ -343,7 +360,7 @@ class TestRisk:
     def test_check_order_rejects_hedge(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         # Existing BUY position on USDJPY; new order is also BUY so no hedge
         # Test: existing BUY, new SELL → hedge blocked
         existing = MM(symbol="USDJPY", type=0)  # type 0 = ORDER_TYPE_BUY
@@ -358,7 +375,7 @@ class TestRisk:
     def test_check_order_rejects_max_positions(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = [MM(symbol="GBPUSD", type=0, profit=0)] * 5  # max_positions=5
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
         mt5m.symbol_info.return_value = MM(point=0.001)
@@ -371,7 +388,7 @@ class TestRisk:
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
         # free_margin = 100, equity = 10000 → 1% < 20%
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=100.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=100.0)
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
         mt5m.symbol_info.return_value = MM(point=0.001)
@@ -383,7 +400,7 @@ class TestRisk:
     def test_check_order_rejects_max_daily_loss(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = [MM(profit=-30.0)]  # floating -30
         # Realized deals: profit=-20, comm=-1, swap=-0.5 → realized = -21.5
         # Total = -30 + (-21.5) = -51.5 <= -50 → fires
@@ -437,7 +454,7 @@ class TestRisk:
     def test_check_order_rejects_tick_none(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = None
         mt5m.symbol_info.return_value = MM(point=0.001)
@@ -449,7 +466,7 @@ class TestRisk:
     def test_check_order_rejects_point_zero(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
         mt5m.symbol_info.return_value = MM(point=0)
@@ -461,7 +478,7 @@ class TestRisk:
     def test_check_order_rejects_equity_zero(self, mt5m, cfg):
         from cli_anything.mt5.core import risk
         from unittest.mock import MagicMock as MM
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=0.0, free_margin=0.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=0.0, margin_free=0.0)
         mt5m.positions_get.return_value = []
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
         mt5m.symbol_info.return_value = MM(point=0.001)
@@ -626,7 +643,7 @@ class TestAccount:
         defaults = dict(
             login=12345678, name="Test User", server="Trading.com-Demo",
             currency="USD", balance=10000.0, equity=10000.0,
-            margin=0.0, free_margin=10000.0, margin_level=0.0,
+            margin=0.0, margin_free=10000.0, margin_level=0.0,
             leverage=50, profit=0.0,
             trade_mode=bridge.ACCOUNT_TRADE_MODE_DEMO,
             trade_allowed=True,
@@ -683,7 +700,7 @@ class TestAccount:
         from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import account
         mt5m.account_info.return_value = self._make_acc(
-            equity=10000.0, free_margin=8000.0, currency="USD"
+            equity=10000.0, margin_free=8000.0, currency="USD"
         )
         mt5m.positions_get.return_value = [MM(profit=10.0)]
         mt5m.history_deals_get.return_value = []
@@ -724,7 +741,7 @@ class TestMarket:
         from unittest.mock import MagicMock as MM
         defaults = dict(
             name="EURUSD", bid=1.08500, ask=1.08510, spread=10,
-            digits=5, trade_tick_value=1.0,
+            digits=5, point=0.00001, trade_tick_value=1.0,
             volume_min=0.01, volume_step=0.01, volume_max=100.0,
             swap_long=-1.5, swap_short=0.5,
             filling_mode=1, trade_mode=0,
@@ -739,6 +756,7 @@ class TestMarket:
         result = market.info("EURUSD")
         assert result["ok"] is True
         assert result["data"]["pip_size"] == pytest.approx(0.0001)
+        assert result["data"]["point"] == pytest.approx(0.00001)
 
     def test_market_info_pip_size_usdjpy_0_01(self, mt5m):
         from cli_anything.mt5.core import market
@@ -1504,6 +1522,24 @@ class TestOrder:
         assert result["data"]["dry_run"] is True
         mt5m.order_send.assert_not_called()
         mt5m.order_check.assert_called_once()
+        assert isinstance(mt5m.order_check.call_args.args[0], dict)
+        assert mt5m.order_check.call_args.kwargs == {}
+
+    def test_dryrun_rejects_nonzero_order_check_retcode(self, mt5m, monkeypatch, cfg):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
+        mt5m.symbol_info.return_value = MM(filling_mode=1)
+        mt5m.order_check.return_value = MM(retcode=10013, comment="Invalid request")
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        result = order_module.dryrun(
+            "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg, is_live_intent=False,
+        )
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_ORDER_REJECTED"
+        assert result["error"]["mt5_retcode"] == 10013
+        mt5m.order_send.assert_not_called()
 
     # ------------------------------------------------------------------
     # Test 15 — strategy_id stored in MT5 comment field (spec §6.7)
@@ -1537,7 +1573,7 @@ class TestOrder:
         mt5m.symbol_select.return_value = True
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
         mt5m.symbol_info.return_value = MM(point=0.001, filling_mode=1)
-        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
         mt5m.positions_get.return_value = []
         mt5m.history_deals_get.return_value = []
         mt5m.order_check.return_value = MM(
@@ -2157,7 +2193,7 @@ class TestRepl:
 
         mt5m.account_info.return_value = MM(
             balance=10119.50, currency="USD", server="Trading.com-Demo",
-            equity=10119.50, free_margin=8000.0, trade_mode=0,
+            equity=10119.50, margin_free=8000.0, trade_mode=0,
         )
 
         monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",

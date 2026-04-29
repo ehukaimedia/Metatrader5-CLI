@@ -82,6 +82,7 @@ def info(symbol: str) -> dict:
             "ask": sym.ask,
             "spread": sym.spread,
             "digits": sym.digits,
+            "point": sym.point,
             "pip_size": _pip_size(sym.digits),
             "trade_tick_value": sym.trade_tick_value,
             "volume_min": sym.volume_min,
