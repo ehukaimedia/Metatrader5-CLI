@@ -326,7 +326,7 @@ The high-value workflow: fetch rates + indicators across multiple TFs, return a 
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
-| `analyze topdown` | `SYMBOL` `--timeframes TF [TF...]` `--bars INT` | See schema below | Multi-TF trend + momentum summary |
+| `analyze topdown` | `SYMBOL` `--timeframes TF[,TF...]` `--bars INT` | See schema below | Multi-TF trend + momentum summary. `--timeframes` accepts comma-separated TFs in one value (`--timeframes D1,H4,H1`) or repeated flags (`--timeframes D1 --timeframes H4`). Space-separated in a single flag is not supported by Click. |
 | `analyze structure` | `SYMBOL TIMEFRAME --bars INT` `--pivot-n INT` | `support`, `resistance`, `swing_highs`, `swing_lows` | Key S/R levels via N-bar pivot detection. A bar at index `i` is a swing high if its `high` is the highest of the `N` bars before and after it; swing low symmetrically. Default `--pivot-n 5`. `support` = highest swing low below current price; `resistance` = lowest swing high above current price. |
 | `analyze bias` | `SYMBOL` | `bias: bullish/bearish/neutral`, `confidence: float`, `reasoning: str` | One-line directional bias |
 
@@ -533,7 +533,7 @@ $ mt5
   Type 'help' for commands, 'exit' to quit.
 
 mt5 (USDJPY)> rates fetch USDJPY H4 --bars 3 --json
-mt5 (USDJPY)> analyze topdown USDJPY --timeframes D1 H4 H1
+mt5 (USDJPY)> analyze topdown USDJPY --timeframes D1,H4,H1
 mt5 (USDJPY)> order market USDJPY buy --volume 0.01 --sl 158.50 --tp 155.00 --dry-run
 ```
 
@@ -616,7 +616,7 @@ console_scripts:
 mt5 config test
 
 # 2. Multi-TF analysis
-mt5 analyze topdown USDJPY --timeframes MN1 W1 D1 H4 H1 M15 --json
+mt5 analyze topdown USDJPY --timeframes MN1,W1,D1,H4,H1,M15 --json
 
 # 3. Key levels
 mt5 analyze structure USDJPY H4 --bars 200 --json
@@ -648,7 +648,7 @@ mt5 position breakeven TICKET_ID --json
 
 ```bash
 # Agent invokes this sequence in a loop:
-mt5 analyze topdown USDJPY --timeframes D1 H4 H1 --json   # → bias
+mt5 analyze topdown USDJPY --timeframes D1,H4,H1 --json   # → bias
 mt5 account risk --json                                     # → safe to trade?
 mt5 order market USDJPY buy --volume 0.01 --sl X --tp Y --json  # → ticket
 mt5 position list --json                                    # → confirm open
