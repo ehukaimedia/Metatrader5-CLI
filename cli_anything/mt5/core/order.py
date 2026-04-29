@@ -341,6 +341,34 @@ def modify(ticket: int, *, sl: float | None = None, tp: float | None = None, pri
 # cancel
 # ---------------------------------------------------------------------------
 
+def cancel_all_pending(symbol: str | None = None) -> dict:
+    """Cancel all pending orders, optionally scoped to one symbol.
+
+    Continues on per-ticket failure (spec §7.4 pattern).  Returns a list
+    of per-ticket outcome dicts — callers must inspect each entry.
+    """
+    if symbol:
+        orders = bridge.mt5_call("orders_get", symbol=symbol)
+    else:
+        orders = bridge.mt5_call("orders_get")
+
+    if orders is None:
+        return _fail("MT5_NO_DATA", "orders_get returned None.")
+
+    results = []
+    for o in orders:
+        outcome = cancel(o.ticket)
+        entry: dict = {"ticket": o.ticket}
+        if outcome["ok"]:
+            entry["result"] = "canceled"
+        else:
+            entry["result"] = "error"
+            entry["error"] = outcome["error"]
+        results.append(entry)
+
+    return {"ok": True, "data": results}
+
+
 def cancel(ticket: int) -> dict:
     """Cancel a pending order (TRADE_ACTION_REMOVE)."""
     orders = bridge.mt5_call("orders_get", ticket=ticket)

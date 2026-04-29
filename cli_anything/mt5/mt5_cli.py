@@ -88,8 +88,10 @@ def output(data: dict, as_json: bool) -> None:
 
 
 def _launch_repl(ctx) -> None:
-    """Launch the interactive REPL (implemented in Task 15)."""
-    click.echo("REPL not yet implemented (Task 15).")
+    """Launch the interactive REPL."""
+    from cli_anything.mt5.utils.repl_skin import ReplSkin  # noqa: PLC0415 (lazy)
+    obj = ctx.obj
+    ReplSkin(obj["cfg"]).run()
 
 
 # ---------------------------------------------------------------------------
@@ -953,3 +955,56 @@ def screenshot_list_cmd(ctx, directory):
     """List saved screenshots sorted by newest first."""
     obj = ctx.obj
     output(screenshot.list(directory=directory, cfg=obj["cfg"]), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Kill-switch command (top-level, not a group)
+# ---------------------------------------------------------------------------
+
+@main.command("kill-switch")
+@click.option("--symbol", default=None, help="Scope to one symbol.")
+@click.option("--yes", is_flag=True, default=False, help="Skip confirmation prompt.")
+@click.pass_context
+def kill_switch_cmd(ctx, symbol, yes):
+    """Close ALL open positions and cancel ALL pending orders.
+
+    Continues on per-ticket failure so the account is maximally flattened
+    even when individual operations fail (spec §7.4).
+    """
+    obj = ctx.obj
+
+    if not yes:
+        scope = f" for {symbol}" if symbol else ""
+        if not click.confirm(
+            f"Close all positions and cancel all pending orders{scope}?",
+            default=False,
+        ):
+            click.echo("Aborted.")
+            return
+
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+
+    # --- Close positions -------------------------------------------------
+    pos_result = position.close_all(symbol, is_live_intent=obj["live_intent"])
+    pos_entries: list[dict] = []
+    if pos_result.get("ok"):
+        for entry in pos_result["data"]:
+            item: dict = {"ticket": entry["ticket"], "ok": entry["result"] != "error"}
+            if entry["result"] == "error":
+                item["error"] = entry["error"]
+            pos_entries.append(item)
+
+    # --- Cancel pending orders -------------------------------------------
+    ord_result = order.cancel_all_pending(symbol)
+    ord_entries: list[dict] = []
+    if ord_result.get("ok"):
+        for entry in ord_result["data"]:
+            item = {"ticket": entry["ticket"], "ok": entry["result"] != "error"}
+            if entry["result"] == "error":
+                item["error"] = entry["error"]
+            ord_entries.append(item)
+
+    output({"ok": True, "data": pos_entries + ord_entries}, obj["as_json"])

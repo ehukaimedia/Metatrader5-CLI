@@ -2049,3 +2049,146 @@ class TestScreenshot:
         assert data[1]["path"].endswith("old.png")
         assert isinstance(data[0]["timestamp"], str) and data[0]["timestamp"].endswith("+00:00")
         assert "size_kb" in data[0]
+
+
+# ===========================================================================
+# Task 15 — Kill-Switch + REPL
+# ===========================================================================
+
+class TestKillSwitch:
+    """Tests for the kill-switch CLI command and cancel_all_pending core function."""
+
+    # ------------------------------------------------------------------
+    # Test 1 — kill-switch requires confirmation unless --yes
+    # ------------------------------------------------------------------
+
+    def test_kill_switch_requires_confirmation_unless_yes(self, mt5m):
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["kill-switch"], input="n\n")
+        assert result.exit_code == 0
+        assert "Aborted" in result.output
+        mt5m.orders_get.assert_not_called()
+        mt5m.positions_get.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # Test 2 — kill-switch continues on per-ticket failure
+    # ------------------------------------------------------------------
+
+    def test_kill_switch_continues_on_per_ticket_failure(self, mt5m, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import position as pos_mod, order as ord_mod
+
+        mt5m.initialize.return_value = True
+
+        # close_all: ticket 1 closes ok, ticket 2 errors
+        monkeypatch.setattr(pos_mod, "close_all", lambda symbol=None, *, is_live_intent: {
+            "ok": True,
+            "data": [
+                {"ticket": 1001, "result": "closed", "profit": 5.0},
+                {"ticket": 1002, "result": "error", "error": {"code": "MT5_ORDER_REJECTED", "message": "rejected", "mt5_retcode": 10006}},
+            ],
+        })
+        monkeypatch.setattr(ord_mod, "cancel_all_pending", lambda symbol=None: {
+            "ok": True, "data": [],
+        })
+
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["--json", "kill-switch", "--yes"])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        # Both tickets present in output
+        tickets = {e["ticket"] for e in data["data"]}
+        assert 1001 in tickets
+        assert 1002 in tickets
+        # First succeeded, second didn't
+        by_ticket = {e["ticket"]: e for e in data["data"]}
+        assert by_ticket[1001]["ok"] is True
+        assert by_ticket[1002]["ok"] is False
+
+    # ------------------------------------------------------------------
+    # Test 3 — kill-switch returns combined position + order results
+    # ------------------------------------------------------------------
+
+    def test_kill_switch_returns_combined_results(self, mt5m, monkeypatch):
+        from click.testing import CliRunner
+        from cli_anything.mt5 import mt5_cli
+        from cli_anything.mt5.core import position as pos_mod, order as ord_mod
+
+        mt5m.initialize.return_value = True
+
+        monkeypatch.setattr(pos_mod, "close_all", lambda symbol=None, *, is_live_intent: {
+            "ok": True,
+            "data": [{"ticket": 2001, "result": "closed", "profit": 3.0}],
+        })
+        monkeypatch.setattr(ord_mod, "cancel_all_pending", lambda symbol=None: {
+            "ok": True,
+            "data": [{"ticket": 3001, "result": "canceled"}],
+        })
+
+        runner = CliRunner()
+        result = runner.invoke(mt5_cli.main, ["--json", "kill-switch", "--yes"])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        tickets = {e["ticket"] for e in data["data"]}
+        # Both position and order tickets appear
+        assert 2001 in tickets
+        assert 3001 in tickets
+
+
+class TestRepl:
+    """Tests for ReplSkin banner and last-symbol tracking."""
+
+    # ------------------------------------------------------------------
+    # Test 4 — REPL banner shows server and balance
+    # ------------------------------------------------------------------
+
+    def test_repl_banner_shows_server_and_balance(self, mt5m, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.utils.repl_skin import ReplSkin
+
+        mt5m.account_info.return_value = MM(
+            balance=10119.50, currency="USD", server="Trading.com-Demo",
+            equity=10119.50, free_margin=8000.0, trade_mode=0,
+        )
+
+        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+                            MM(return_value=MM()))
+
+        skin = ReplSkin({"server": "Trading.com-Demo", "magic": 88888})
+        banner = skin._banner()
+        assert "Trading.com-Demo" in banner
+        assert "10,119.50" in banner
+        assert "USD" in banner
+
+    # ------------------------------------------------------------------
+    # Test 5 — REPL remembers last symbol in prompt
+    # ------------------------------------------------------------------
+
+    def test_repl_remembers_last_symbol_in_prompt(self, monkeypatch):
+        import click as _click
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.utils.repl_skin import ReplSkin
+
+        mock_session = MM()
+        mock_session.prompt.side_effect = ["market tick EURUSD", EOFError()]
+        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+                            MM(return_value=mock_session))
+
+        skin = ReplSkin({"server": "Demo", "magic": 88888})
+        # Stub banner and dispatch to avoid side effects
+        monkeypatch.setattr(skin, "_banner", lambda: "MT5 CLI v0.1")
+        monkeypatch.setattr(skin, "_dispatch", lambda args, cli: None)
+        monkeypatch.setattr(_click, "echo", lambda msg, **kw: None)
+
+        skin.run()
+
+        assert skin.last_symbol == "EURUSD"
+        assert skin._prompt_text() == "mt5 (EURUSD)> "
