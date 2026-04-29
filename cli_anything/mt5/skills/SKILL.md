@@ -38,7 +38,7 @@ mt5 analyze topdown USDJPY --timeframes MN1,W1,D1,H4,H1,M15 --json
 # 4. Key structure levels
 mt5 analyze structure USDJPY H4 --bars 200 --json
 
-# 5. Dry-run before committing (broker-validates margin, fills, SL)
+# 5. Dry-run before committing
 mt5 order dryrun USDJPY buy --volume 0.01 --sl 158.50 --json
 
 # 6. Place the order only if dry-run returns ok:true
@@ -48,9 +48,11 @@ mt5 order market USDJPY buy --volume 0.01 --sl 158.50 --json
 mt5 position list --symbol USDJPY --json
 ```
 
-**Never skip step 5 (dry-run).**  A dry-run calls the broker's
-`order_check()` endpoint — it validates margin, spread, and fill mode
-without sending an order.
+**Never skip step 5 (dry-run).**  A dry-run runs the local risk envelope
+first (position limits, daily loss cap, spread check, margin check), then
+calls the broker's `order_check()` for a broker-side pre-flight — no order
+is sent.  Local risk gates and broker validation are both applied; neither
+substitutes for the other.
 
 ---
 
@@ -118,7 +120,7 @@ mt5 history stats --from 2026-01-01 --strategy-id gopher-gate --json
 ```
 
 Magic resolution order:
-1. `strategy_ids` map in `~/.mt5cli.toml` (pin here for repeatability)
+1. `strategy_ids` map in `~/.config/cli-anything-mt5.json` (pin here for repeatability)
 2. Auto-derived: `sha256(strategy_id)[:8] % 80000 + 100000`
 3. Default config `magic` (88888) when no `--strategy-id` given
 

@@ -50,7 +50,7 @@ mt5 position breakeven TICKET_ID --json
 For a live (real-money) account every mutating command additionally requires:
 - `--live` flag on the command
 - `MT5_LIVE=1` environment variable
-- `live = true` in `~/.mt5cli.toml`
+- `"live": true` in `~/.config/cli-anything-mt5.json`
 
 All three must be true simultaneously; any one missing blocks the trade.
 
@@ -112,27 +112,30 @@ All retcodes surface in `error.mt5_retcode` in the JSON error envelope.
 
 ---
 
-## 8. Config file (`~/.mt5cli.toml`)
+## 8. Config file (`~/.config/cli-anything-mt5.json`)
 
-```toml
-server    = "Trading.com-Demo01"
-login     = 123456
-password  = "secret"
-magic     = 88888
-live      = false
+```json
+{
+  "server":   "Trading.com-Demo01",
+  "login":    123456,
+  "password": "secret",
+  "magic":    88888,
+  "live":     false,
 
-max_positions        = 5
-max_daily_loss       = 50.0
-max_lot_per_order    = 1.0
-min_sl_distance_points = 50
-max_spread_points    = 30
-min_free_margin_pct  = 20
-max_orders_per_minute = 10
-symbol_allowlist     = []   # empty = allow all
-allow_hedging        = false
-filling              = "auto"
+  "max_positions":          5,
+  "max_daily_loss":         50.0,
+  "max_lot_per_order":      1.0,
+  "min_sl_distance_points": 50,
+  "max_spread_points":      30,
+  "min_free_margin_pct":    20,
+  "max_orders_per_minute":  10,
+  "symbol_allowlist":       [],
+  "allow_hedging":          false,
+  "filling":                "auto",
 
-[strategy_ids]
-gopher-gate = 77001
-fvg-sniper  = 77002
+  "strategy_ids": {
+    "gopher-gate": 77001,
+    "fvg-sniper":  77002
+  }
+}
 ```
