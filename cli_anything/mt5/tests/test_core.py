@@ -1243,3 +1243,256 @@ class TestAnalyzeCLI:
         data = json.loads(result.output)
         assert data["ok"] is True
         assert set(data["data"]["timeframes"].keys()) == {"D1", "H4", "H1"}
+
+
+# ===========================================================================
+# Task 11 — Orders (core/order.py + CLI)
+# ===========================================================================
+
+class TestOrder:
+    """
+    Most tests patch risk_module.check_order to {"ok": True} so they focus
+    on order-pipeline logic (filling, magic, retcode mapping) rather than
+    re-testing the 11 risk guards.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _setup_market_mocks(mt5m, *, filling_mode: int = 1):
+        """Set up MT5 mock attributes needed to reach order_send in place_market."""
+        from unittest.mock import MagicMock as MM
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
+        mt5m.symbol_info.return_value = MM(filling_mode=filling_mode)
+        mt5m.order_send.return_value = MM(retcode=10009, order=99001, comment="OK")
+
+    # ------------------------------------------------------------------
+    # Test 1 — risk gate short-circuits order_send
+    # ------------------------------------------------------------------
+
+    def test_place_market_risk_check_blocks_order_send(self, mt5m, monkeypatch, cfg):
+        from cli_anything.mt5.core import order as order_module
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(ask=1.1001)
+        monkeypatch.setattr(
+            order_module.risk_module, "check_order",
+            lambda *a, **kw: {"ok": False, "error": {"code": "RISK_MAX_LOT_EXCEEDED", "message": "Too big", "mt5_retcode": None}},
+        )
+        result = order_module.place_market(
+            "EURUSD", "buy", volume=100.0, sl=1.09, cfg=cfg, is_live_intent=False,
+        )
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_MAX_LOT_EXCEEDED"
+        mt5m.order_send.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # Test 2 — volume xor risk_pct validation
+    # ------------------------------------------------------------------
+
+    def test_place_market_volume_xor_risk_pct_required(self, mt5m, cfg):
+        from cli_anything.mt5.core import order as order_module
+        # Neither provided
+        r1 = order_module.place_market("EURUSD", "buy", sl=1.09, cfg=cfg, is_live_intent=False)
+        assert r1["ok"] is False
+        assert r1["error"]["code"] == "MT5_INVALID_PARAMS"
+        # Both provided
+        r2 = order_module.place_market("EURUSD", "buy", volume=0.1, risk_pct=1.0, sl=1.09, cfg=cfg, is_live_intent=False)
+        assert r2["ok"] is False
+        assert r2["error"]["code"] == "MT5_INVALID_PARAMS"
+
+    # ------------------------------------------------------------------
+    # Test 3 — happy path retcode 10009
+    # ------------------------------------------------------------------
+
+    def test_place_market_happy_path(self, mt5m, monkeypatch, cfg):
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        result = order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg, is_live_intent=False,
+        )
+        assert result["ok"] is True
+        assert result["data"]["ticket"] == 99001
+        assert result["data"]["symbol"] == "EURUSD"
+        assert result["data"]["side"] == "buy"
+
+    # ------------------------------------------------------------------
+    # Test 4 — auto filling picks FOK when bitmask bit 0 is set
+    # ------------------------------------------------------------------
+
+    def test_place_market_filling_auto_picks_FOK_when_bitmask_is_1(self, mt5m, monkeypatch, cfg):
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m, filling_mode=1)  # bit 0 → FOK
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09, filling="auto", cfg=cfg, is_live_intent=False,
+        )
+        request = mt5m.order_send.call_args[0][0]
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        assert request["type_filling"] == bridge.ORDER_FILLING_FOK
+
+    # ------------------------------------------------------------------
+    # Test 5 — retcode 10030 exposes filling_mode bitmask in error
+    # ------------------------------------------------------------------
+
+    def test_place_market_returns_filling_mode_bitmask_on_10030(self, mt5m, monkeypatch, cfg):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m, filling_mode=5)
+        mt5m.order_send.return_value = MM(retcode=10030, order=0, comment="Invalid fill")
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        result = order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg, is_live_intent=False,
+        )
+        assert result["ok"] is False
+        assert result["error"]["mt5_retcode"] == 10030
+        assert "5" in result["error"]["message"]  # bitmask 5 appears in message
+
+    # ------------------------------------------------------------------
+    # Test 6 — strategy_id echoed in envelope
+    # ------------------------------------------------------------------
+
+    def test_place_market_strategy_id_echoed_in_envelope(self, mt5m, monkeypatch, cfg):
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        result = order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09,
+            strategy_id="scalp_v1", cfg=cfg, is_live_intent=False,
+        )
+        assert result["ok"] is True
+        assert result["data"]["strategy_id"] == "scalp_v1"
+
+    # ------------------------------------------------------------------
+    # Test 7 — default magic 88888 when no strategy_id
+    # ------------------------------------------------------------------
+
+    def test_place_market_default_magic_88888_when_no_strategy_id(self, mt5m, monkeypatch, cfg):
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09,
+            strategy_id=None, cfg=cfg, is_live_intent=False,
+        )
+        request = mt5m.order_send.call_args[0][0]
+        assert request["magic"] == 88888
+
+    # ------------------------------------------------------------------
+    # Test 8 — auto-derived magic in [100 000, 180 000) when strategy_id not in cfg
+    # ------------------------------------------------------------------
+
+    def test_place_market_auto_derived_magic_in_100k_180k_range(self, mt5m, monkeypatch, cfg):
+        import hashlib
+        from cli_anything.mt5.core import order as order_module
+        self._setup_market_mocks(mt5m)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+        strategy_id = "unknown_strategy"
+        order_module.place_market(
+            "EURUSD", "buy", volume=0.1, sl=1.09,
+            strategy_id=strategy_id, cfg=cfg, is_live_intent=False,
+        )
+        request = mt5m.order_send.call_args[0][0]
+        expected = int(hashlib.sha256(strategy_id.encode()).hexdigest()[:8], 16) % 80000 + 100000
+        assert request["magic"] == expected
+        assert 100000 <= request["magic"] < 180000
+
+    # ------------------------------------------------------------------
+    # Test 9 — modify uses SLTP action for position ticket
+    # ------------------------------------------------------------------
+
+    def test_modify_uses_SLTP_action_for_position_ticket(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.positions_get.return_value = [MM(symbol="EURUSD", sl=1.09, tp=1.12)]
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = order_module.modify(99001, sl=1.08)
+        assert result["ok"] is True
+        assert result["data"]["action"] == "SLTP"
+        request = mt5m.order_send.call_args[0][0]
+        assert request["action"] == bridge.TRADE_ACTION_SLTP
+
+    # ------------------------------------------------------------------
+    # Test 10 — modify uses MODIFY action for pending ticket
+    # ------------------------------------------------------------------
+
+    def test_modify_uses_MODIFY_action_for_pending_ticket(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.positions_get.return_value = []
+        mt5m.orders_get.return_value = [MM(symbol="EURUSD", price_open=1.10, sl=1.09, tp=1.12, type_time=0, time_expiration=0)]
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = order_module.modify(99002, sl=1.08)
+        assert result["ok"] is True
+        assert result["data"]["action"] == "MODIFY"
+        request = mt5m.order_send.call_args[0][0]
+        assert request["action"] == bridge.TRADE_ACTION_MODIFY
+
+    # ------------------------------------------------------------------
+    # Test 11 — cancel uses REMOVE action
+    # ------------------------------------------------------------------
+
+    def test_cancel_uses_REMOVE_action(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.orders_get.return_value = [MM(symbol="EURUSD")]
+        mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
+        result = order_module.cancel(99003)
+        assert result["ok"] is True
+        assert result["data"]["cancelled"] is True
+        request = mt5m.order_send.call_args[0][0]
+        assert request["action"] == bridge.TRADE_ACTION_REMOVE
+
+    # ------------------------------------------------------------------
+    # Test 12 — poll_fill returns filled=True when position appears
+    # ------------------------------------------------------------------
+
+    def test_poll_fill_returns_filled_true_when_position_appears(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        mt5m.positions_get.return_value = [MM(ticket=55555)]
+        result = order_module.poll_fill(55555, timeout_ms=5000)
+        assert result["ok"] is True
+        assert result["data"]["filled"] is True
+        assert result["data"]["ticket"] == 55555
+
+    # ------------------------------------------------------------------
+    # Test 13 — poll_fill returns filled=False on timeout
+    # ------------------------------------------------------------------
+
+    def test_poll_fill_returns_filled_false_on_timeout(self, mt5m, monkeypatch):
+        import time
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        mt5m.positions_get.return_value = []
+        mt5m.orders_get.return_value = [MM(ticket=55556)]  # pending still present
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+        result = order_module.poll_fill(55556, timeout_ms=1)
+        assert result["ok"] is True
+        assert result["data"]["filled"] is False
+        assert result["data"]["ticket"] == 55556
+
+    # ------------------------------------------------------------------
+    # Test 14 — dryrun calls order_check, not order_send
+    # ------------------------------------------------------------------
+
+    def test_dryrun_calls_order_check_not_order_send(self, mt5m, monkeypatch, cfg):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(ask=1.1001, bid=1.0999)
+        mt5m.symbol_info.return_value = MM(filling_mode=1)
+        mt5m.order_check.return_value = MM(margin=100.0, margin_free=9900.0, margin_level=5000.0, profit=0.0, retcode=0)
+        result = order_module.dryrun(
+            "EURUSD", "buy", volume=0.1, sl=1.09, cfg=cfg,
+        )
+        assert result["ok"] is True
+        assert result["data"]["dry_run"] is True
+        mt5m.order_send.assert_not_called()
+        mt5m.order_check.assert_called_once()

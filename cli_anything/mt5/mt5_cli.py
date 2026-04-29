@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, analyze, indicator, market, project, rates
+from cli_anything.mt5.core import account, analyze, indicator, market, order, project, rates
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -560,3 +560,181 @@ def analyze_bias_cmd(ctx, symbol):
         output(err, obj["as_json"])
         return
     output(analyze.bias(symbol), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Order command group
+# ---------------------------------------------------------------------------
+
+@main.group("order")
+@click.pass_context
+def order_group(ctx):
+    """Order placement, modification, cancellation and fill-polling."""
+    ctx.ensure_object(dict)
+
+
+@order_group.command("market")
+@click.argument("symbol")
+@click.argument("side", type=click.Choice(["buy", "sell"], case_sensitive=False))
+@click.option("--volume", type=float, default=None, help="Lot size.")
+@click.option("--risk-pct", "risk_pct", type=float, default=None, help="Risk as % of equity.")
+@click.option("--sl", required=True, type=float, help="Stop-loss price.")
+@click.option("--tp", type=float, default=None, help="Take-profit price.")
+@click.option("--comment", default=None, help="Order comment.")
+@click.option("--strategy-id", "strategy_id", default=None, help="Strategy identifier.")
+@click.option("--magic", type=int, default=None, help="Magic number override.")
+@click.option("--deviation", default=20, show_default=True, type=int, help="Max price deviation in points.")
+@click.option("--filling", default="auto", show_default=True, help="Filling mode: auto/FOK/IOC/RETURN.")
+@click.pass_context
+def order_market_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, comment, strategy_id, magic, deviation, filling):
+    """Place a market order for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    result = order.place_market(
+        symbol, side,
+        volume=volume, risk_pct=risk_pct,
+        sl=sl, tp=tp, comment=comment,
+        strategy_id=strategy_id, magic=magic,
+        deviation=deviation, filling=filling,
+        cfg=obj["cfg"], is_live_intent=obj["live_intent"],
+    )
+    output(result, obj["as_json"])
+
+
+@order_group.command("limit")
+@click.argument("symbol")
+@click.argument("side", type=click.Choice(["buy", "sell"], case_sensitive=False))
+@click.option("--price", required=True, type=float, help="Limit entry price.")
+@click.option("--volume", type=float, default=None, help="Lot size.")
+@click.option("--risk-pct", "risk_pct", type=float, default=None, help="Risk as % of equity.")
+@click.option("--sl", required=True, type=float, help="Stop-loss price.")
+@click.option("--tp", type=float, default=None, help="Take-profit price.")
+@click.option("--expiry", default=None, help="Expiry datetime (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--strategy-id", "strategy_id", default=None, help="Strategy identifier.")
+@click.option("--magic", type=int, default=None, help="Magic number override.")
+@click.option("--filling", default="auto", show_default=True, help="Filling mode: auto/FOK/IOC/RETURN.")
+@click.pass_context
+def order_limit_cmd(ctx, symbol, side, price, volume, risk_pct, sl, tp, expiry, strategy_id, magic, filling):
+    """Place a limit order for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    expiry_dt = _parse_date(expiry) if expiry else None
+    result = order.place_limit(
+        symbol, side, price,
+        volume=volume, risk_pct=risk_pct,
+        sl=sl, tp=tp, expiry=expiry_dt,
+        strategy_id=strategy_id, magic=magic, filling=filling,
+        cfg=obj["cfg"], is_live_intent=obj["live_intent"],
+    )
+    output(result, obj["as_json"])
+
+
+@order_group.command("stop")
+@click.argument("symbol")
+@click.argument("side", type=click.Choice(["buy", "sell"], case_sensitive=False))
+@click.option("--price", required=True, type=float, help="Stop entry price.")
+@click.option("--volume", type=float, default=None, help="Lot size.")
+@click.option("--risk-pct", "risk_pct", type=float, default=None, help="Risk as % of equity.")
+@click.option("--sl", required=True, type=float, help="Stop-loss price.")
+@click.option("--tp", type=float, default=None, help="Take-profit price.")
+@click.option("--expiry", default=None, help="Expiry datetime.")
+@click.option("--strategy-id", "strategy_id", default=None, help="Strategy identifier.")
+@click.option("--magic", type=int, default=None, help="Magic number override.")
+@click.option("--filling", default="auto", show_default=True, help="Filling mode: auto/FOK/IOC/RETURN.")
+@click.pass_context
+def order_stop_cmd(ctx, symbol, side, price, volume, risk_pct, sl, tp, expiry, strategy_id, magic, filling):
+    """Place a stop order for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    expiry_dt = _parse_date(expiry) if expiry else None
+    result = order.place_stop(
+        symbol, side, price,
+        volume=volume, risk_pct=risk_pct,
+        sl=sl, tp=tp, expiry=expiry_dt,
+        strategy_id=strategy_id, magic=magic, filling=filling,
+        cfg=obj["cfg"], is_live_intent=obj["live_intent"],
+    )
+    output(result, obj["as_json"])
+
+
+@order_group.command("modify")
+@click.argument("ticket", type=int)
+@click.option("--sl", type=float, default=None, help="New stop-loss price.")
+@click.option("--tp", type=float, default=None, help="New take-profit price.")
+@click.option("--price", type=float, default=None, help="New entry price (pending orders only).")
+@click.pass_context
+def order_modify_cmd(ctx, ticket, sl, tp, price):
+    """Modify SL/TP for a position or pending order TICKET."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(order.modify(ticket, sl=sl, tp=tp, price=price), obj["as_json"])
+
+
+@order_group.command("cancel")
+@click.argument("ticket", type=int)
+@click.pass_context
+def order_cancel_cmd(ctx, ticket):
+    """Cancel a pending order by TICKET."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(order.cancel(ticket), obj["as_json"])
+
+
+@order_group.command("poll-fill")
+@click.argument("ticket", type=int)
+@click.option("--timeout-ms", "timeout_ms", default=5000, show_default=True, type=int,
+              help="Polling timeout in milliseconds.")
+@click.pass_context
+def order_poll_fill_cmd(ctx, ticket, timeout_ms):
+    """Poll until TICKET is filled or timeout expires."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(order.poll_fill(ticket, timeout_ms), obj["as_json"])
+
+
+@order_group.command("dryrun")
+@click.argument("symbol")
+@click.argument("side", type=click.Choice(["buy", "sell"], case_sensitive=False))
+@click.option("--volume", type=float, default=None, help="Lot size.")
+@click.option("--risk-pct", "risk_pct", type=float, default=None, help="Risk as % of equity.")
+@click.option("--sl", required=True, type=float, help="Stop-loss price.")
+@click.option("--tp", type=float, default=None, help="Take-profit price.")
+@click.option("--strategy-id", "strategy_id", default=None, help="Strategy identifier.")
+@click.option("--magic", type=int, default=None, help="Magic number override.")
+@click.option("--deviation", default=20, show_default=True, type=int, help="Max price deviation in points.")
+@click.option("--filling", default="auto", show_default=True, help="Filling mode: auto/FOK/IOC/RETURN.")
+@click.pass_context
+def order_dryrun_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, strategy_id, magic, deviation, filling):
+    """Validate an order without placing it (calls order_check, not order_send)."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    result = order.dryrun(
+        symbol, side,
+        volume=volume, risk_pct=risk_pct,
+        sl=sl, tp=tp,
+        strategy_id=strategy_id, magic=magic,
+        deviation=deviation, filling=filling,
+        cfg=obj["cfg"],
+    )
+    output(result, obj["as_json"])
