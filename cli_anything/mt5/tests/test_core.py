@@ -2259,3 +2259,39 @@ class TestRepl:
         skin._dispatch(["market", "tick", "EURUSD"], mt5_cli_mod)
 
         assert any("MT5_CONNECTION_ERROR" in m for m in error_messages)
+
+    # ------------------------------------------------------------------
+    # Test 8 — REPL reconnects once on SystemExit(2) (CLI connection path)
+    # ------------------------------------------------------------------
+
+    def test_repl_reconnects_on_systemexit_2(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.utils.repl_skin import ReplSkin
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        import cli_anything.mt5.mt5_cli as mt5_cli_mod
+
+        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+                            MM(return_value=MM()))
+
+        skin = ReplSkin({"server": "Demo"})
+
+        call_count = 0
+
+        def mock_main(args, standalone_mode=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise SystemExit(2)
+
+        mock_main_obj = MM()
+        mock_main_obj.main = mock_main
+        monkeypatch.setattr(mt5_cli_mod, "main", mock_main_obj)
+        monkeypatch.setattr(bridge, "reconnect_once", lambda cfg: True)
+
+        error_messages = []
+        monkeypatch.setattr("click.secho", lambda msg, **kw: error_messages.append(msg))
+
+        skin._dispatch(["market", "tick", "EURUSD"], mt5_cli_mod)
+
+        assert call_count == 2  # first raised SystemExit(2), second succeeded
+        assert not any("MT5_CONNECTION_ERROR" in m for m in error_messages)

@@ -110,11 +110,26 @@ class ReplSkin:
             self._dispatch(args, mt5_cli)
 
     def _dispatch(self, args: list[str], mt5_cli) -> None:  # noqa: ANN001
-        """Run one command; auto-reconnect once on ConnectionError."""
+        """Run one command; auto-reconnect once on ConnectionError or exit code 2.
+
+        Exit code 2 is the CLI convention for a connection-failure envelope: the
+        command printed an MT5_CONNECTION_ERROR result and exited with code 2.
+        Both that path and a raw ``ConnectionError`` exception trigger one reconnect
+        attempt before giving up.
+        """
         try:
             mt5_cli.main.main(args, standalone_mode=False)
-        except SystemExit:
-            pass
+        except SystemExit as exc:
+            if exc.code == 2:
+                # Connection failure surfaced as a CLI exit — attempt one reconnect.
+                if bridge.reconnect_once(self.cfg):
+                    try:
+                        mt5_cli.main.main(args, standalone_mode=False)
+                    except Exception as exc2:  # noqa: BLE001
+                        click.secho(f"MT5_CONNECTION_ERROR: {exc2}", fg="red", err=True)
+                else:
+                    click.secho("MT5_CONNECTION_ERROR: reconnect failed", fg="red", err=True)
+            # Any other exit code (0 = success, 1 = usage error) is silently swallowed.
         except ConnectionError as exc:
             if bridge.reconnect_once(self.cfg):
                 try:
