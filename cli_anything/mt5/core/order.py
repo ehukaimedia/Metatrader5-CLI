@@ -16,6 +16,19 @@ def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:
     return {"ok": False, "error": {"code": code, "message": message, "mt5_retcode": mt5_retcode}}
 
 
+def _live_gate_check(is_live_intent: bool) -> dict | None:
+    """Return an error dict if live-gate blocks the trade, or None if clear."""
+    account_info = bridge.mt5_call("account_info")
+    if account_info is None:
+        return _fail("RISK_INVALID_INPUT", "account_info unavailable — MT5 may be disconnected.")
+    if not is_live_intent and account_info.trade_mode == bridge.ACCOUNT_TRADE_MODE_REAL:
+        return _fail(
+            "RISK_LIVE_GATE_BLOCKED",
+            "This is a live (real-money) account.  Pass --live to confirm intentional live trading.",
+        )
+    return None
+
+
 _FILLING_MAP = {
     "FOK": bridge.ORDER_FILLING_FOK,
     "IOC": bridge.ORDER_FILLING_IOC,
@@ -341,12 +354,16 @@ def modify(ticket: int, *, sl: float | None = None, tp: float | None = None, pri
 # cancel
 # ---------------------------------------------------------------------------
 
-def cancel_all_pending(symbol: str | None = None) -> dict:
+def cancel_all_pending(symbol: str | None = None, *, is_live_intent: bool) -> dict:
     """Cancel all pending orders, optionally scoped to one symbol.
 
     Continues on per-ticket failure (spec §7.4 pattern).  Returns a list
     of per-ticket outcome dicts — callers must inspect each entry.
     """
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
     if symbol:
         orders = bridge.mt5_call("orders_get", symbol=symbol)
     else:
@@ -357,7 +374,7 @@ def cancel_all_pending(symbol: str | None = None) -> dict:
 
     results = []
     for o in orders:
-        outcome = cancel(o.ticket)
+        outcome = cancel(o.ticket, is_live_intent=is_live_intent)
         entry: dict = {"ticket": o.ticket}
         if outcome["ok"]:
             entry["result"] = "canceled"
@@ -369,8 +386,12 @@ def cancel_all_pending(symbol: str | None = None) -> dict:
     return {"ok": True, "data": results}
 
 
-def cancel(ticket: int) -> dict:
+def cancel(ticket: int, *, is_live_intent: bool) -> dict:
     """Cancel a pending order (TRADE_ACTION_REMOVE)."""
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
     orders = bridge.mt5_call("orders_get", ticket=ticket)
     if not orders:
         return _fail("MT5_TICKET_NOT_FOUND", f"Pending order {ticket} not found.")

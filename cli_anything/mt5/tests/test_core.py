@@ -1447,9 +1447,10 @@ class TestOrder:
         from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import order as order_module
         from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.account_info.return_value = MM(trade_mode=0)
         mt5m.orders_get.return_value = [MM(symbol="EURUSD")]
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
-        result = order_module.cancel(99003)
+        result = order_module.cancel(99003, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["cancelled"] is True
         request = mt5m.order_send.call_args[0][0]
@@ -2092,7 +2093,7 @@ class TestKillSwitch:
                 {"ticket": 1002, "result": "error", "error": {"code": "MT5_ORDER_REJECTED", "message": "rejected", "mt5_retcode": 10006}},
             ],
         })
-        monkeypatch.setattr(ord_mod, "cancel_all_pending", lambda symbol=None: {
+        monkeypatch.setattr(ord_mod, "cancel_all_pending", lambda symbol=None, *, is_live_intent: {
             "ok": True, "data": [],
         })
 
@@ -2126,7 +2127,7 @@ class TestKillSwitch:
             "ok": True,
             "data": [{"ticket": 2001, "result": "closed", "profit": 3.0}],
         })
-        monkeypatch.setattr(ord_mod, "cancel_all_pending", lambda symbol=None: {
+        monkeypatch.setattr(ord_mod, "cancel_all_pending", lambda symbol=None, *, is_live_intent: {
             "ok": True,
             "data": [{"ticket": 3001, "result": "canceled"}],
         })
@@ -2192,3 +2193,69 @@ class TestRepl:
 
         assert skin.last_symbol == "EURUSD"
         assert skin._prompt_text() == "mt5 (EURUSD)> "
+
+    # ------------------------------------------------------------------
+    # Test 6 — REPL reconnects once on ConnectionError then succeeds
+    # ------------------------------------------------------------------
+
+    def test_repl_reconnects_on_connection_error(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.utils.repl_skin import ReplSkin
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        import cli_anything.mt5.mt5_cli as mt5_cli_mod
+
+        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+                            MM(return_value=MM()))
+
+        skin = ReplSkin({"server": "Demo"})
+
+        call_count = 0
+
+        def mock_main(args, standalone_mode=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("MT5 disconnected")
+
+        mock_main_obj = MM()
+        mock_main_obj.main = mock_main
+        monkeypatch.setattr(mt5_cli_mod, "main", mock_main_obj)
+        monkeypatch.setattr(bridge, "reconnect_once", lambda cfg: True)
+
+        error_messages = []
+        monkeypatch.setattr("click.secho", lambda msg, **kw: error_messages.append(msg))
+
+        skin._dispatch(["market", "tick", "EURUSD"], mt5_cli_mod)
+
+        assert call_count == 2  # first raised ConnectionError, second succeeded
+        assert not any("MT5_CONNECTION_ERROR" in m for m in error_messages)
+
+    # ------------------------------------------------------------------
+    # Test 7 — REPL surfaces error when reconnect fails (double-disconnect)
+    # ------------------------------------------------------------------
+
+    def test_repl_surfaces_error_when_reconnect_fails(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.utils.repl_skin import ReplSkin
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        import cli_anything.mt5.mt5_cli as mt5_cli_mod
+
+        monkeypatch.setattr("cli_anything.mt5.utils.repl_skin.PromptSession",
+                            MM(return_value=MM()))
+
+        skin = ReplSkin({"server": "Demo"})
+
+        def mock_main_raise(args, standalone_mode=True):
+            raise ConnectionError("MT5 disconnected")
+
+        mock_main_obj = MM()
+        mock_main_obj.main = mock_main_raise
+        monkeypatch.setattr(mt5_cli_mod, "main", mock_main_obj)
+        monkeypatch.setattr(bridge, "reconnect_once", lambda cfg: False)
+
+        error_messages = []
+        monkeypatch.setattr("click.secho", lambda msg, **kw: error_messages.append(msg))
+
+        skin._dispatch(["market", "tick", "EURUSD"], mt5_cli_mod)
+
+        assert any("MT5_CONNECTION_ERROR" in m for m in error_messages)

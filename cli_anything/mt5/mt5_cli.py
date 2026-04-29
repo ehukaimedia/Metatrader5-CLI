@@ -694,7 +694,7 @@ def order_cancel_cmd(ctx, ticket):
     if err:
         output(err, obj["as_json"])
         return
-    output(order.cancel(ticket), obj["as_json"])
+    output(order.cancel(ticket, is_live_intent=obj["live_intent"]), obj["as_json"])
 
 
 @order_group.command("poll-fill")
@@ -989,22 +989,22 @@ def kill_switch_cmd(ctx, symbol, yes):
 
     # --- Close positions -------------------------------------------------
     pos_result = position.close_all(symbol, is_live_intent=obj["live_intent"])
-    pos_entries: list[dict] = []
-    if pos_result.get("ok"):
-        for entry in pos_result["data"]:
-            item: dict = {"ticket": entry["ticket"], "ok": entry["result"] != "error"}
-            if entry["result"] == "error":
-                item["error"] = entry["error"]
-            pos_entries.append(item)
+    if not pos_result.get("ok"):
+        output(pos_result, obj["as_json"])
+        return
+    pos_entries: list[dict] = [
+        {"ticket": e["ticket"], "ok": e["result"] != "error", **({"error": e["error"]} if e["result"] == "error" else {})}
+        for e in pos_result["data"]
+    ]
 
     # --- Cancel pending orders -------------------------------------------
-    ord_result = order.cancel_all_pending(symbol)
-    ord_entries: list[dict] = []
-    if ord_result.get("ok"):
-        for entry in ord_result["data"]:
-            item = {"ticket": entry["ticket"], "ok": entry["result"] != "error"}
-            if entry["result"] == "error":
-                item["error"] = entry["error"]
-            ord_entries.append(item)
+    ord_result = order.cancel_all_pending(symbol, is_live_intent=obj["live_intent"])
+    if not ord_result.get("ok"):
+        output(ord_result, obj["as_json"])
+        return
+    ord_entries: list[dict] = [
+        {"ticket": e["ticket"], "ok": e["result"] != "error", **({"error": e["error"]} if e["result"] == "error" else {})}
+        for e in ord_result["data"]
+    ]
 
     output({"ok": True, "data": pos_entries + ord_entries}, obj["as_json"])
