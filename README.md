@@ -72,7 +72,11 @@ Example:
   "max_orders_per_minute": 10,
   "symbol_allowlist": [],
   "allow_hedging": false,
-  "strategy_ids": {}
+  "strategy_ids": {},
+  "screenshot": {
+    "output_dir": null,
+    "window_substring": "MT5"
+  }
 }
 ```
 
@@ -103,6 +107,7 @@ Use this sequence before any trade:
 mt5 market search --pattern USDJPY
 mt5 --json market info USDJPY
 mt5 --json analyze topdown USDJPY --timeframes D1,H4,H1
+mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots"
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json position list --symbol USDJPY
@@ -129,6 +134,9 @@ mt5 --json market tick USDJPY
 mt5 --json rates fetch USDJPY H1 --bars 100
 mt5 --json indicator ema USDJPY H1 --period 20 --bars 100
 mt5 --json analyze bias USDJPY
+mt5 --json chart switch-tf H1
+mt5 --json chart symbol USDJPY
+mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots"
 
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
@@ -144,6 +152,31 @@ mt5 --json history stats --from 2026-01-01 --to 2026-01-31
 mt5 kill-switch
 mt5 kill-switch --yes
 ```
+
+## Visual Top-Down Analysis
+
+The screenshot TDA command drives the active MT5 chart through Win32 toolbar messages and captures one PNG per timeframe:
+
+```powershell
+mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots"
+```
+
+Output shape:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "symbol": "USDJPY",
+    "captured_at": "2026-04-29T00:00:00+00:00",
+    "frames": [
+      {"tf": "D1", "path": "C:\\...\\USDJPY_D1_....png", "w": 1280, "h": 720}
+    ]
+  }
+}
+```
+
+The implementation is broker-agnostic. It defaults to matching the standard MT5 window class or a title containing `MT5`, uses the standard MT5 period toolbar, and writes only to `--output-dir`, `screenshot.output_dir`, legacy `screenshot_path`, or the OS temp directory (`%TEMP%\mt5-cli\screenshots` on Windows, `$TMPDIR/mt5-cli/screenshots` on POSIX). No broker-specific paths or project-specific paths are required.
 
 ## Python API
 
@@ -191,4 +224,3 @@ python -m pytest cli_anything/mt5/tests/test_e2e.py -v
 ```
 
 The integration suite asserts the account is not real, performs a dry-run, places a 0.01-lot demo USDJPY order, confirms fill, closes it, and verifies history.
-

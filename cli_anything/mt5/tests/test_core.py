@@ -1997,30 +1997,36 @@ class TestScreenshot:
         mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
 
     # ------------------------------------------------------------------
-    # Test 3 — take window match failure falls back to full monitor
+    # Test 3 — take window match failure fails closed
     # ------------------------------------------------------------------
 
-    def test_take_window_match_failure_falls_back_to_full_monitor(self, tmp_path, monkeypatch):
+    def test_take_window_match_failure_returns_error(self, tmp_path, monkeypatch):
         import sys
-        from unittest.mock import MagicMock
         from cli_anything.mt5.core import screenshot as ss_module
         mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
         monkeypatch.setattr(ss_module, "mss", mock_mss)
 
-        mock_gw = MagicMock()
-        mock_gw.getWindowsWithTitle.return_value = []  # no matching windows
+        class MockGw:
+            @staticmethod
+            def getAllWindows():
+                return []
+
+            @staticmethod
+            def getWindowsWithTitle(_title):
+                return []
+
+        mock_gw = MockGw()
         monkeypatch.setitem(sys.modules, "pygetwindow", mock_gw)
 
         cfg = {"screenshot_monitor": 0, "screenshot_path": str(tmp_path)}
         result = ss_module.take(
             output_path=str(tmp_path / "s.png"),
-            window_substring="MetaTrader 5",
+            window_substring="MT5",
             cfg=cfg,
         )
-        assert result["ok"] is True
-        assert result["data"]["window_matched"] is False
-        # Fell back to full monitor: monitor_idx=0 → monitors[0+1] = monitors[1]
-        mock_sct.grab.assert_called_once_with(mock_sct.monitors[1])
+        assert result["ok"] is False
+        assert result["error"]["code"] == "SCREENSHOT_WINDOW_NOT_FOUND"
+        mock_sct.grab.assert_not_called()
 
     # ------------------------------------------------------------------
     # Test 4 — screenshot_monitor: 2 does not IndexError on a 2-monitor setup
@@ -2086,6 +2092,62 @@ class TestScreenshot:
         assert data[1]["path"].endswith("old.png")
         assert isinstance(data[0]["timestamp"], str) and data[0]["timestamp"].endswith("+00:00")
         assert "size_kb" in data[0]
+
+    # ------------------------------------------------------------------
+    # Test 7 — visual TDA captures six timeframe PNGs for one symbol
+    # ------------------------------------------------------------------
+
+    def test_screenshot_tda_captures_usdjpy_six_timeframes(self, tmp_path, monkeypatch):
+        import os
+        from PIL import Image
+        from cli_anything.mt5.core import chart as chart_module
+        from cli_anything.mt5.core import screenshot as ss_module
+
+        timeframes = ["D1", "H4", "H1", "M15", "M5", "M1"]
+
+        monkeypatch.setattr(
+            chart_module,
+            "symbol",
+            lambda symbol, **kw: {"ok": True, "data": {"symbol": symbol, "title": f"[{symbol},D1]"}},
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "switch_tf",
+            lambda tf, **kw: {"ok": True, "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"}},
+        )
+
+        def fake_take(output_path, **_kwargs):
+            img = Image.effect_noise((1280, 720), 100).convert("RGB")
+            img.save(output_path)
+            return {
+                "ok": True,
+                "data": {
+                    "path": output_path,
+                    "width": 1280,
+                    "height": 720,
+                    "timestamp": "2026-04-29T00:00:00+00:00",
+                    "window_matched": True,
+                },
+            }
+
+        monkeypatch.setattr(ss_module, "take", fake_take)
+
+        result = ss_module.tda(
+            "USDJPY",
+            timeframes=",".join(timeframes),
+            output_dir=str(tmp_path),
+            crop="window",
+            max_width=1280,
+        )
+
+        assert result["ok"] is True
+        frames = result["data"]["frames"]
+        assert len(frames) == 6
+        assert [frame["tf"] for frame in frames] == timeframes
+        for frame in frames:
+            assert frame["path"].endswith(".png")
+            assert os.path.getsize(frame["path"]) >= 50 * 1024
+            assert f"[USDJPY,{frame['tf']}]" in frame["title"]
 
 
 # ===========================================================================

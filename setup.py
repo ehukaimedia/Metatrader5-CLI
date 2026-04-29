@@ -14,6 +14,7 @@ setup(
         "Pillow>=10.0.0",
         "python-dateutil>=2.9.0",
         "pygetwindow>=0.0.9",
+        "pywin32>=306; platform_system=='Windows'",
     ],
     entry_points={
         "console_scripts": [

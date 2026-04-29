@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, analyze, history, indicator, market, order, position, project, rates, screenshot
+from cli_anything.mt5.core import account, analyze, chart, history, indicator, market, order, position, project, rates, screenshot
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -907,6 +907,51 @@ def history_stats_cmd(ctx, date_from, date_to, strategy_id):
 
 
 # ---------------------------------------------------------------------------
+# Chart command group
+# ---------------------------------------------------------------------------
+
+@main.group("chart")
+@click.pass_context
+def chart_group(ctx):
+    """Chart controls: symbol and timeframe switching."""
+    ctx.ensure_object(dict)
+
+
+@chart_group.command("switch-tf")
+@click.argument("timeframe", type=click.Choice(list(chart.TIMEFRAMES), case_sensitive=False))
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after toolbar click before title verification.")
+@click.pass_context
+def chart_switch_tf_cmd(ctx, timeframe, window_substring, settle_seconds):
+    """Switch the active MT5 chart timeframe."""
+    obj = ctx.obj
+    output(
+        chart.switch_tf(timeframe, window_substring=window_substring,
+                        settle_seconds=settle_seconds),
+        obj["as_json"],
+    )
+
+
+@chart_group.command("symbol")
+@click.argument("symbol")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after symbol change before title verification.")
+@click.pass_context
+def chart_symbol_cmd(ctx, symbol, window_substring, settle_seconds):
+    """Switch the active MT5 chart symbol and verify it in the title bar."""
+    obj = ctx.obj
+    output(
+        chart.symbol(symbol, window_substring=window_substring,
+                     settle_seconds=settle_seconds),
+        obj["as_json"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Screenshot command group
 # ---------------------------------------------------------------------------
 
@@ -919,13 +964,13 @@ def screenshot_group(ctx):
 
 @screenshot_group.command("take")
 @click.option("--output", "output_path", default=None, help="Output file path.")
-@click.option("--window", "window_substring", default="MetaTrader 5", show_default=True,
+@click.option("--window", "window_substring", default="MT5", show_default=True,
               help="Window title substring to target.")
 @click.option("--monitor", type=int, default=None,
               help="Monitor index (0=primary). Overrides screenshot_monitor config.")
 @click.pass_context
 def screenshot_take_cmd(ctx, output_path, window_substring, monitor):
-    """Capture the MT5 window (or full monitor) and save as PNG."""
+    """Capture the MT5 window and save as PNG."""
     obj = ctx.obj
     output(
         screenshot.take(output_path=output_path, window_substring=window_substring,
@@ -955,6 +1000,42 @@ def screenshot_list_cmd(ctx, directory):
     """List saved screenshots sorted by newest first."""
     obj = ctx.obj
     output(screenshot.list(directory=directory, cfg=obj["cfg"]), obj["as_json"])
+
+
+@screenshot_group.command("tda")
+@click.argument("symbol")
+@click.option("--timeframes", default="D1,H4,H1,M15,M5,M1", show_default=True,
+              help="Comma-separated timeframe list.")
+@click.option("--output-dir", default=None,
+              help="Directory for generated PNGs. Defaults to screenshot.output_dir/config/temp.")
+@click.option("--crop", type=click.Choice(["chart", "window", "none"]), default="chart",
+              show_default=True, help="Post-capture crop mode.")
+@click.option("--max-width", type=int, default=1280, show_default=True,
+              help="Resize captures wider than this value. Use 0 to disable.")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--monitor", type=int, default=None,
+              help="Monitor index (0=primary). Overrides screenshot_monitor config.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after each chart switch before capture.")
+@click.pass_context
+def screenshot_tda_cmd(ctx, symbol, timeframes, output_dir, crop, max_width, window_substring, monitor, settle_seconds):
+    """Capture visual top-down-analysis frames for SYMBOL."""
+    obj = ctx.obj
+    output(
+        screenshot.tda(
+            symbol,
+            timeframes=timeframes,
+            output_dir=output_dir,
+            crop=crop,
+            max_width=max_width or None,
+            monitor=monitor,
+            cfg=obj["cfg"],
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+        ),
+        obj["as_json"],
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 
 import mss
 import mss.tools
 
-_DEFAULT_SCREENSHOT_DIR = "~/mt5-screenshots"
+_DEFAULT_SCREENSHOT_DIR = Path(tempfile.gettempdir()) / "mt5-cli" / "screenshots"
 
 
 def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:
@@ -23,7 +24,14 @@ def _resolve_dir(directory: str | None, cfg: dict | None) -> Path:
     if directory:
         return Path(directory).expanduser()
     if cfg:
-        return Path(cfg.get("screenshot_path", _DEFAULT_SCREENSHOT_DIR)).expanduser()
+        screenshot_cfg = cfg.get("screenshot") if isinstance(cfg.get("screenshot"), dict) else {}
+        configured = (
+            screenshot_cfg.get("output_dir")
+            or cfg.get("screenshot_output_dir")
+            or cfg.get("screenshot_path")
+        )
+        if configured:
+            return Path(configured).expanduser()
     return Path(_DEFAULT_SCREENSHOT_DIR).expanduser()
 
 
@@ -35,24 +43,83 @@ def _resolve_monitor(monitor: int | None, cfg: dict | None) -> int:
     return 0
 
 
+def _resolve_window_substring(window_substring: str, cfg: dict | None) -> str:
+    if cfg and window_substring == "MT5":
+        screenshot_cfg = cfg.get("screenshot") if isinstance(cfg.get("screenshot"), dict) else {}
+        return screenshot_cfg.get("window_substring") or window_substring
+    return window_substring
+
+
+# ---------------------------------------------------------------------------
+# window matching
+# ---------------------------------------------------------------------------
+
+def _window_title_matches(title: str, window_substring: str) -> bool:
+    needle = (window_substring or "").lower()
+    haystack = title.lower()
+    if not needle:
+        return False
+    if needle in haystack:
+        return True
+    if needle == "mt5":
+        return "mt5" in haystack
+    return False
+
+
+def _is_mt5_window_class(win) -> bool:
+    hwnd = getattr(win, "_hWnd", None) or getattr(win, "hWnd", None)
+    if not hwnd:
+        return False
+    try:
+        import win32gui  # noqa: PLC0415
+        return win32gui.GetClassName(hwnd).startswith("MetaQuotes::MetaTrader")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _find_window(window_substring: str):
+    import pygetwindow as gw  # noqa: PLC0415 (Windows-only; lazy import)
+
+    class_matches = []
+    title_matches = []
+    if hasattr(gw, "getAllWindows"):
+        for win in gw.getAllWindows():
+            title = getattr(win, "title", "") or ""
+            if (window_substring or "").lower() == "mt5" and _is_mt5_window_class(win):
+                class_matches.append(win)
+            elif _window_title_matches(title, window_substring):
+                title_matches.append(win)
+        if class_matches:
+            return class_matches[0]
+        if title_matches:
+            return title_matches[0]
+
+    for win in gw.getWindowsWithTitle(window_substring):
+        title = getattr(win, "title", "") or ""
+        if _window_title_matches(title, window_substring) or window_substring in title:
+            return win
+    return None
+
+
 # ---------------------------------------------------------------------------
 # take
 # ---------------------------------------------------------------------------
 
 def take(
     output_path: str | None = None,
-    window_substring: str = "MetaTrader 5",
+    window_substring: str = "MT5",
     monitor: int | None = None,
     cfg: dict | None = None,
 ) -> dict:
-    """Capture the MT5 window (or full monitor) and save as PNG.
+    """Capture the MT5 window (or, with window_substring="", full monitor) as PNG.
 
     If ``monitor`` is None, uses ``cfg["screenshot_monitor"]`` (default 0 = primary).
     When ``window_substring`` is set and pygetwindow finds a matching window, the
-    capture is cropped to the window bounds.  If no window is found, falls back
-    to full-monitor capture and includes ``window_matched: False`` in the data.
+    capture is cropped to the window bounds. If no window is found, returns a
+    fail-closed error instead of silently capturing the wrong monitor.
     """
     monitor_idx = _resolve_monitor(monitor, cfg)
+    window_substring = _resolve_window_substring(window_substring, cfg)
 
     if output_path is None:
         screenshot_dir = _resolve_dir(None, cfg)
@@ -62,12 +129,11 @@ def take(
 
     region = None
     window_matched = False
+    window_title = None
     if window_substring:
         try:
-            import pygetwindow as gw  # noqa: PLC0415 (Windows-only; lazy import)
-            windows = gw.getWindowsWithTitle(window_substring)
-            if windows:
-                win = windows[0]
+            win = _find_window(window_substring)
+            if win:
                 region = {
                     "left": win.left,
                     "top": win.top,
@@ -75,8 +141,15 @@ def take(
                     "height": win.height,
                 }
                 window_matched = True
+                window_title = getattr(win, "title", None)
         except Exception:  # noqa: BLE001 (not available on non-Windows or MT5 not open)
             pass
+
+        if not window_matched:
+            return _fail(
+                "SCREENSHOT_WINDOW_NOT_FOUND",
+                f"No window matched '{window_substring}'. Use --window '' for monitor capture.",
+            )
 
     with mss.mss() as sct:
         # monitor_idx mapping:
@@ -94,10 +167,103 @@ def take(
         "height": shot.height,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    if not window_matched:
-        data["window_matched"] = False
+    data["window_matched"] = window_matched
+    if window_title:
+        data["window_title"] = window_title
 
     return {"ok": True, "data": data}
+
+
+# ---------------------------------------------------------------------------
+# tda
+# ---------------------------------------------------------------------------
+
+def _parse_timeframes(timeframes: str | list[str] | tuple[str, ...]) -> list[str]:
+    if isinstance(timeframes, str):
+        raw = timeframes.replace(" ", ",").split(",")
+    else:
+        raw = []
+        for item in timeframes:
+            raw.extend(str(item).replace(" ", ",").split(","))
+    return [tf.strip().upper() for tf in raw if tf.strip()]
+
+
+def _postprocess_image(path: Path, crop: str, max_width: int | None) -> tuple[int, int]:
+    from PIL import Image  # noqa: PLC0415
+
+    with Image.open(path) as img:
+        work = img.convert("RGB")
+        if crop == "chart" and work.width > 200 and work.height > 160:
+            top = min(90, max(0, work.height // 8))
+            bottom = max(top + 1, work.height - min(30, work.height // 20))
+            work = work.crop((0, top, work.width, bottom))
+        if max_width and max_width > 0 and work.width > max_width:
+            height = int(work.height * (max_width / work.width))
+            work = work.resize((max_width, height))
+        work.save(path)
+        return work.width, work.height
+
+
+def tda(
+    symbol: str,
+    timeframes: str | list[str] | tuple[str, ...] = "D1,H4,H1,M15,M5,M1",
+    output_dir: str | None = None,
+    crop: str = "chart",
+    max_width: int | None = 1280,
+    monitor: int | None = None,
+    cfg: dict | None = None,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Capture a visual top-down-analysis screenshot set for one symbol."""
+    from cli_anything.mt5.core import chart  # noqa: PLC0415
+
+    frames: list[dict] = []
+    output_root = _resolve_dir(output_dir, cfg)
+    window_substring = _resolve_window_substring(window_substring, cfg)
+    output_root.mkdir(parents=True, exist_ok=True)
+    captured_at = datetime.now(timezone.utc).isoformat()
+    safe_symbol = "".join(ch for ch in symbol.upper() if ch.isalnum() or ch in ("_", "-"))
+
+    symbol_result = chart.symbol(symbol, window_substring=window_substring, settle_seconds=settle_seconds)
+    if not symbol_result.get("ok"):
+        return symbol_result
+
+    for tf in _parse_timeframes(timeframes):
+        switch_result = chart.switch_tf(tf, window_substring=window_substring, settle_seconds=settle_seconds)
+        if not switch_result.get("ok"):
+            return switch_result
+
+        out_path = output_root / f"{safe_symbol}_{tf}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.png"
+        shot_result = take(
+            output_path=str(out_path),
+            window_substring=window_substring,
+            monitor=monitor,
+            cfg=cfg,
+        )
+        if not shot_result.get("ok"):
+            return shot_result
+
+        width, height = _postprocess_image(out_path, crop, max_width)
+        frame = {
+            "tf": tf,
+            "path": str(out_path),
+            "w": width,
+            "h": height,
+        }
+        title = switch_result.get("data", {}).get("title")
+        if title:
+            frame["title"] = title
+        frames.append(frame)
+
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol.upper(),
+            "captured_at": captured_at,
+            "frames": frames,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
