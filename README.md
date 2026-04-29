@@ -133,6 +133,7 @@ mt5 --json market tick USDJPY
 
 mt5 --json rates fetch USDJPY H1 --bars 100
 mt5 --json indicator ema USDJPY H1 --period 20 --bars 100
+mt5 --json indicator fvg USDJPY M15 --bars 300 --min-points 5 --state open --limit 20
 mt5 --json analyze bias USDJPY
 mt5 --json chart switch-tf H1
 mt5 --json chart symbol USDJPY
@@ -206,6 +207,26 @@ dryrun = order.dryrun(
     cfg=cfg,
     is_live_intent=False,
 )
+```
+
+FVG output is zone-based, not loose-line based. Each gap owns its boundaries:
+
+```json
+{
+  "type": "fvg",
+  "direction": "bullish",
+  "lower": 160.244,
+  "upper": 160.264,
+  "mid": 160.254,
+  "size_points": 20,
+  "state": "open",
+  "boundaries": {
+    "lower": {"price": 160.244, "role": "lower"},
+    "upper": {"price": 160.264, "role": "upper"},
+    "mid": {"price": 160.254, "role": "mid"}
+  },
+  "render": {"kind": "zone"}
+}
 ```
 
 ## Verification

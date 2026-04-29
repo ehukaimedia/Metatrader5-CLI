@@ -1088,13 +1088,81 @@ class TestIndicator:
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_NO_DATA"
 
-    def test_indicator_list_returns_six_entries(self):
+    def test_fvg_returns_single_zone_with_nested_boundaries_not_loose_lines(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        ind = self._mock_fetch(monkeypatch, bars=[
+            {"time": "2024-01-01T00:00:00+00:00", "open": 0.95, "high": 1.00, "low": 0.90, "close": 0.98, "tick_volume": 100},
+            {"time": "2024-01-01T00:15:00+00:00", "open": 1.00, "high": 1.02, "low": 0.95, "close": 1.01, "tick_volume": 100},
+            {"time": "2024-01-01T00:30:00+00:00", "open": 1.06, "high": 1.10, "low": 1.05, "close": 1.08, "tick_volume": 100},
+            {"time": "2024-01-01T00:45:00+00:00", "open": 1.09, "high": 1.12, "low": 1.08, "close": 1.11, "tick_volume": 100},
+            # Forming bar: would fill the gap, but FVG intentionally excludes the last fetched bar.
+            {"time": "2024-01-01T01:00:00+00:00", "open": 1.02, "high": 1.04, "low": 0.99, "close": 1.00, "tick_volume": 100},
+        ])
+        monkeypatch.setattr(ind.bridge, "mt5_call", lambda *a, **kw: MM(point=0.01))
+
+        result = ind.fvg("EURUSD", "M15", bars=5, min_points=1)
+
+        assert result["ok"] is True
+        zones = result["data"]["zones"]
+        zone = next(z for z in zones if z["lower"] == 1.00 and z["upper"] == 1.05)
+        assert zone["type"] == "fvg"
+        assert zone["direction"] == "bullish"
+        assert zone["lower"] == 1.00
+        assert zone["upper"] == 1.05
+        assert zone["mid"] == 1.025
+        assert zone["size_points"] == 5
+        assert zone["state"] == "open"
+        assert zone["distance_points"] == 6
+        assert zone["atr_multiple"] is not None
+        assert "boundaries" in zone
+        assert set(zone["boundaries"]) == {"lower", "upper", "mid"}
+        assert zone["render"]["kind"] == "zone"
+        assert "lines" not in zone, "FVG boundaries must not be exposed as loose line objects"
+
+    def test_fvg_partial_mitigation_uses_one_zone_state(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        ind = self._mock_fetch(monkeypatch, bars=[
+            {"time": "2024-01-01T00:00:00+00:00", "open": 0.95, "high": 1.00, "low": 0.90, "close": 0.98, "tick_volume": 100},
+            {"time": "2024-01-01T00:15:00+00:00", "open": 1.00, "high": 1.02, "low": 0.95, "close": 1.01, "tick_volume": 100},
+            {"time": "2024-01-01T00:30:00+00:00", "open": 1.06, "high": 1.10, "low": 1.05, "close": 1.08, "tick_volume": 100},
+            {"time": "2024-01-01T00:45:00+00:00", "open": 1.09, "high": 1.12, "low": 1.03, "close": 1.10, "tick_volume": 100},
+            {"time": "2024-01-01T01:00:00+00:00", "open": 1.11, "high": 1.13, "low": 1.10, "close": 1.12, "tick_volume": 100},
+        ])
+        monkeypatch.setattr(ind.bridge, "mt5_call", lambda *a, **kw: MM(point=0.01))
+
+        result = ind.fvg("EURUSD", "M15", bars=5, state="partial", mitigation="wick")
+
+        assert result["ok"] is True
+        assert len(result["data"]["zones"]) == 1
+        zone = result["data"]["zones"][0]
+        assert zone["state"] == "partial"
+        assert zone["fill_pct"] == 0.4
+
+    def test_fvg_limit_returns_most_recent_zones(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        ind = self._mock_fetch(monkeypatch, bars=[
+            {"time": "2024-01-01T00:00:00+00:00", "open": 0.95, "high": 1.00, "low": 0.90, "close": 0.98, "tick_volume": 100},
+            {"time": "2024-01-01T00:15:00+00:00", "open": 1.00, "high": 1.02, "low": 0.95, "close": 1.01, "tick_volume": 100},
+            {"time": "2024-01-01T00:30:00+00:00", "open": 1.06, "high": 1.10, "low": 1.05, "close": 1.08, "tick_volume": 100},
+            {"time": "2024-01-01T00:45:00+00:00", "open": 1.11, "high": 1.14, "low": 1.08, "close": 1.12, "tick_volume": 100},
+            {"time": "2024-01-01T01:00:00+00:00", "open": 1.20, "high": 1.24, "low": 1.18, "close": 1.22, "tick_volume": 100},
+            {"time": "2024-01-01T01:15:00+00:00", "open": 1.23, "high": 1.25, "low": 1.21, "close": 1.24, "tick_volume": 100},
+        ])
+        monkeypatch.setattr(ind.bridge, "mt5_call", lambda *a, **kw: MM(point=0.01))
+
+        result = ind.fvg("EURUSD", "M15", bars=6, limit=1)
+
+        assert result["ok"] is True
+        assert len(result["data"]["zones"]) == 1
+        assert result["data"]["zones"][0]["formed_at"] == "2024-01-01T01:00:00+00:00"
+
+    def test_indicator_list_returns_seven_entries(self):
         from cli_anything.mt5.core import indicator
         result = indicator.list_available()
         assert result["ok"] is True
-        assert len(result["data"]) == 6
+        assert len(result["data"]) == 7
         names = {e["name"] for e in result["data"]}
-        assert names == {"ema", "sma", "rsi", "macd", "bb", "atr"}
+        assert names == {"ema", "sma", "rsi", "macd", "bb", "atr", "fvg"}
 
 
 # ===========================================================================

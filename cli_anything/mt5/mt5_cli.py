@@ -394,7 +394,7 @@ def rates_ticks_range_cmd(ctx, symbol, date_from, date_to):
 @main.group("indicator")
 @click.pass_context
 def indicator_group(ctx):
-    """Technical indicators: EMA, SMA, RSI, MACD, BB, ATR."""
+    """Technical indicators: EMA, SMA, RSI, MACD, BB, ATR, FVG."""
     ctx.ensure_object(dict)
 
 
@@ -503,6 +503,44 @@ def indicator_atr_cmd(ctx, symbol, timeframe, period, bars):
         output(err, obj["as_json"])
         return
     output(indicator.atr(symbol, timeframe, period, bars), obj["as_json"])
+
+
+@indicator_group.command("fvg")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--bars", default=300, show_default=True, type=int, help="Bars to fetch.")
+@click.option("--min-points", default=0.0, show_default=True, type=float, help="Minimum gap size in points.")
+@click.option("--min-atr-multiple", default=0.0, show_default=True, type=float,
+              help="Minimum gap size as a multiple of local ATR. 0 disables.")
+@click.option("--direction", default="both", show_default=True,
+              type=click.Choice(["both", "bullish", "bearish"]), help="Gap direction filter.")
+@click.option("--state", default="all", show_default=True,
+              type=click.Choice(["all", "open", "partial", "filled"]), help="Mitigation state filter.")
+@click.option("--mitigation", default="body", show_default=True,
+              type=click.Choice(["wick", "body"]), help="Use wick or body prices for fill detection.")
+@click.option("--limit", default=20, show_default=True, type=int, help="Maximum zones to return. 0 disables.")
+@click.pass_context
+def indicator_fvg_cmd(ctx, symbol, timeframe, bars, min_points, min_atr_multiple, direction, state, mitigation, limit):
+    """Fair Value Gap zones for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        indicator.fvg(
+            symbol,
+            timeframe,
+            bars=bars,
+            min_points=min_points,
+            min_atr_multiple=min_atr_multiple,
+            direction=direction,
+            state=state,
+            mitigation=mitigation,
+            limit=limit or None,
+        ),
+        obj["as_json"],
+    )
 
 
 # ---------------------------------------------------------------------------
