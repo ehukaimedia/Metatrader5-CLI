@@ -7,3 +7,5 @@ build/
 *.egg
 .pytest_cache/
 .mypy_cache/
+.claude/
+.claire/
