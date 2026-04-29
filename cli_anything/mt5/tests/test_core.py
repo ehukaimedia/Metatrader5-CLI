@@ -966,3 +966,103 @@ class TestRatesCLI:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["ok"] is True
+
+
+# ===========================================================================
+# Task 9 — Indicators (core/indicator.py)
+# ===========================================================================
+
+class TestIndicator:
+    """
+    Tests patch rates_module.fetch so no MT5 connection is required.
+    Expected values are precomputed via pandas-ta with the same input data.
+    """
+
+    _CLOSES = [1.0, 1.1, 1.2, 1.15, 1.3, 1.25, 1.35, 1.4, 1.45, 1.5]
+
+    @property
+    def _bars(self):
+        return [
+            {
+                "time": f"2024-01-{i+1:02d}T00:00:00+00:00",
+                "open": c, "high": c + 0.02, "low": c - 0.02,
+                "close": c, "tick_volume": 100,
+            }
+            for i, c in enumerate(self._CLOSES)
+        ]
+
+    def _mock_fetch(self, monkeypatch, bars=None):
+        from cli_anything.mt5.core import indicator, rates as rates_module
+        data = bars if bars is not None else self._bars
+        monkeypatch.setattr(rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": data})
+        return indicator
+
+    def test_ema_known_input_produces_known_output(self, monkeypatch):
+        import pytest
+        ind = self._mock_fetch(monkeypatch)
+        result = ind.ema("EURUSD", "H1", period=5, bars=10)
+        assert result["ok"] is True
+        assert len(result["data"]["values"]) > 0
+        last = result["data"]["values"][-1]["value"]
+        assert last == pytest.approx(1.3967078189, rel=1e-5)
+
+    def test_sma_known_input_produces_known_output(self, monkeypatch):
+        import pytest
+        ind = self._mock_fetch(monkeypatch)
+        result = ind.sma("EURUSD", "H1", period=5, bars=10)
+        assert result["ok"] is True
+        last = result["data"]["values"][-1]["value"]
+        assert last == pytest.approx(1.39, rel=1e-6)
+
+    def test_rsi_known_input_produces_known_output(self, monkeypatch):
+        import pytest
+        ind = self._mock_fetch(monkeypatch)
+        result = ind.rsi("EURUSD", "H1", period=5, bars=10)
+        assert result["ok"] is True
+        last = result["data"]["values"][-1]["value"]
+        assert last == pytest.approx(90.690827, rel=1e-4)
+
+    def test_macd_known_input_produces_known_output(self, monkeypatch):
+        import pytest
+        ind = self._mock_fetch(monkeypatch)
+        result = ind.macd("EURUSD", "H1", fast=3, slow=5, signal=2, bars=10)
+        assert result["ok"] is True
+        assert len(result["data"]["values"]) > 0
+        last = result["data"]["values"][-1]
+        assert "macd" in last and "signal" in last and "hist" in last
+        assert last["macd"] == pytest.approx(0.0521203061, rel=1e-4)
+
+    def test_bb_known_input_produces_known_output(self, monkeypatch):
+        import pytest
+        ind = self._mock_fetch(monkeypatch)
+        result = ind.bb("EURUSD", "H1", period=5, std=2.0, bars=10)
+        assert result["ok"] is True
+        assert len(result["data"]["values"]) > 0
+        last = result["data"]["values"][-1]
+        assert "lower" in last and "mid" in last and "upper" in last
+        assert last["lower"] == pytest.approx(1.1976461594, rel=1e-4)
+
+    def test_atr_known_input_produces_known_output(self, monkeypatch):
+        import pytest
+        ind = self._mock_fetch(monkeypatch)
+        result = ind.atr("EURUSD", "H1", period=5, bars=10)
+        assert result["ok"] is True
+        assert len(result["data"]["values"]) > 0
+        last = result["data"]["values"][-1]["atr"]
+        assert last == pytest.approx(0.08626112, rel=1e-4)
+
+    def test_indicator_propagates_rates_error_envelope(self, monkeypatch):
+        from cli_anything.mt5.core import indicator, rates as rates_module
+        err = {"ok": False, "error": {"code": "MT5_NO_DATA", "message": "no data", "mt5_retcode": None}}
+        monkeypatch.setattr(rates_module, "fetch", lambda *a, **kw: err)
+        result = indicator.ema("EURUSD", "H1", period=5)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_NO_DATA"
+
+    def test_indicator_list_returns_six_entries(self):
+        from cli_anything.mt5.core import indicator
+        result = indicator.list_available()
+        assert result["ok"] is True
+        assert len(result["data"]) == 6
+        names = {e["name"] for e in result["data"]}
+        assert names == {"ema", "sma", "rsi", "macd", "bb", "atr"}

@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, market, project, rates
+from cli_anything.mt5.core import account, indicator, market, project, rates
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -383,3 +383,121 @@ def rates_ticks_range_cmd(ctx, symbol, date_from, date_to):
         output(err, obj["as_json"])
         return
     output(rates.ticks_range(symbol, _parse_date(date_from), _parse_date(date_to)), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Indicator command group
+# ---------------------------------------------------------------------------
+
+@main.group("indicator")
+@click.pass_context
+def indicator_group(ctx):
+    """Technical indicators: EMA, SMA, RSI, MACD, BB, ATR."""
+    ctx.ensure_object(dict)
+
+
+@indicator_group.command("list")
+@click.pass_context
+def indicator_list_cmd(ctx):
+    """List all available indicators."""
+    obj = ctx.obj
+    output(indicator.list_available(), obj["as_json"])
+
+
+@indicator_group.command("ema")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--period", required=True, type=int, help="EMA period.")
+@click.option("--bars", default=100, show_default=True, type=int, help="Bars to fetch.")
+@click.pass_context
+def indicator_ema_cmd(ctx, symbol, timeframe, period, bars):
+    """Exponential Moving Average for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(indicator.ema(symbol, timeframe, period, bars), obj["as_json"])
+
+
+@indicator_group.command("sma")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--period", required=True, type=int, help="SMA period.")
+@click.option("--bars", default=100, show_default=True, type=int, help="Bars to fetch.")
+@click.pass_context
+def indicator_sma_cmd(ctx, symbol, timeframe, period, bars):
+    """Simple Moving Average for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(indicator.sma(symbol, timeframe, period, bars), obj["as_json"])
+
+
+@indicator_group.command("rsi")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--period", required=True, type=int, help="RSI period.")
+@click.option("--bars", default=100, show_default=True, type=int, help="Bars to fetch.")
+@click.pass_context
+def indicator_rsi_cmd(ctx, symbol, timeframe, period, bars):
+    """Relative Strength Index for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(indicator.rsi(symbol, timeframe, period, bars), obj["as_json"])
+
+
+@indicator_group.command("macd")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--fast", default=12, show_default=True, type=int, help="Fast period.")
+@click.option("--slow", default=26, show_default=True, type=int, help="Slow period.")
+@click.option("--signal", default=9, show_default=True, type=int, help="Signal period.")
+@click.option("--bars", default=200, show_default=True, type=int, help="Bars to fetch.")
+@click.pass_context
+def indicator_macd_cmd(ctx, symbol, timeframe, fast, slow, signal, bars):
+    """MACD for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(indicator.macd(symbol, timeframe, fast, slow, signal, bars), obj["as_json"])
+
+
+@indicator_group.command("bb")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--period", default=20, show_default=True, type=int, help="BB period.")
+@click.option("--std", default=2.0, show_default=True, type=float, help="Standard deviations.")
+@click.option("--bars", default=100, show_default=True, type=int, help="Bars to fetch.")
+@click.pass_context
+def indicator_bb_cmd(ctx, symbol, timeframe, period, std, bars):
+    """Bollinger Bands for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(indicator.bb(symbol, timeframe, period, std, bars), obj["as_json"])
+
+
+@indicator_group.command("atr")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--period", default=14, show_default=True, type=int, help="ATR period.")
+@click.option("--bars", default=100, show_default=True, type=int, help="Bars to fetch.")
+@click.pass_context
+def indicator_atr_cmd(ctx, symbol, timeframe, period, bars):
+    """Average True Range for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(indicator.atr(symbol, timeframe, period, bars), obj["as_json"])
