@@ -13,6 +13,19 @@ def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:
     return {"ok": False, "error": {"code": code, "message": message, "mt5_retcode": mt5_retcode}}
 
 
+def _live_gate_check(is_live_intent: bool) -> dict | None:
+    """Return an error dict if live-gate blocks the trade, or None if clear."""
+    account_info = bridge.mt5_call("account_info")
+    if account_info is None:
+        return _fail("RISK_INVALID_INPUT", "account_info unavailable — MT5 may be disconnected.")
+    if not is_live_intent and account_info.trade_mode == bridge.ACCOUNT_TRADE_MODE_REAL:
+        return _fail(
+            "RISK_LIVE_GATE_BLOCKED",
+            "This is a live (real-money) account.  Pass --live to confirm intentional live trading.",
+        )
+    return None
+
+
 def _pos_to_dict(pos) -> dict:
     return {
         "ticket": pos.ticket,
@@ -58,8 +71,12 @@ def show(ticket: int) -> dict:
 # close
 # ---------------------------------------------------------------------------
 
-def close(ticket: int, volume: float | None = None) -> dict:
+def close(ticket: int, volume: float | None = None, *, is_live_intent: bool) -> dict:
     """Close a position fully or partially (spec §3: opposite-side DEAL with position=ticket)."""
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
     positions = bridge.mt5_call("positions_get", ticket=ticket)
     if not positions:
         return _fail("MT5_TICKET_NOT_FOUND", f"Position {ticket} not found.")
@@ -113,12 +130,16 @@ def close(ticket: int, volume: float | None = None) -> dict:
 # close_all
 # ---------------------------------------------------------------------------
 
-def close_all(symbol: str | None = None) -> dict:
+def close_all(symbol: str | None = None, *, is_live_intent: bool) -> dict:
     """Close all open positions, optionally restricted to one symbol.
 
     Continues on per-ticket failure (spec §7.4 pattern).  Returns a list
     of per-ticket outcome dicts — callers must inspect each entry.
     """
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
     if symbol:
         positions = bridge.mt5_call("positions_get", symbol=symbol)
     else:
@@ -129,7 +150,7 @@ def close_all(symbol: str | None = None) -> dict:
 
     results = []
     for pos in positions:
-        outcome = close(pos.ticket)
+        outcome = close(pos.ticket, is_live_intent=is_live_intent)
         entry: dict = {"ticket": pos.ticket}
         if outcome["ok"]:
             entry["result"] = "closed"
@@ -146,8 +167,12 @@ def close_all(symbol: str | None = None) -> dict:
 # move_sl
 # ---------------------------------------------------------------------------
 
-def move_sl(ticket: int, sl: float) -> dict:
+def move_sl(ticket: int, sl: float, *, is_live_intent: bool) -> dict:
     """Move the stop-loss of an open position to ``sl`` (TRADE_ACTION_SLTP)."""
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
     positions = bridge.mt5_call("positions_get", ticket=ticket)
     if not positions:
         return _fail("MT5_TICKET_NOT_FOUND", f"Position {ticket} not found.")
@@ -179,12 +204,16 @@ def move_sl(ticket: int, sl: float) -> dict:
 # breakeven
 # ---------------------------------------------------------------------------
 
-def breakeven(ticket: int, buffer_points: int = 0) -> dict:
+def breakeven(ticket: int, buffer_points: int = 0, *, is_live_intent: bool) -> dict:
     """Move SL to the open price ± buffer_points × symbol.point (spec §6.8).
 
     For BUY positions:  new_sl = open_price + buffer_points * point  (in favour)
     For SELL positions: new_sl = open_price - buffer_points * point  (in favour)
     """
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
     positions = bridge.mt5_call("positions_get", ticket=ticket)
     if not positions:
         return _fail("MT5_TICKET_NOT_FOUND", f"Position {ticket} not found.")
@@ -202,7 +231,7 @@ def breakeven(ticket: int, buffer_points: int = 0) -> dict:
     else:              # SELL
         new_sl = open_price - buffer_points * point
 
-    outcome = move_sl(ticket, new_sl)
+    outcome = move_sl(ticket, new_sl, is_live_intent=is_live_intent)
     if not outcome["ok"]:
         return outcome
 

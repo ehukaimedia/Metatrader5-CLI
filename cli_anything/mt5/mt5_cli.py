@@ -789,7 +789,7 @@ def position_close_cmd(ctx, ticket, volume):
     if err:
         output(err, obj["as_json"])
         return
-    output(position.close(ticket, volume), obj["as_json"])
+    output(position.close(ticket, volume, is_live_intent=obj["live_intent"]), obj["as_json"])
 
 
 @position_group.command("close-all")
@@ -802,7 +802,7 @@ def position_close_all_cmd(ctx, symbol):
     if err:
         output(err, obj["as_json"])
         return
-    output(position.close_all(symbol), obj["as_json"])
+    output(position.close_all(symbol, is_live_intent=obj["live_intent"]), obj["as_json"])
 
 
 @position_group.command("move-sl")
@@ -816,7 +816,7 @@ def position_move_sl_cmd(ctx, ticket, sl):
     if err:
         output(err, obj["as_json"])
         return
-    output(position.move_sl(ticket, sl), obj["as_json"])
+    output(position.move_sl(ticket, sl, is_live_intent=obj["live_intent"]), obj["as_json"])
 
 
 @position_group.command("breakeven")
@@ -831,4 +831,4 @@ def position_breakeven_cmd(ctx, ticket, buffer_points):
     if err:
         output(err, obj["as_json"])
         return
-    output(position.breakeven(ticket, buffer_points), obj["as_json"])
+    output(position.breakeven(ticket, buffer_points, is_live_intent=obj["live_intent"]), obj["as_json"])

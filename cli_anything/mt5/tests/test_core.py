@@ -1607,10 +1607,11 @@ class TestPosition:
         from cli_anything.mt5.core import position as position_module
         from cli_anything.mt5.utils import mt5_backend as bridge
         pos = self._make_pos(ticket=10001, type=0)  # BUY position
+        mt5m.account_info.return_value = MM(trade_mode=0)
         mt5m.positions_get.return_value = [pos]
         mt5m.symbol_info_tick.return_value = MM(ask=1.1010, bid=1.1005)
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
-        result = position_module.close(10001)
+        result = position_module.close(10001, is_live_intent=False)
         assert result["ok"] is True
         request = mt5m.order_send.call_args[0][0]
         assert request["action"] == bridge.TRADE_ACTION_DEAL
@@ -1622,7 +1623,9 @@ class TestPosition:
     # ------------------------------------------------------------------
 
     def test_close_all_continues_on_per_ticket_failure(self, mt5m, monkeypatch):
+        from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import position as position_module
+        mt5m.account_info.return_value = MM(trade_mode=0)
         p1 = self._make_pos(ticket=10001)
         p2 = self._make_pos(ticket=10002)
         mt5m.positions_get.return_value = [p1, p2]
@@ -1632,13 +1635,13 @@ class TestPosition:
         ]
         call_idx = [0]
 
-        def mock_close(ticket, volume=None):
+        def mock_close(ticket, volume=None, *, is_live_intent):
             r = close_results[call_idx[0]]
             call_idx[0] += 1
             return r
 
         monkeypatch.setattr(position_module, "close", mock_close)
-        result = position_module.close_all()
+        result = position_module.close_all(is_live_intent=False)
         assert result["ok"] is True
         assert len(result["data"]) == 2
         assert result["data"][0]["result"] == "error"
@@ -1652,11 +1655,12 @@ class TestPosition:
         import pytest
         from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import position as position_module
+        mt5m.account_info.return_value = MM(trade_mode=0)
         pos = self._make_pos(ticket=10001, type=0, price_open=1.1000, tp=1.12)
         mt5m.positions_get.return_value = [pos]
         mt5m.symbol_info.return_value = MM(point=0.00001)
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
-        result = position_module.breakeven(10001, buffer_points=0)
+        result = position_module.breakeven(10001, buffer_points=0, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["sl_set_to"] == pytest.approx(1.1000)
         request = mt5m.order_send.call_args[0][0]
@@ -1670,11 +1674,12 @@ class TestPosition:
         import pytest
         from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import position as position_module
+        mt5m.account_info.return_value = MM(trade_mode=0)
         pos = self._make_pos(ticket=10001, type=0, price_open=1.1000, tp=1.12)
         mt5m.positions_get.return_value = [pos]
         mt5m.symbol_info.return_value = MM(point=0.00001)
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
-        result = position_module.breakeven(10001, buffer_points=5)
+        result = position_module.breakeven(10001, buffer_points=5, is_live_intent=False)
         assert result["ok"] is True
         expected_sl = 1.1000 + 5 * 0.00001
         assert result["data"]["sl_set_to"] == pytest.approx(expected_sl)
@@ -1687,11 +1692,40 @@ class TestPosition:
         import pytest
         from unittest.mock import MagicMock as MM
         from cli_anything.mt5.core import position as position_module
+        mt5m.account_info.return_value = MM(trade_mode=0)
         pos = self._make_pos(ticket=10003, type=1, price_open=1.1000, tp=1.09)  # SELL
         mt5m.positions_get.return_value = [pos]
         mt5m.symbol_info.return_value = MM(point=0.00001)
         mt5m.order_send.return_value = MM(retcode=10009, comment="OK")
-        result = position_module.breakeven(10003, buffer_points=5)
+        result = position_module.breakeven(10003, buffer_points=5, is_live_intent=False)
         assert result["ok"] is True
         expected_sl = 1.1000 - 5 * 0.00001
         assert result["data"]["sl_set_to"] == pytest.approx(expected_sl)
+
+    # ------------------------------------------------------------------
+    # Test 8 — close blocked on live account without live intent
+    # ------------------------------------------------------------------
+
+    def test_close_blocked_on_live_account_without_live_intent(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import position as position_module
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.account_info.return_value = MM(trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL)
+        result = position_module.close(10001, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mt5m.order_send.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # Test 9 — move_sl blocked on live account without live intent
+    # ------------------------------------------------------------------
+
+    def test_move_sl_blocked_on_live_account_without_live_intent(self, mt5m):
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import position as position_module
+        from cli_anything.mt5.utils import mt5_backend as bridge
+        mt5m.account_info.return_value = MM(trade_mode=bridge.ACCOUNT_TRADE_MODE_REAL)
+        result = position_module.move_sl(10001, 1.0900, is_live_intent=False)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mt5m.order_send.assert_not_called()
