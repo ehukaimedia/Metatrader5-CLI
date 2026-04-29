@@ -1900,3 +1900,132 @@ class TestHistory:
         # MT5 should not have been called — guard fires before any bridge call
         mt5m.history_orders_get.assert_not_called()
         mt5m.history_deals_get.assert_not_called()
+
+
+# ===========================================================================
+# Task 14 — Screenshot (core/screenshot.py + CLI)
+# ===========================================================================
+
+class TestScreenshot:
+
+    @staticmethod
+    def _make_mss_mock(monitor_count: int = 2):
+        """Return (mock_mss_module, mock_sct, mock_shot) ready for monkeypatching."""
+        from unittest.mock import MagicMock
+        mock_shot = MagicMock(rgb=b"\x00" * 100, size=(100, 100), width=100, height=100)
+        mock_sct = MagicMock()
+        mock_sct.monitors = [{"all": True}] + [{"monitor": i} for i in range(monitor_count)]
+        mock_sct.grab.return_value = mock_shot
+        mock_mss = MagicMock()
+        mock_mss.mss.return_value.__enter__.return_value = mock_sct
+        return mock_mss, mock_sct, mock_shot
+
+    # ------------------------------------------------------------------
+    # Test 1 — take uses cfg monitor when arg is None
+    # ------------------------------------------------------------------
+
+    def test_take_uses_cfg_monitor_when_arg_none(self, tmp_path, monkeypatch):
+        from cli_anything.mt5.core import screenshot as ss_module
+        mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
+        monkeypatch.setattr(ss_module, "mss", mock_mss)
+
+        cfg = {"screenshot_monitor": 1, "screenshot_path": str(tmp_path)}
+        result = ss_module.take(
+            output_path=str(tmp_path / "s.png"),
+            window_substring="",  # skip pygetwindow
+            cfg=cfg,
+        )
+        assert result["ok"] is True
+        # cfg["screenshot_monitor"]=1 → monitors[1+1] = monitors[2]
+        mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
+
+    # ------------------------------------------------------------------
+    # Test 2 — take arg monitor overrides cfg
+    # ------------------------------------------------------------------
+
+    def test_take_arg_monitor_overrides_cfg(self, tmp_path, monkeypatch):
+        from cli_anything.mt5.core import screenshot as ss_module
+        mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
+        monkeypatch.setattr(ss_module, "mss", mock_mss)
+
+        cfg = {"screenshot_monitor": 0, "screenshot_path": str(tmp_path)}  # cfg says 0
+        result = ss_module.take(
+            output_path=str(tmp_path / "s.png"),
+            window_substring="",
+            monitor=1,  # arg says 1 → should win
+            cfg=cfg,
+        )
+        assert result["ok"] is True
+        # monitor arg=1 → monitors[1+1] = monitors[2]
+        mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
+
+    # ------------------------------------------------------------------
+    # Test 3 — take window match failure falls back to full monitor
+    # ------------------------------------------------------------------
+
+    def test_take_window_match_failure_falls_back_to_full_monitor(self, tmp_path, monkeypatch):
+        import sys
+        from unittest.mock import MagicMock
+        from cli_anything.mt5.core import screenshot as ss_module
+        mock_mss, mock_sct, _ = self._make_mss_mock(monitor_count=2)
+        monkeypatch.setattr(ss_module, "mss", mock_mss)
+
+        mock_gw = MagicMock()
+        mock_gw.getWindowsWithTitle.return_value = []  # no matching windows
+        monkeypatch.setitem(sys.modules, "pygetwindow", mock_gw)
+
+        cfg = {"screenshot_monitor": 0, "screenshot_path": str(tmp_path)}
+        result = ss_module.take(
+            output_path=str(tmp_path / "s.png"),
+            window_substring="MetaTrader 5",
+            cfg=cfg,
+        )
+        assert result["ok"] is True
+        assert result["data"]["window_matched"] is False
+        # Fell back to full monitor: monitor_idx=0 → monitors[0+1] = monitors[1]
+        mock_sct.grab.assert_called_once_with(mock_sct.monitors[1])
+
+    # ------------------------------------------------------------------
+    # Test 4 — annotate writes output file with Pillow
+    # ------------------------------------------------------------------
+
+    def test_annotate_writes_output_file_with_pillow_call(self, tmp_path):
+        from PIL import Image
+        from cli_anything.mt5.core import screenshot as ss_module
+
+        img = Image.new("RGB", (50, 50), color=(0, 0, 0))
+        input_path = str(tmp_path / "input.png")
+        output_path = str(tmp_path / "output.png")
+        img.save(input_path)
+
+        result = ss_module.annotate(input_path, output_path, "LABEL", (5, 5))
+        assert result["ok"] is True
+        assert result["data"]["path"] == output_path
+        assert (tmp_path / "output.png").exists()
+
+    # ------------------------------------------------------------------
+    # Test 5 — list filters PNGs and sorts by mtime
+    # ------------------------------------------------------------------
+
+    def test_list_filters_pngs_and_sorts_by_mtime(self, tmp_path):
+        import os
+        from cli_anything.mt5.core import screenshot as ss_module
+
+        f_old = tmp_path / "old.png"
+        f_old.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+        os.utime(str(f_old), (1000.0, 1000.0))  # old mtime
+
+        f_new = tmp_path / "new.png"
+        f_new.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+        os.utime(str(f_new), (2000.0, 2000.0))  # newer mtime
+
+        (tmp_path / "other.txt").write_text("ignored")
+
+        result = ss_module.list(directory=str(tmp_path))
+        assert result["ok"] is True
+        data = result["data"]
+        assert len(data) == 2  # only PNGs, not .txt
+        assert data[0]["path"].endswith("new.png")   # newest first
+        assert data[1]["path"].endswith("old.png")
+        assert isinstance(data[0]["timestamp"], str) and data[0]["timestamp"].endswith("+00:00")
+        assert "size_kb" in data[0]

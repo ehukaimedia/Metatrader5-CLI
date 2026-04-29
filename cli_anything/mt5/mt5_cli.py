@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, analyze, history, indicator, market, order, position, project, rates
+from cli_anything.mt5.core import account, analyze, history, indicator, market, order, position, project, rates, screenshot
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -902,3 +902,54 @@ def history_stats_cmd(ctx, date_from, date_to, strategy_id):
                       strategy_id=strategy_id, cfg=obj["cfg"]),
         obj["as_json"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Screenshot command group
+# ---------------------------------------------------------------------------
+
+@main.group("screenshot")
+@click.pass_context
+def screenshot_group(ctx):
+    """Screen capture: take, annotate, and list screenshots."""
+    ctx.ensure_object(dict)
+
+
+@screenshot_group.command("take")
+@click.option("--output", "output_path", default=None, help="Output file path.")
+@click.option("--window", "window_substring", default="MetaTrader 5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--monitor", type=int, default=None,
+              help="Monitor index (0=primary). Overrides screenshot_monitor config.")
+@click.pass_context
+def screenshot_take_cmd(ctx, output_path, window_substring, monitor):
+    """Capture the MT5 window (or full monitor) and save as PNG."""
+    obj = ctx.obj
+    output(
+        screenshot.take(output_path=output_path, window_substring=window_substring,
+                        monitor=monitor, cfg=obj["cfg"]),
+        obj["as_json"],
+    )
+
+
+@screenshot_group.command("annotate")
+@click.option("--input", "input_path", required=True, help="Input PNG path.")
+@click.option("--output", "output_path", required=True, help="Output PNG path.")
+@click.option("--text", required=True, help="Text to overlay.")
+@click.option("--xy", nargs=2, type=int, default=(10, 10), show_default=True,
+              help="Text position as two integers: X Y.")
+@click.pass_context
+def screenshot_annotate_cmd(ctx, input_path, output_path, text, xy):
+    """Add a text overlay to an existing screenshot."""
+    obj = ctx.obj
+    output(screenshot.annotate(input_path, output_path, text, tuple(xy)), obj["as_json"])
+
+
+@screenshot_group.command("list")
+@click.option("--dir", "directory", default=None,
+              help="Directory to list (default: config screenshot_path).")
+@click.pass_context
+def screenshot_list_cmd(ctx, directory):
+    """List saved screenshots sorted by newest first."""
+    obj = ctx.obj
+    output(screenshot.list(directory=directory, cfg=obj["cfg"]), obj["as_json"])
