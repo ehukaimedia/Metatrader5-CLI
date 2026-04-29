@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, indicator, market, project, rates
+from cli_anything.mt5.core import account, analyze, indicator, market, project, rates
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -501,3 +501,59 @@ def indicator_atr_cmd(ctx, symbol, timeframe, period, bars):
         output(err, obj["as_json"])
         return
     output(indicator.atr(symbol, timeframe, period, bars), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# Analyze command group
+# ---------------------------------------------------------------------------
+
+@main.group("analyze")
+@click.pass_context
+def analyze_group(ctx):
+    """Multi-timeframe analysis and price structure."""
+    ctx.ensure_object(dict)
+
+
+@analyze_group.command("topdown")
+@click.argument("symbol")
+@click.option("--timeframes", multiple=True, required=True, help="Timeframes to analyse (repeat for each).")
+@click.option("--bars", default=200, show_default=True, type=int, help="Bars to fetch per timeframe.")
+@click.pass_context
+def analyze_topdown_cmd(ctx, symbol, timeframes, bars):
+    """Multi-TF trend + momentum summary for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(analyze.topdown(symbol, list(timeframes), bars), obj["as_json"])
+
+
+@analyze_group.command("structure")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--bars", default=200, show_default=True, type=int, help="Bars to fetch.")
+@click.option("--pivot-n", "pivot_n", default=5, show_default=True, type=int,
+              help="N-bar pivot neighbourhood size.")
+@click.pass_context
+def analyze_structure_cmd(ctx, symbol, timeframe, bars, pivot_n):
+    """N-bar pivot swing highs/lows, support and resistance for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(analyze.structure(symbol, timeframe, bars, pivot_n), obj["as_json"])
+
+
+@analyze_group.command("bias")
+@click.argument("symbol")
+@click.pass_context
+def analyze_bias_cmd(ctx, symbol):
+    """Quick directional bias for SYMBOL using D1, H4, H1."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(analyze.bias(symbol), obj["as_json"])

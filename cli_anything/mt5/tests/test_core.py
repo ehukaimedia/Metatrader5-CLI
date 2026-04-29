@@ -1077,3 +1077,112 @@ class TestIndicator:
         assert len(result["data"]) == 6
         names = {e["name"] for e in result["data"]}
         assert names == {"ema", "sma", "rsi", "macd", "bb", "atr"}
+
+
+# ===========================================================================
+# Task 10 — Analyze (core/analyze.py)
+# ===========================================================================
+
+class TestAnalyze:
+    _TF_BULLISH = {
+        "timeframe": "H1", "trend": "bullish", "last_close": 1.25,
+        "ema_20": 1.20, "ema_slope": 0.01, "rsi_14": 55.0, "price_vs_ema": "above",
+    }
+    _TF_BEARISH = {
+        "timeframe": "H4", "trend": "bearish", "last_close": 1.10,
+        "ema_20": 1.20, "ema_slope": -0.01, "rsi_14": 45.0, "price_vs_ema": "below",
+    }
+
+    @staticmethod
+    def _bars(n=20, pivot_high_idx=None, pivot_low_idx=None, close=0.95):
+        rows = []
+        for i in range(n):
+            rows.append({
+                "time": f"2024-01-{i + 1:02d}T00:00:00+00:00",
+                "open": close,
+                "high": 2.0 if i == pivot_high_idx else 1.0,
+                "low":  0.5 if i == pivot_low_idx else 0.9,
+                "close": close,
+                "tick_volume": 100,
+            })
+        return rows
+
+    def test_topdown_classifies_trend_bullish_when_price_above_ema_with_positive_slope(self, monkeypatch):
+        from cli_anything.mt5.core import analyze
+        monkeypatch.setattr(analyze, "_classify_tf", lambda s, tf, bars: dict(self._TF_BULLISH, timeframe=tf))
+        result = analyze.topdown("EURUSD", ["H1"])
+        assert result["ok"] is True
+        assert result["data"]["timeframes"]["H1"]["trend"] == "bullish"
+        assert result["data"]["bias"] == "bullish"
+
+    def test_topdown_confluence_score_unanimous(self, monkeypatch):
+        import pytest
+        from cli_anything.mt5.core import analyze
+        monkeypatch.setattr(analyze, "_classify_tf", lambda s, tf, bars: dict(self._TF_BULLISH, timeframe=tf))
+        result = analyze.topdown("EURUSD", ["H1", "H4"])
+        assert result["ok"] is True
+        assert result["data"]["confluence_score"] == pytest.approx(1.0)
+        assert result["data"]["bias"] == "bullish"
+
+    def test_topdown_confluence_score_mixed(self, monkeypatch):
+        import pytest
+        from cli_anything.mt5.core import analyze
+        tf_map = {"H1": self._TF_BULLISH, "H4": self._TF_BULLISH, "D1": self._TF_BEARISH}
+        monkeypatch.setattr(
+            analyze, "_classify_tf",
+            lambda s, tf, bars: dict(tf_map.get(tf, self._TF_BULLISH), timeframe=tf),
+        )
+        result = analyze.topdown("EURUSD", ["H1", "H4", "D1"])
+        assert result["ok"] is True
+        assert result["data"]["bias"] == "bullish"
+        assert result["data"]["confluence_score"] == pytest.approx(2 / 3)
+
+    def test_structure_detects_swing_high_with_n_5(self, monkeypatch):
+        from cli_anything.mt5.core import analyze
+        bars = self._bars(n=20, pivot_high_idx=10, pivot_low_idx=5)
+        monkeypatch.setattr(analyze.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": bars})
+        result = analyze.structure("EURUSD", "H1", bars=20, pivot_n=5)
+        assert result["ok"] is True
+        assert any(abs(sh["price"] - 2.0) < 1e-9 for sh in result["data"]["swing_highs"])
+
+    def test_structure_support_resistance_relative_to_current_price(self, monkeypatch):
+        from cli_anything.mt5.core import analyze
+        bars = self._bars(n=20, pivot_high_idx=10, pivot_low_idx=5, close=0.95)
+        monkeypatch.setattr(analyze.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": bars})
+        result = analyze.structure("EURUSD", "H1", bars=20, pivot_n=5)
+        data = result["data"]
+        assert data["support"] < data["current_price"]
+        assert data["resistance"] > data["current_price"]
+
+    def test_structure_pivot_n_param_overrides_default(self, monkeypatch):
+        from cli_anything.mt5.core import analyze
+        # Bar at index 3 has high=2.0; pivot_n=1 → range(1,19) → detected;
+        # pivot_n=5 → range(5,15) → index 3 not in range → not detected.
+        bars = self._bars(n=20, pivot_high_idx=3)
+        monkeypatch.setattr(analyze.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": bars})
+        result_n1 = analyze.structure("EURUSD", "H1", bars=20, pivot_n=1)
+        assert any(abs(sh["price"] - 2.0) < 1e-9 for sh in result_n1["data"]["swing_highs"])
+        result_n5 = analyze.structure("EURUSD", "H1", bars=20, pivot_n=5)
+        assert not any(abs(sh["price"] - 2.0) < 1e-9 for sh in result_n5["data"]["swing_highs"])
+
+    def test_bias_uses_default_timeframes_d1_h4_h1(self, monkeypatch):
+        from cli_anything.mt5.core import analyze
+        captured = {}
+
+        def mock_topdown(symbol, timeframes, bars=200):
+            captured["timeframes"] = list(timeframes)
+            return {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "generated_at": "2024-01-01T00:00:00+00:00",
+                    "bias": "bullish",
+                    "confluence_score": 1.0,
+                    "timeframes": {},
+                    "notes": [],
+                },
+            }
+
+        monkeypatch.setattr(analyze, "topdown", mock_topdown)
+        analyze.bias("EURUSD")
+        assert captured["timeframes"] == ["D1", "H4", "H1"]
