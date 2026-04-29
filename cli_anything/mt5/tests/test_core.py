@@ -2295,3 +2295,43 @@ class TestRepl:
 
         assert call_count == 2  # first raised SystemExit(2), second succeeded
         assert not any("MT5_CONNECTION_ERROR" in m for m in error_messages)
+
+
+# ===========================================================================
+# Task 16 — documentation integrity tests
+# ===========================================================================
+
+class TestDocs:
+    """Smoke-tests that verify doc files exist and contain required content."""
+
+    # ------------------------------------------------------------------
+    # Test 1 — SKILL.md documents Step 0 market search
+    # ------------------------------------------------------------------
+
+    def test_skill_md_documents_step_0_market_search(self):
+        from pathlib import Path
+        skill_md = (
+            Path(__file__).parent.parent / "skills" / "SKILL.md"
+        )
+        assert skill_md.exists(), f"SKILL.md not found at {skill_md}"
+        content = skill_md.read_text(encoding="utf-8")
+        assert "market search" in content, (
+            "SKILL.md must document 'market search' as Step 0"
+        )
+
+    # ------------------------------------------------------------------
+    # Test 2 — test_e2e.py module skips without MT5_DEMO_INTEGRATION
+    # ------------------------------------------------------------------
+
+    def test_e2e_module_skips_without_env_var(self, monkeypatch):
+        import importlib
+        import sys
+
+        # Ensure the env var is absent
+        monkeypatch.delenv("MT5_DEMO_INTEGRATION", raising=False)
+
+        # Remove any cached import so the module-level skip guard re-runs
+        monkeypatch.delitem(sys.modules, "cli_anything.mt5.tests.test_e2e", raising=False)
+
+        with pytest.raises(pytest.skip.Exception):
+            importlib.import_module("cli_anything.mt5.tests.test_e2e")
