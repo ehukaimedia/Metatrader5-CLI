@@ -190,6 +190,7 @@ def check_order(
     cfg: dict,
     *,
     is_live_intent: bool,
+    consume_rate_limit: bool = True,
 ) -> dict:
     """Master pre-flight risk check.  Returns ``{"ok": True}`` or an error dict.
 
@@ -214,6 +215,10 @@ def check_order(
     is_live_intent:
         Pre-computed three-way AND: ``cfg["live"] & --live flag & MT5_LIVE=="1"``.
         When True the live-gate guard passes unconditionally.
+    consume_rate_limit:
+        When False, the rate-limit check still runs (orders-per-minute guard) but
+        no slot is consumed.  Pass False from ``order.dryrun`` so dry-runs never
+        reduce real-order capacity.
     """
 
     def _fail(code: str, message: str) -> dict:
@@ -343,6 +348,7 @@ def check_order(
             "RISK_RATE_LIMIT",
             f"Order rate limit of {cfg['max_orders_per_minute']} orders/minute exceeded.",
         )
-    _rate_limiter.append(now)  # consume slot only after all guards pass
+    if consume_rate_limit:
+        _rate_limiter.append(now)
 
     return {"ok": True}

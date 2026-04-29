@@ -427,7 +427,9 @@ def dryrun(
         volume = vol
 
     risk_result = risk_module.check_order(
-        symbol, side, volume, sl, strategy_id, cfg, is_live_intent=is_live_intent
+        symbol, side, volume, sl, strategy_id, cfg,
+        is_live_intent=is_live_intent,
+        consume_rate_limit=False,
     )
     if not risk_result["ok"]:
         return risk_result

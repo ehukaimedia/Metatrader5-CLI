@@ -1518,3 +1518,36 @@ class TestOrder:
         )
         request = mt5m.order_send.call_args[0][0]
         assert request["comment"] == "gopher-gate"
+
+    # ------------------------------------------------------------------
+    # Test 16 — dryrun does not consume a rate-limit slot
+    # ------------------------------------------------------------------
+
+    def test_dryrun_does_not_consume_rate_limit_slot(self, mt5m, cfg):
+        """A successful dryrun must not reduce real-order capacity (spec §7.3).
+
+        Uses the real risk.check_order (not mocked) so we exercise the
+        consume_rate_limit=False path end-to-end.
+        """
+        from unittest.mock import MagicMock as MM
+        from cli_anything.mt5.core import order as order_module
+        from cli_anything.mt5.core import risk
+        # Wire up all guards so check_order passes without short-circuiting
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
+        mt5m.symbol_info.return_value = MM(point=0.001, filling_mode=1)
+        mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, free_margin=8000.0)
+        mt5m.positions_get.return_value = []
+        mt5m.history_deals_get.return_value = []
+        mt5m.order_check.return_value = MM(
+            margin=100.0, margin_free=9900.0, margin_level=5000.0, profit=0.0, retcode=0,
+        )
+        # sl=154.50 → sl_distance = (155.00-154.50)/0.001 = 500 pts ≥ min(50)
+        slots_before = len(risk._rate_limiter)
+        result = order_module.dryrun(
+            "USDJPY", "buy", volume=0.1, sl=154.50, cfg=cfg, is_live_intent=False,
+        )
+        assert result["ok"] is True
+        assert len(risk._rate_limiter) == slots_before, (
+            "dryrun must not consume a rate-limit slot"
+        )
