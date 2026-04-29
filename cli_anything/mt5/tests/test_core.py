@@ -1729,3 +1729,151 @@ class TestPosition:
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
         mt5m.order_send.assert_not_called()
+
+
+# ===========================================================================
+# Task 13 — History (core/history.py + CLI)
+# ===========================================================================
+
+class TestHistory:
+
+    @staticmethod
+    def _make_order(**kwargs):
+        from unittest.mock import MagicMock as MM
+        defaults = dict(
+            ticket=20001, symbol="EURUSD", type=0,
+            volume_initial=0.1, price_open=1.1000, sl=1.09, tp=1.12,
+            time_setup=1700000000, time_done=1700000100,
+            state=4, magic=88888,
+        )
+        defaults.update(kwargs)
+        return MM(**defaults)
+
+    @staticmethod
+    def _make_deal(**kwargs):
+        from unittest.mock import MagicMock as MM
+        defaults = dict(
+            ticket=30001, order=20001, symbol="EURUSD", type=0,
+            volume=0.1, price=1.1000, profit=10.0, commission=-0.5,
+            swap=0.0, time=1700000100, magic=88888,
+        )
+        defaults.update(kwargs)
+        return MM(**defaults)
+
+    # ------------------------------------------------------------------
+    # Test 1 — orders filters by strategy_id via resolved magic
+    # ------------------------------------------------------------------
+
+    def test_orders_filters_by_strategy_id_via_resolved_magic(self, mt5m):
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        cfg = {"magic": 88888, "strategy_ids": {"scalper": 88888}}
+        o1 = self._make_order(ticket=20001, magic=88888)
+        o2 = self._make_order(ticket=20002, magic=99999)
+        mt5m.history_orders_get.return_value = [o1, o2]
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        result = history_module.orders(date_from, date_to, strategy_id="scalper", cfg=cfg)
+        assert result["ok"] is True
+        assert len(result["data"]) == 1
+        assert result["data"][0]["ticket"] == 20001
+        assert result["data"][0]["strategy_id"] == "scalper"
+
+    # ------------------------------------------------------------------
+    # Test 2 — deals filters by symbol
+    # ------------------------------------------------------------------
+
+    def test_deals_filters_by_symbol(self, mt5m):
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        d1 = self._make_deal(ticket=30001, symbol="EURUSD")
+        d2 = self._make_deal(ticket=30002, symbol="USDJPY")
+        mt5m.history_deals_get.return_value = [d1, d2]
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        result = history_module.deals(date_from, date_to, symbol="EURUSD")
+        assert result["ok"] is True
+        assert len(result["data"]) == 1
+        assert result["data"][0]["symbol"] == "EURUSD"
+
+    # ------------------------------------------------------------------
+    # Test 3 — stats computes win_rate and profit_factor
+    # ------------------------------------------------------------------
+
+    def test_stats_computes_win_rate_and_profit_factor(self, mt5m):
+        import pytest
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        d1 = self._make_deal(ticket=30001, profit=10.0, time=1)
+        d2 = self._make_deal(ticket=30002, profit=5.0, time=2)
+        d3 = self._make_deal(ticket=30003, profit=-4.0, time=3)
+        mt5m.history_deals_get.return_value = [d1, d2, d3]
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        result = history_module.stats(date_from, date_to)
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["trades"] == 3
+        assert data["win_rate"] == pytest.approx(2 / 3)
+        assert data["total_profit"] == pytest.approx(11.0)
+        assert data["avg_profit"] == pytest.approx(7.5)   # (10+5)/2
+        assert data["avg_loss"] == pytest.approx(4.0)
+        assert data["profit_factor"] == pytest.approx(15.0 / 4.0)
+
+    # ------------------------------------------------------------------
+    # Test 4 — stats max_drawdown on known curve
+    # ------------------------------------------------------------------
+
+    def test_stats_max_drawdown_on_known_curve(self, mt5m):
+        import pytest
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        # equity curve: +10 → 10, -15 → -5, +8 → 3
+        # peak:          10        10       10
+        # drawdown:       0        15        7
+        # max_drawdown = 15
+        d1 = self._make_deal(ticket=30001, profit=10.0, time=1)
+        d2 = self._make_deal(ticket=30002, profit=-15.0, time=2)
+        d3 = self._make_deal(ticket=30003, profit=8.0, time=3)
+        mt5m.history_deals_get.return_value = [d1, d2, d3]
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        result = history_module.stats(date_from, date_to)
+        assert result["ok"] is True
+        assert result["data"]["max_drawdown"] == pytest.approx(15.0)
+
+    # ------------------------------------------------------------------
+    # Test 5 — stats without strategy_id aggregates all deals
+    # ------------------------------------------------------------------
+
+    def test_stats_without_strategy_id_aggregates_all(self, mt5m):
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        d1 = self._make_deal(ticket=30001, profit=10.0, magic=88888, time=1)
+        d2 = self._make_deal(ticket=30002, profit=5.0, magic=99999, time=2)
+        mt5m.history_deals_get.return_value = [d1, d2]
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        result = history_module.stats(date_from, date_to)
+        assert result["ok"] is True
+        assert result["data"]["trades"] == 2
+        assert result["data"]["total_profit"] == 15.0
+
+    # ------------------------------------------------------------------
+    # Test 6 — stats zero trades returns zeros not NaN
+    # ------------------------------------------------------------------
+
+    def test_stats_zero_trades_returns_zeros_not_nan(self, mt5m):
+        import math
+        from datetime import datetime, timezone
+        from cli_anything.mt5.core import history as history_module
+        mt5m.history_deals_get.return_value = []
+        date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 12, 31, tzinfo=timezone.utc)
+        result = history_module.stats(date_from, date_to)
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["trades"] == 0
+        for key in ("win_rate", "total_profit", "avg_profit", "avg_loss", "profit_factor", "max_drawdown"):
+            assert not math.isnan(data[key]), f"{key} should not be NaN"
+            assert data[key] == 0.0

@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from cli_anything.mt5.core import account, analyze, indicator, market, order, position, project, rates
+from cli_anything.mt5.core import account, analyze, history, indicator, market, order, position, project, rates
 from cli_anything.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -832,3 +832,73 @@ def position_breakeven_cmd(ctx, ticket, buffer_points):
         output(err, obj["as_json"])
         return
     output(position.breakeven(ticket, buffer_points, is_live_intent=obj["live_intent"]), obj["as_json"])
+
+
+# ---------------------------------------------------------------------------
+# History command group
+# ---------------------------------------------------------------------------
+
+@main.group("history")
+@click.pass_context
+def history_group(ctx):
+    """Trade history: orders, deals, and performance statistics."""
+    ctx.ensure_object(dict)
+
+
+@history_group.command("orders")
+@click.option("--from", "date_from", required=True, help="Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--to", "date_to", required=True, help="End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--symbol", default=None, help="Filter by symbol.")
+@click.option("--strategy-id", "strategy_id", default=None, help="Filter by strategy identifier.")
+@click.pass_context
+def history_orders_cmd(ctx, date_from, date_to, symbol, strategy_id):
+    """Historical orders in [--from, --to], optionally filtered."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        history.orders(_parse_date(date_from), _parse_date(date_to), symbol=symbol,
+                       strategy_id=strategy_id, cfg=obj["cfg"]),
+        obj["as_json"],
+    )
+
+
+@history_group.command("deals")
+@click.option("--from", "date_from", required=True, help="Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--to", "date_to", required=True, help="End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--symbol", default=None, help="Filter by symbol.")
+@click.option("--strategy-id", "strategy_id", default=None, help="Filter by strategy identifier.")
+@click.pass_context
+def history_deals_cmd(ctx, date_from, date_to, symbol, strategy_id):
+    """Historical deals in [--from, --to], optionally filtered."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        history.deals(_parse_date(date_from), _parse_date(date_to), symbol=symbol,
+                      strategy_id=strategy_id, cfg=obj["cfg"]),
+        obj["as_json"],
+    )
+
+
+@history_group.command("stats")
+@click.option("--from", "date_from", required=True, help="Start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--to", "date_to", required=True, help="End date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).")
+@click.option("--strategy-id", "strategy_id", default=None, help="Scope to one strategy identifier.")
+@click.pass_context
+def history_stats_cmd(ctx, date_from, date_to, strategy_id):
+    """Performance statistics for [--from, --to], optionally scoped to one strategy."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        history.stats(_parse_date(date_from), _parse_date(date_to),
+                      strategy_id=strategy_id, cfg=obj["cfg"]),
+        obj["as_json"],
+    )
