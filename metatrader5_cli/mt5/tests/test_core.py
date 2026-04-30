@@ -1080,6 +1080,13 @@ class TestIndicator:
         last = result["data"]["values"][-1]["atr"]
         assert last == pytest.approx(0.08626112, rel=1e-4)
 
+    def test_atr_rejects_bars_less_than_period(self, monkeypatch):
+        ind = self._mock_fetch(monkeypatch, bars=self._bars[:5])
+        result = ind.atr("EURUSD", "H1", period=14, bars=5)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "INDICATOR_INVALID_INPUT"
+        assert "--bars (5) must be >= --period (14)" in result["error"]["message"]
+
     def test_indicator_propagates_rates_error_envelope(self, monkeypatch):
         from metatrader5_cli.mt5.core import indicator, rates as rates_module
         err = {"ok": False, "error": {"code": "MT5_NO_DATA", "message": "no data", "mt5_retcode": None}}
@@ -1329,6 +1336,25 @@ class TestAnalyzeCLI:
         data = json.loads(result.output)
         assert data["ok"] is True
         assert set(data["data"]["timeframes"].keys()) == {"D1", "H4", "H1"}
+
+    def test_cli_analyze_topdown_uses_default_timeframes(self, monkeypatch, tmp_path):
+        import json
+        from metatrader5_cli.mt5.core import analyze
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+        captured = {}
+
+        def mock_classify(symbol, timeframe, bars):
+            captured.setdefault("timeframes", []).append(timeframe)
+            return dict(self._TF_RESULT, timeframe=timeframe)
+
+        monkeypatch.setattr(analyze, "_classify_tf", mock_classify)
+        result = runner.invoke(mt5_cli.main, [
+            "--json", "analyze", "topdown", "EURUSD",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert captured["timeframes"] == ["D1", "H4", "H1"]
 
 
 # ===========================================================================

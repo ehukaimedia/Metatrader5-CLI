@@ -258,6 +258,11 @@ def atr(symbol: str, timeframe: str, period: int = 14, bars: int = 100) -> dict:
     if not result["ok"]:
         return result
     df = pd.DataFrame(result["data"])
+    if len(df) < period:
+        return _fail(
+            "INDICATOR_INVALID_INPUT",
+            f"--bars ({len(df)}) must be >= --period ({period}) to compute ATR.",
+        )
     atr_series = df.ta.atr(
         high=df["high"], low=df["low"], close=df["close"], length=period
     )

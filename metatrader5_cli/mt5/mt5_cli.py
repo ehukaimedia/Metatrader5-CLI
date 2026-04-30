@@ -556,7 +556,7 @@ def analyze_group(ctx):
 
 @analyze_group.command("topdown")
 @click.argument("symbol")
-@click.option("--timeframes", multiple=True, required=True,
+@click.option("--timeframes", multiple=True, default=("D1,H4,H1",), show_default=True,
               help="Timeframes to analyse.  Repeat (--timeframes D1 --timeframes H4) or "
                    "pass comma/space-separated in one value (--timeframes D1,H4,H1).")
 @click.option("--bars", default=200, show_default=True, type=int, help="Bars to fetch per timeframe.")
