@@ -284,19 +284,6 @@ def market_search_cmd(ctx, pattern):
     output(market.search(pattern), obj["as_json"])
 
 
-@market_group.command("session")
-@click.argument("symbol")
-@click.pass_context
-def market_session_cmd(ctx, symbol):
-    """Current trading session window for SYMBOL."""
-    obj = ctx.obj
-    err = _ensure_connected(obj["cfg"])
-    if err:
-        output(err, obj["as_json"])
-        return
-    output(market.session(symbol), obj["as_json"])
-
-
 @market_group.command("sessions")
 @click.argument("symbol")
 @click.pass_context

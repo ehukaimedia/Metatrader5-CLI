@@ -6,7 +6,7 @@ through ``bridge.mt5_call()``.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
@@ -271,58 +271,6 @@ def search(pattern: str) -> dict:
     }
 
 
-def session(symbol: str) -> dict:
-    """Return current session window for *symbol* (spec §6.2).
-
-    Uses ``symbol_info_session_trade(symbol, day_of_week, session_index=0)``
-    which returns a (from_seconds, to_seconds) tuple measured from midnight.
-    MT5 day-of-week: SUNDAY=0, MONDAY=1, ..., SATURDAY=6.
-
-    Overnight sessions (e.g. 21:00→06:00) are handled correctly:
-    * If current time >= from_sec → session opened today; closes_at is tomorrow.
-    * If current time < to_sec   → we are in the tail of yesterday's session.
-    * Otherwise                  → between sessions; next open is today.
-    """
-    if not bridge.ensure_symbol(symbol):
-        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
-    now = datetime.now(timezone.utc)
-    mt5_dow = (now.weekday() + 1) % 7  # Python Mon=0→MT5 Mon=1; Sun=6→MT5 Sun=0
-    result = bridge.mt5_call("symbol_info_session_trade", symbol, mt5_dow, 0)
-    if result is None:
-        return _fail("MT5_INVALID_SYMBOL", f"No session data for {symbol!r}.")
-    from_sec, to_sec = int(result[0]), int(result[1])
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    now_secs = int((now - midnight).total_seconds())
-
-    if to_sec > from_sec:
-        # Normal same-day session (e.g. 08:00→17:00)
-        opens_at = midnight + timedelta(seconds=from_sec)
-        closes_at = midnight + timedelta(seconds=to_sec)
-    else:
-        # Overnight session (e.g. 21:00→06:00)
-        if now_secs >= from_sec:
-            # Opening portion: session started today, closes tomorrow
-            opens_at = midnight + timedelta(seconds=from_sec)
-            closes_at = midnight + timedelta(days=1, seconds=to_sec)
-        elif now_secs < to_sec:
-            # Closing portion: still in yesterday's session tail
-            opens_at = midnight - timedelta(days=1) + timedelta(seconds=from_sec)
-            closes_at = midnight + timedelta(seconds=to_sec)
-        else:
-            # Between sessions: next open is today
-            opens_at = midnight + timedelta(seconds=from_sec)
-            closes_at = midnight + timedelta(days=1, seconds=to_sec)
-
-    return {
-        "ok": True,
-        "data": {
-            "is_open": opens_at <= now < closes_at,
-            "opens_at": opens_at.isoformat(),
-            "closes_at": closes_at.isoformat(),
-        },
-    }
-
-
 def sessions(symbol: str) -> dict:
     """Return named FX session boundaries from the static table (spec §6.2).
 
@@ -334,6 +282,6 @@ def sessions(symbol: str) -> dict:
     if entry is None:
         return _fail(
             "MT5_INVALID_SYMBOL",
-            f"No static session table entry for {symbol!r}; query market session instead.",
+            f"No static session table entry for {symbol!r}; use market info for broker metadata.",
         )
     return {"ok": True, "data": entry}

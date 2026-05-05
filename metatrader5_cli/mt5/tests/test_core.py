@@ -1173,6 +1173,8 @@ class TestMarket:
         result = market.sessions("UNKNOWN123")
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_INVALID_SYMBOL"
+        assert "market session" not in result["error"]["message"]
+        assert "market info" in result["error"]["message"]
 
 
 # ===========================================================================

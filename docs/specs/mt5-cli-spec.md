@@ -288,7 +288,6 @@ All `data` keys shown in the command tables below are nested inside `"data": { .
 | `market tick` | `SYMBOL` | `symbol`, `time`, `bid`, `ask`, `last`, `volume` | Latest tick |
 | `market depth` | `SYMBOL --levels INT` | `symbol`, `captured_at`, `levels`, `raw_count`, `bids`, `asks`, `best_bid`, `best_ask`, `spread`, `spread_points`, `mid`, `bid_volume`, `ask_volume`, `volume_imbalance`, `raw` | One-shot Depth of Market snapshot using `market_book_add()` -> `market_book_get()` -> `market_book_release()`. Bids are sorted high-to-low, asks low-to-high. `--levels 0` returns all available levels; positive values limit each side. DOM is broker/symbol dependent and may return `MT5_MARKET_BOOK_SUBSCRIBE_FAILED` or `MT5_MARKET_BOOK_UNAVAILABLE`. |
 | `market search` | `--pattern TEXT` | `[{symbol, description, currency_base, currency_profit}]` | Symbol search. `--pattern EUR` is auto-wrapped as `*EUR*` glob passed to `mt5.symbols_get(group=...)`. Users may supply explicit MT5 glob syntax (e.g. `EUR*,GBP*`). |
-| `market session` | `SYMBOL` | `is_open`, `opens_at`, `closes_at` | Current session window for the symbol |
 | `market sessions` | `SYMBOL` | `{tokyo: {start_utc, end_utc}, london: {start_utc, end_utc}, ny: {start_utc, end_utc}, sydney: {start_utc, end_utc}}` | Named FX session boundaries in UTC. Static lookup table keyed by symbol class (FX majors, metals, indices). Eliminates per-strategy hardcoded session times. |
 
 ### 6.3 `mt5 rates` — Timeframe Data Fetch
@@ -526,7 +525,7 @@ The forex daily close is **22:00 UTC (5 PM EST)**. At this time:
 - Spreads widen 10–15× normal on FX majors for 2–5 minutes
 - The `market info` `spread` field will reflect the widened value
 - The risk gate's `max_spread_points` check will block new orders during the spike if configured correctly
-- `market session` will show the session closing; position managers should monitor spread around this time
+- `market sessions` provides the static FX session table; position managers should monitor `market info` spread around this time
 
 ### Leverage
 
