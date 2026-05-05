@@ -111,9 +111,9 @@ mt5 --json market depth USDJPY --levels 5
 mt5 --json analyze topdown USDJPY --timeframes D1,H4,H1
 mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots" --final-timeframe M15
 mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30
-mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
+mt5 --json order dryrun USDJPY buy --order-type limit --price 157.800 --volume 0.001 --sl 157.750 --tp 157.900 --strategy-id ehukai-m1-sniper-poc
 mt5 --json order list --symbol USDJPY
-mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
+mt5 --json order limit USDJPY buy --price 157.800 --volume 0.001 --sl 157.750 --tp 157.900 --strategy-id ehukai-m1-sniper-poc
 mt5 --json position list --symbol USDJPY
 ```
 
@@ -123,7 +123,7 @@ Rules for agents:
 - Use `chart ensure SYMBOL --timeframe M15` before GUI/screenshot work so MT5 is on the intended active chart.
 - Try `market depth SYMBOL --levels N` when structured book data is available.
 - Use `chart depth-of-market SYMBOL` and `screenshot dom SYMBOL` for the actual MT5 GUI panel opened from Charts > Depth Of Market.
-- Always run `order dryrun` before `order market`, `order limit`, or `order stop`.
+- Always run `order dryrun` before `order market`, `order limit`, or `order stop`; a sniper POC `candidate` is a plan, not broker validation.
 - Use `order list --symbol SYMBOL` to inspect current pending orders; do not rely only on the MT5 chart trade panel.
 - Always branch on JSON `ok` before reading `data`.
 - Never place a live-account order unless the user explicitly requests live trading and all three live gates are intentionally set.
@@ -240,10 +240,19 @@ entry signals.
 For M1 sniper planning, use the non-mutating POC command after TDA/DOM context:
 
 ```powershell
-mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --min-rr 1.5 --min-stop-points 50
+mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --min-rr 1.5 --min-stop-points 50 --max-sweep-age-bars 12 --max-fvg-age-bars 20 --max-entry-distance-pips 15
 ```
 
 `analyze sniper-poc` combines Ehukai structure, FVG, liquidity sweeps, market depth when available, and current bid/ask quote rules. It returns either `status: "candidate"` with a suggested limit-order command for review/dry-run, or `status: "no_trade"` with failed gates. It explicitly models the execution side: buy limits fill on ask, sell limits fill on bid, so spread traps are rejected before a pending order is proposed. It also expands the SL to at least `--min-stop-points` so the plan is closer to what `order dryrun` and broker stop-distance rules will accept.
+
+For autonomous placement, use the two commands returned in `setup.order_commands`
+in order. The first command is the broker-side `order dryrun` for the pending
+limit; only place the second command if dryrun returns `ok:true` and the setup
+is still current. By default, sniper POC only accepts OPEN FVGs within
+`--max-entry-distance-pips`, requires the enabling sweep within
+`--max-sweep-age-bars`, rejects FX rollover (`21:00-22:59 UTC`), and resolves
+auto-direction ties to `no_trade`. Use `--summary` for agent loops that do not
+need the full per-timeframe `frames` payload.
 
 Use `chart current` and `chart ensure` to make the active chart explicit before any visual task:
 

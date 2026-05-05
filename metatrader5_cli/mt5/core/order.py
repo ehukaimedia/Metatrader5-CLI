@@ -59,6 +59,8 @@ _ORDER_STATE_STR: dict[int, str] = {
 }
 
 _FILLING_STR: dict[int, str] = {0: "FOK", 1: "IOC", 2: "RETURN"}
+_AGENT_MAGIC_MIN = 100000
+_AGENT_MAGIC_MAX = 180000
 
 
 def _resolve_filling(symbol: str, filling_str: str) -> int:
@@ -108,12 +110,27 @@ def _magic_to_strategy_id(magic: int, cfg: dict | None) -> str | None:
     return next((k for k, v in cfg.get("strategy_ids", {}).items() if int(v) == int(magic)), None)
 
 
+def _is_agent_magic(magic: int | None) -> bool:
+    try:
+        value = int(magic)
+    except (TypeError, ValueError):
+        return False
+    return _AGENT_MAGIC_MIN <= value < _AGENT_MAGIC_MAX
+
+
 def _pending_order_to_dict(order, cfg: dict | None, strategy_id_hint: str | None = None) -> dict:
     type_filling = getattr(order, "type_filling", None)
     try:
         type_filling_key = int(type_filling)
     except (TypeError, ValueError):
         type_filling_key = type_filling
+    strategy_id = strategy_id_hint or _magic_to_strategy_id(order.magic, cfg)
+    comment = getattr(order, "comment", "") or ""
+    comment_truncated = bool(
+        comment
+        and len(comment) >= 16
+        and (strategy_id is None or not str(strategy_id).startswith(comment))
+    )
     return {
         "ticket": order.ticket,
         "symbol": order.symbol,
@@ -131,8 +148,10 @@ def _pending_order_to_dict(order, cfg: dict | None, strategy_id_hint: str | None
         "type_filling": type_filling,
         "type_filling_name": _FILLING_STR.get(type_filling_key, str(type_filling)),
         "magic": order.magic,
-        "strategy_id": strategy_id_hint or _magic_to_strategy_id(order.magic, cfg),
-        "comment": getattr(order, "comment", ""),
+        "is_agent_magic": _is_agent_magic(order.magic),
+        "strategy_id": strategy_id,
+        "comment": comment,
+        "comment_truncated": comment_truncated,
     }
 
 
@@ -548,6 +567,8 @@ def dryrun(
     symbol: str,
     side: str,
     *,
+    order_type: str = "market",
+    price: float | None = None,
     volume: float | None = None,
     risk_pct: float | None = None,
     sl: float,
@@ -564,16 +585,24 @@ def dryrun(
     Runs the full risk envelope then calls ``order_check`` (NOT ``order_send``).
     Returns margin, margin_free, margin_level, profit, retcode.
     """
+    order_type = order_type.lower()
+    if order_type not in {"market", "limit", "stop"}:
+        return _fail("MT5_INVALID_PARAMS", "order_type must be one of: market, limit, stop.")
+    if order_type in {"limit", "stop"} and price is None:
+        return _fail("MT5_INVALID_PARAMS", "--price is required for pending order dryrun.")
     if (volume is None) == (risk_pct is None):
         return _fail("MT5_INVALID_PARAMS", "Provide exactly one of --volume or --risk-pct.")
 
     if not bridge.ensure_symbol(symbol):
         return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} is not available in MT5.")
 
-    tick = bridge.mt5_call("symbol_info_tick", symbol)
-    if tick is None:
-        return _fail("MT5_NO_DATA", f"No tick data for {symbol!r}.")
-    entry_price = tick.ask if side.lower() == "buy" else tick.bid
+    if order_type == "market":
+        tick = bridge.mt5_call("symbol_info_tick", symbol)
+        if tick is None:
+            return _fail("MT5_NO_DATA", f"No tick data for {symbol!r}.")
+        entry_price = tick.ask if side.lower() == "buy" else tick.bid
+    else:
+        entry_price = float(price)
 
     if risk_pct is not None:
         vol = risk_module.compute_volume_from_risk_pct(symbol, risk_pct, entry_price, sl, cfg)
@@ -590,23 +619,40 @@ def dryrun(
         return risk_result
 
     resolved_magic = magic if magic is not None else risk_module.resolve_magic(strategy_id, cfg)
-    resolved_filling = _resolve_filling(symbol, filling)
-    order_type = bridge.ORDER_TYPE_BUY if side.lower() == "buy" else bridge.ORDER_TYPE_SELL
+    resolved_filling = (
+        _resolve_filling(symbol, filling)
+        if order_type == "market"
+        else _resolve_pending_filling(filling)
+    )
+    if order_type == "market":
+        mt5_order_type = bridge.ORDER_TYPE_BUY if side.lower() == "buy" else bridge.ORDER_TYPE_SELL
+        action = bridge.TRADE_ACTION_DEAL
+    elif order_type == "limit":
+        mt5_order_type = (
+            bridge.ORDER_TYPE_BUY_LIMIT if side.lower() == "buy" else bridge.ORDER_TYPE_SELL_LIMIT
+        )
+        action = bridge.TRADE_ACTION_PENDING
+    else:
+        mt5_order_type = (
+            bridge.ORDER_TYPE_BUY_STOP if side.lower() == "buy" else bridge.ORDER_TYPE_SELL_STOP
+        )
+        action = bridge.TRADE_ACTION_PENDING
 
     request = {
-        "action": bridge.TRADE_ACTION_DEAL,
+        "action": action,
         "symbol": symbol,
         "volume": float(volume),
-        "type": order_type,
+        "type": mt5_order_type,
         "price": entry_price,
         "sl": sl,
         "tp": tp if tp is not None else 0.0,
-        "deviation": deviation,
         "magic": resolved_magic,
         "comment": strategy_id or "",
         "type_time": bridge.ORDER_TIME_GTC,
         "type_filling": resolved_filling,
     }
+    if order_type == "market":
+        request["deviation"] = deviation
 
     result = bridge.mt5_call("order_check", request)
     if result is None:
@@ -625,6 +671,8 @@ def dryrun(
             "dry_run": True,
             "symbol": symbol,
             "side": side,
+            "order_type": order_type,
+            "price": entry_price,
             "volume": float(volume),
             "sl": sl,
             "tp": tp,

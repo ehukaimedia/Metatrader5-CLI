@@ -199,6 +199,7 @@ def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
 
 _DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
 _SNIPER_TIMEFRAMES = ["H4", "H1", "M15", "M5", "M1"]
+_FX_ROLLOVER_HOURS_UTC = {21, 22}
 
 
 def bias(symbol: str) -> dict:
@@ -263,7 +264,21 @@ def _frame(symbol: str, timeframe: str, bars: int) -> dict:
     return frame
 
 
-def _matching_zones(frames: dict[str, dict], direction: str, quote_price: float) -> list[dict]:
+def _is_fx_symbol(symbol: str) -> bool:
+    text = "".join(ch for ch in symbol.upper() if ch.isalpha())
+    return len(text) >= 6 and text[:3].isalpha() and text[3:6].isalpha()
+
+
+def _matching_zones(
+    frames: dict[str, dict],
+    direction: str,
+    quote_price: float,
+    *,
+    pip_size: float,
+    max_age_bars: int,
+    max_entry_distance_pips: float,
+    include_partial: bool,
+) -> list[dict]:
     wanted = "bullish" if direction == "buy" else "bearish"
     zones: list[dict] = []
     for tf in ("M1", "M5", "M15"):
@@ -274,20 +289,36 @@ def _matching_zones(frames: dict[str, dict], direction: str, quote_price: float)
             mid = zone.get("mid")
             if not isinstance(mid, (int, float)):
                 continue
+            state = str(zone.get("state") or "").lower()
+            if state != "open" and not (include_partial and state == "partial"):
+                continue
+            age_bars = zone.get("age_bars")
+            if isinstance(age_bars, (int, float)) and max_age_bars >= 0 and int(age_bars) > max_age_bars:
+                continue
             if direction == "buy" and float(mid) >= quote_price:
                 continue
             if direction == "sell" and float(mid) <= quote_price:
+                continue
+            distance_pips = abs(quote_price - float(mid)) / pip_size if pip_size else 0.0
+            if max_entry_distance_pips >= 0 and distance_pips > max_entry_distance_pips:
                 continue
             item = dict(zone)
             item["timeframe"] = tf
             item["entry_price"] = float(mid)
             item["entry_role"] = "fvg_mid"
             item["distance_to_quote"] = abs(quote_price - float(mid))
+            item["distance_to_quote_pips"] = round(distance_pips, 2)
             zones.append(item)
     return sorted(zones, key=lambda z: ({"M1": 0, "M5": 1, "M15": 2}.get(z["timeframe"], 9), z["distance_to_quote"]))
 
 
-def _pools(frames: dict[str, dict], *, side: str, status: str | None = None) -> list[dict]:
+def _pools(
+    frames: dict[str, dict],
+    *,
+    side: str,
+    status: str | None = None,
+    max_sweep_age_bars: int | None = None,
+) -> list[dict]:
     pools: list[dict] = []
     for tf in ("M1", "M5", "M15"):
         liquidity = (frames.get(tf) or {}).get("liquidity") or {}
@@ -296,13 +327,17 @@ def _pools(frames: dict[str, dict], *, side: str, status: str | None = None) -> 
                 continue
             if status and pool.get("status") != status:
                 continue
+            if status == "swept" and max_sweep_age_bars is not None and max_sweep_age_bars >= 0:
+                age_bars = pool.get("sweep_age_bars", pool.get("age_bars"))
+                if not isinstance(age_bars, (int, float)) or int(age_bars) > max_sweep_age_bars:
+                    continue
             item = dict(pool)
             item["timeframe"] = tf
             pools.append(item)
     return pools
 
 
-def _nearest_target(pools: list[dict], structures: list[dict], direction: str, entry: float) -> dict | None:
+def _target_candidates(pools: list[dict], structures: list[dict], direction: str, entry: float) -> list[dict]:
     candidates = []
     if direction == "buy":
         for pool in pools:
@@ -313,7 +348,7 @@ def _nearest_target(pools: list[dict], structures: list[dict], direction: str, e
             resistance = structure_data.get("resistance")
             if isinstance(resistance, (int, float)) and float(resistance) > entry:
                 candidates.append({"source": "structure", "timeframe": structure_data.get("timeframe"), "price": float(resistance), "label": "resistance"})
-        return min(candidates, key=lambda c: c["price"] - entry) if candidates else None
+        return sorted(candidates, key=lambda c: c["price"] - entry)
 
     for pool in pools:
         level = pool.get("level")
@@ -323,7 +358,7 @@ def _nearest_target(pools: list[dict], structures: list[dict], direction: str, e
         support = structure_data.get("support")
         if isinstance(support, (int, float)) and float(support) < entry:
             candidates.append({"source": "structure", "timeframe": structure_data.get("timeframe"), "price": float(support), "label": "support"})
-    return max(candidates, key=lambda c: c["price"]) if candidates else None
+    return sorted(candidates, key=lambda c: entry - c["price"])
 
 
 def sniper_poc(
@@ -336,6 +371,13 @@ def sniper_poc(
     entry_buffer_points: int = 5,
     min_stop_points: int = 50,
     stop_buffer_pips: float = 1.0,
+    max_fvg_age_bars: int = 20,
+    max_sweep_age_bars: int = 12,
+    max_entry_distance_pips: float = 15.0,
+    include_partial_fvg: bool = False,
+    avoid_rollover: bool = True,
+    include_frames: bool = True,
+    generated_at: datetime | None = None,
 ) -> dict:
     """Build a non-mutating M1 sniper point-of-confluence limit plan.
 
@@ -346,8 +388,19 @@ def sniper_poc(
     direction = direction.lower()
     if direction not in {"auto", "buy", "sell"}:
         return _fail("MT5_INVALID_ARGUMENT", "direction must be one of: auto, buy, sell.")
-    if max_spread_points < 0 or entry_buffer_points < 0 or min_stop_points < 0 or min_rr <= 0:
-        return _fail("MT5_INVALID_ARGUMENT", "max_spread_points, entry_buffer_points, and min_stop_points must be >= 0; min_rr must be > 0.")
+    if (
+        max_spread_points < 0
+        or entry_buffer_points < 0
+        or min_stop_points < 0
+        or min_rr <= 0
+        or max_fvg_age_bars < 0
+        or max_sweep_age_bars < 0
+        or max_entry_distance_pips < 0
+    ):
+        return _fail(
+            "MT5_INVALID_ARGUMENT",
+            "spread, buffer, stop, age, and distance limits must be >= 0; min_rr must be > 0.",
+        )
 
     info = market.info(symbol)
     if not info.get("ok"):
@@ -371,6 +424,7 @@ def sniper_poc(
         "error": depth.get("error") if not depth.get("ok") else None,
     }
 
+    generated_at = generated_at or datetime.now(tz=timezone.utc)
     frames = {tf: _frame(symbol, tf, bars) for tf in _SNIPER_TIMEFRAMES}
     side_counts = {"buy": 0, "sell": 0, "neutral": 0}
     for tf in ("H4", "H1", "M15", "M5"):
@@ -380,30 +434,47 @@ def sniper_poc(
     selected_direction = direction
     if selected_direction == "auto":
         if side_counts["buy"] == side_counts["sell"]:
-            selected_direction = "buy" if side_counts["buy"] > 0 else "neutral"
+            selected_direction = "neutral"
         else:
             selected_direction = "buy" if side_counts["buy"] > side_counts["sell"] else "sell"
     if selected_direction == "neutral":
+        data = {
+            "symbol": symbol.upper(),
+            "generated_at": generated_at.isoformat(),
+            "status": "no_trade",
+            "direction": None,
+            "reason": "No directional majority across H4/H1/M15/M5 Ehukai structure.",
+            "quote": {"source": quote_source, "bid": bid, "ask": ask, "spread_points": spread_points},
+            "dom": dom_context,
+            "bias_counts": side_counts,
+            "frames_omitted": not include_frames,
+        }
+        if include_frames:
+            data["frames"] = frames
         return {
             "ok": True,
-            "data": {
-                "symbol": symbol.upper(),
-                "generated_at": datetime.now(tz=timezone.utc).isoformat(),
-                "status": "no_trade",
-                "direction": None,
-                "reason": "No directional majority across H4/H1/M15/M5 Ehukai structure.",
-                "quote": {"source": quote_source, "bid": bid, "ask": ask, "spread_points": spread_points},
-                "dom": dom_context,
-                "frames": frames,
-            },
+            "data": data,
         }
 
     quote_trigger = ask if selected_direction == "buy" else bid
-    zones = _matching_zones(frames, selected_direction, quote_trigger)
+    zones = _matching_zones(
+        frames,
+        selected_direction,
+        quote_trigger,
+        pip_size=pip_size,
+        max_age_bars=max_fvg_age_bars,
+        max_entry_distance_pips=max_entry_distance_pips,
+        include_partial=include_partial_fvg,
+    )
     primary_zone = zones[0] if zones else None
     opposing_sweep_side = "sell_side" if selected_direction == "buy" else "buy_side"
     target_side = "buy_side" if selected_direction == "buy" else "sell_side"
-    swept_pools = _pools(frames, side=opposing_sweep_side, status="swept")
+    swept_pools = _pools(
+        frames,
+        side=opposing_sweep_side,
+        status="swept",
+        max_sweep_age_bars=max_sweep_age_bars,
+    )
     target_pools = _pools(frames, side=target_side, status="open")
     structures = []
     for tf in ("M1", "M5", "M15"):
@@ -413,8 +484,32 @@ def sniper_poc(
 
     gates = [
         _gate("spread", spread_points <= max_spread_points, f"spread={spread_points} points; max={max_spread_points}"),
-        _gate("m1_fvg_poc", bool(primary_zone), "matching M1/M5/M15 FVG midpoint found" if primary_zone else "no matching nearby FVG midpoint"),
-        _gate("liquidity_sweep", bool(swept_pools), f"{opposing_sweep_side} swept before entry" if swept_pools else f"no swept {opposing_sweep_side} pool in M1/M5/M15 context"),
+        _gate(
+            "rollover_window",
+            not (avoid_rollover and _is_fx_symbol(symbol) and generated_at.hour in _FX_ROLLOVER_HOURS_UTC),
+            f"utc_hour={generated_at.hour}; rollover guard active for FX at 21:00-22:59 UTC",
+        ),
+        _gate(
+            "m1_fvg_poc",
+            bool(primary_zone),
+            (
+                "fresh open M1/M5/M15 FVG midpoint found"
+                if primary_zone
+                else (
+                    "no open FVG midpoint within "
+                    f"{max_entry_distance_pips:g} pips and {max_fvg_age_bars} bars"
+                )
+            ),
+        ),
+        _gate(
+            "liquidity_sweep",
+            bool(swept_pools),
+            (
+                f"recent {opposing_sweep_side} sweep within {max_sweep_age_bars} bars"
+                if swept_pools
+                else f"no recent swept {opposing_sweep_side} pool in M1/M5/M15 context"
+            ),
+        ),
     ]
 
     setup = None
@@ -444,14 +539,23 @@ def sniper_poc(
             sl = min(stop_refs) + stop_buffer_pips * pip_size
             sl = max(sl, entry + min_stop_points * point)
 
-        target = _nearest_target(target_pools, structures, selected_direction, entry)
+        risk = abs(entry - sl)
+        target = None
+        reward = 0.0
+        rr = 0.0
+        for candidate in _target_candidates(target_pools, structures, selected_direction, entry):
+            candidate_reward = abs(float(candidate["price"]) - entry)
+            candidate_rr = candidate_reward / risk if risk else 0.0
+            if target is None or candidate_rr >= min_rr:
+                target = candidate
+                reward = candidate_reward
+                rr = candidate_rr
+            if candidate_rr >= min_rr:
+                break
         target_ok = target is not None
         gates.append(_gate("liquidity_or_structure_target", target_ok, target.get("label", "target found") if target else "no target beyond entry"))
 
         tp = float(target["price"]) if target else None
-        risk = abs(entry - sl)
-        reward = abs(tp - entry) if tp is not None else 0.0
-        rr = reward / risk if risk else 0.0
         stop_points = risk / point if point else 0.0
         gates.append(_gate("minimum_stop_distance", stop_points >= min_stop_points, f"stop={stop_points:.0f} points; min={min_stop_points}"))
         gates.append(_gate("minimum_rr", rr >= min_rr, f"rr={rr:.2f}; min={min_rr}"))
@@ -474,20 +578,29 @@ def sniper_poc(
             "strategy_id_suggestion": "ehukai-m1-sniper-poc",
         }
         if all(g["ok"] for g in gates):
-            setup["order_command"] = (
+            dryrun_command = (
+                f"mt5 --json order dryrun {symbol.upper()} {selected_direction} "
+                f"--order-type limit --price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
+                "--strategy-id ehukai-m1-sniper-poc"
+            )
+            limit_command = (
                 f"mt5 --json order limit {symbol.upper()} {selected_direction} "
                 f"--price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
                 "--strategy-id ehukai-m1-sniper-poc"
+            )
+            setup["dryrun_command"] = dryrun_command
+            setup["placement_command"] = limit_command
+            setup["order_commands"] = [dryrun_command, limit_command]
+            setup["order_command"] = (
+                dryrun_command + "\n" + limit_command
             )
 
     status = "candidate" if setup and all(g["ok"] for g in gates) else "no_trade"
     confidence = sum(1 for g in gates if g["ok"]) / len(gates) if gates else 0.0
     blockers = [g for g in gates if not g["ok"] and g["severity"] == "blocker"]
-    return {
-        "ok": True,
-        "data": {
+    data = {
             "symbol": symbol.upper(),
-            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "generated_at": generated_at.isoformat(),
             "status": status,
             "direction": selected_direction,
             "confidence_score": round(confidence, 2),
@@ -506,11 +619,13 @@ def sniper_poc(
             "bias_counts": side_counts,
             "gates": gates,
             "setup": setup,
-            "frames": frames,
+            "frames_omitted": not include_frames,
             "visual_contract": {
                 "recommended_overlay": "EhukaiTDAOverlay",
                 "entry_model": "M1 sniper point-of-confluence limit plan",
                 "uses": ["EhukaiMarketStructure", "EhukaiFVG", "EhukaiLiquiditySwings", "market depth or quote fallback"],
             },
-        },
     }
+    if include_frames:
+        data["frames"] = frames
+    return {"ok": True, "data": data}

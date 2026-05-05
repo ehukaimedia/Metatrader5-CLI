@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                             EhukaiTDAOverlay.mq5  |
 //|                  Ehukai Trading - Unified TDA Visual Overlay      |
-//|                  v1.00 - Clean screenshot presentation layer      |
+//|                  v1.01 - Clean screenshot presentation layer      |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.00"
+#property version   "1.01"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -55,7 +55,7 @@ input color         InpBullColor          = clrLimeGreen;         // Bullish col
 input color         InpBearColor          = clrTomato;            // Bearish color
 input color         InpNeutralColor       = clrSilver;            // Neutral color
 input color         InpLevelColor         = clrDodgerBlue;        // Structure level color
-input color         InpLiquidityBuyColor  = clrTomato;            // Buy-side liquidity
+input color         InpLiquidityBuyColor  = clrDeepPink;          // Buy-side liquidity
 input color         InpLiquiditySellColor = clrTeal;              // Sell-side liquidity
 
 string g_prefix = "ETDA_";

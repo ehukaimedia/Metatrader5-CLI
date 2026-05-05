@@ -51,30 +51,44 @@ mt5 --json screenshot tda USDJPY --timeframes H1,M15,M5 --final-timeframe M15
 # Optional direct data for the same visual overlay logic
 mt5 --json ehukai structure USDJPY M15
 mt5 --json ehukai fvg USDJPY M15 --max-zones 4
+mt5 --json ehukai liquidity USDJPY M15
 
-# 5. Dry-run before committing
-mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 158.50
+# 5. For sniper entries, ask for a non-mutating candidate first
+mt5 --json analyze sniper-poc USDJPY --direction auto --summary
 
-# 5b. Inspect existing pending orders
+# 6. Dry-run the exact pending request before committing
+mt5 --json order dryrun USDJPY buy --order-type limit --price 157.800 --volume 0.001 --sl 157.750 --tp 157.900 --strategy-id ehukai-m1-sniper-poc
+
+# 6b. Inspect existing pending orders
 mt5 --json order list --symbol USDJPY
 
-# 6. Place the order only if dry-run returns ok:true
-mt5 --json order market USDJPY buy --volume 0.01 --sl 158.50
+# 7. Place the order only if dry-run returns ok:true and the quote/setup is still fresh
+mt5 --json order limit USDJPY buy --price 157.800 --volume 0.001 --sl 157.750 --tp 157.900 --strategy-id ehukai-m1-sniper-poc
 
-# 7. Confirm the position opened
+# 8. Confirm the position opened
 mt5 --json position list --symbol USDJPY
 ```
 
-**Never skip step 5 (dry-run).**  A dry-run runs the local risk envelope
+**Never skip dry-run.**  A dry-run runs the local risk envelope
 first (position limits, daily loss cap, spread check, margin check), then
 calls the broker's `order_check()` for a broker-side pre-flight — no order
 is sent.  Local risk gates and broker validation are both applied; neither
 substitutes for the other.
 
+`analyze sniper-poc` is still only analysis. A returned `candidate` is not a
+passing broker pre-flight. Use `setup.order_commands[0]` first, then
+`setup.order_commands[1]` only if dry-run returns `ok:true`, the quote has not
+run through target, and `order list` shows no conflicting pending order.
+
 Use `order list --symbol SYMBOL` for currently pending orders. Market-order
 `--filling auto` follows the broker `filling_mode` bitmask; pending
 limit/stop-order `--filling auto` uses `ORDER_FILLING_RETURN`, which this MT5
 terminal accepts for pending placement even when market orders advertise FOK.
+`order list` only reverse-resolves `strategy_id` for IDs pinned in
+`cfg.strategy_ids` or when the caller filters with `--strategy-id`. Treat
+`is_agent_magic:true` as "agent-derived magic, name unknown" and do not parse
+the broker `comment`; Trading.com can truncate comments before the local
+31-character strategy-id limit.
 
 ---
 
@@ -174,6 +188,11 @@ forcing agreement.
 For visual TDA, prefer `ehukai structure` and `ehukai fvg` over generic
 `analyze structure` / `indicator fvg`. The generic commands remain available for
 research, but the Ehukai commands intentionally mirror the chart overlays.
+
+For chart screenshots, prefer the single `EhukaiTDAOverlay.mq5` overlay. Keep
+`EhukaiFVG.mq5`, `EhukaiMarketStructure.mq5`, and `EhukaiLiquiditySwings.mq5`
+as primitive/debug overlays only; stacking them on normal TDA charts creates
+visual overlap that hurts agent vision.
 
 ---
 

@@ -1726,6 +1726,7 @@ class TestAnalyze:
         assert isinstance(result["data"]["reasoning"], str), "reasoning must be a str per spec §6.5"
 
     def test_sniper_poc_returns_quote_aware_buy_limit_candidate(self, monkeypatch):
+        from datetime import datetime, timezone
         from metatrader5_cli.mt5.core import analyze
 
         monkeypatch.setattr(
@@ -1775,6 +1776,8 @@ class TestAnalyze:
                 "lower": 157.790,
                 "upper": 157.810,
                 "mid": 157.800,
+                "state": "open",
+                "age_bars": 2,
                 "visual_label": "BULL FVG OPEN 2.0p",
             }
             return {"ok": True, "data": {"timeframe": timeframe, "zones": [zone] if timeframe in {"M1", "M5"} else []}}
@@ -1787,6 +1790,7 @@ class TestAnalyze:
                     "bottom": 157.770,
                     "top": 157.785,
                     "level": 157.770,
+                    "sweep_age_bars": 3,
                     "visual_label": "SSL LIQ SWEPT C2 V100",
                 },
                 {
@@ -1804,7 +1808,12 @@ class TestAnalyze:
         monkeypatch.setattr(analyze.ehukai, "fvg", mock_fvg)
         monkeypatch.setattr(analyze.ehukai, "liquidity", mock_liquidity)
 
-        result = analyze.sniper_poc("USDJPY", direction="auto", max_spread_points=30)
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="auto",
+            max_spread_points=30,
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
 
         assert result["ok"] is True
         data = result["data"]
@@ -1815,9 +1824,11 @@ class TestAnalyze:
         assert data["setup"]["entry"] == 157.8
         assert data["setup"]["stop_points"] == 50.0
         assert data["setup"]["rr"] >= 1.5
+        assert "order dryrun USDJPY buy --order-type limit" in data["setup"]["order_command"]
         assert "order limit USDJPY buy" in data["setup"]["order_command"]
 
     def test_sniper_poc_blocks_wide_spread_trap(self, monkeypatch):
+        from datetime import datetime, timezone
         from metatrader5_cli.mt5.core import analyze
 
         monkeypatch.setattr(
@@ -1855,7 +1866,14 @@ class TestAnalyze:
             "fvg",
             lambda symbol, timeframe, bars=100, min_gap_pips=1.0, max_zones=4, max_distance_pips=120.0: {
                 "ok": True,
-                "data": {"timeframe": timeframe, "zones": [{"direction": "bullish", "lower": 157.790, "upper": 157.810, "mid": 157.800}]},
+                "data": {"timeframe": timeframe, "zones": [{
+                    "direction": "bullish",
+                    "lower": 157.790,
+                    "upper": 157.810,
+                    "mid": 157.800,
+                    "state": "open",
+                    "age_bars": 2,
+                }]},
             },
         )
         monkeypatch.setattr(
@@ -1864,18 +1882,140 @@ class TestAnalyze:
             lambda symbol, timeframe, bars=300, length=14, area="wick", filter_by="count", filter_value=0.0, max_pools=10: {
                 "ok": True,
                 "data": {"timeframe": timeframe, "pools": [
-                    {"side": "sell_side", "status": "swept", "bottom": 157.770, "top": 157.785, "level": 157.770},
+                    {"side": "sell_side", "status": "swept", "bottom": 157.770, "top": 157.785, "level": 157.770, "sweep_age_bars": 3},
                     {"side": "buy_side", "status": "open", "level": 157.900, "visual_label": "BSL LIQ OPEN"},
                 ]},
             },
         )
 
-        result = analyze.sniper_poc("USDJPY", direction="buy", max_spread_points=30)
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="buy",
+            max_spread_points=30,
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
 
         assert result["ok"] is True
         data = result["data"]
         assert data["status"] == "no_trade"
         assert any(g["name"] == "spread" and g["ok"] is False for g in data["gates"])
+
+    def test_sniper_poc_auto_tie_returns_no_trade(self, monkeypatch):
+        from datetime import datetime, timezone
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze.market, "info", lambda symbol: {
+            "ok": True,
+            "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840, "digits": 3, "point": 0.001, "pip_size": 0.01},
+        })
+        monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
+
+        biases = {"H4": "BULLISH HH/HL", "H1": "BULLISH HH/HL", "M15": "BEARISH LH/LL", "M5": "BEARISH LH/LL", "M1": "BULLISH HH/HL"}
+        monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "bias": biases[timeframe], "support": 157.760, "resistance": 157.900},
+        })
+        monkeypatch.setattr(analyze.ehukai, "fvg", lambda *a, **kw: {"ok": True, "data": {"zones": []}})
+        monkeypatch.setattr(analyze.ehukai, "liquidity", lambda *a, **kw: {"ok": True, "data": {"pools": []}})
+
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="auto",
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["status"] == "no_trade"
+        assert result["data"]["direction"] is None
+        assert result["data"]["bias_counts"]["buy"] == result["data"]["bias_counts"]["sell"]
+
+    def test_sniper_poc_rejects_stale_sweep_and_partial_fvg_by_default(self, monkeypatch):
+        from datetime import datetime, timezone
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze.market, "info", lambda symbol: {
+            "ok": True,
+            "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840, "digits": 3, "point": 0.001, "pip_size": 0.01},
+        })
+        monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
+        monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "bias": "BULLISH HH/HL", "support": 157.760, "resistance": 157.900},
+        })
+        monkeypatch.setattr(analyze.ehukai, "fvg", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "zones": [{
+                "direction": "bullish",
+                "lower": 157.790,
+                "upper": 157.810,
+                "mid": 157.800,
+                "state": "partial",
+                "age_bars": 25,
+            }]},
+        })
+        monkeypatch.setattr(analyze.ehukai, "liquidity", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "pools": [
+                {"side": "sell_side", "status": "swept", "bottom": 157.770, "top": 157.785, "level": 157.770, "sweep_age_bars": 200},
+                {"side": "buy_side", "status": "open", "level": 157.900, "visual_label": "BSL LIQ OPEN"},
+            ]},
+        })
+
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="buy",
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["status"] == "no_trade"
+        assert any(g["name"] == "m1_fvg_poc" and g["ok"] is False for g in result["data"]["gates"])
+        assert any(g["name"] == "liquidity_sweep" and g["ok"] is False for g in result["data"]["gates"])
+
+    def test_sniper_poc_rollover_guard_blocks_fx_candidate(self, monkeypatch):
+        from datetime import datetime, timezone
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze.market, "info", lambda symbol: {
+            "ok": True,
+            "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840, "digits": 3, "point": 0.001, "pip_size": 0.01},
+        })
+        monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
+        monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "bias": "BULLISH HH/HL", "support": 157.760, "resistance": 157.900},
+        })
+        monkeypatch.setattr(analyze.ehukai, "fvg", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "zones": [{
+                "direction": "bullish",
+                "lower": 157.790,
+                "upper": 157.810,
+                "mid": 157.800,
+                "state": "open",
+                "age_bars": 2,
+            }]},
+        })
+        monkeypatch.setattr(analyze.ehukai, "liquidity", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "pools": [
+                {"side": "sell_side", "status": "swept", "bottom": 157.770, "top": 157.785, "level": 157.770, "sweep_age_bars": 3},
+                {"side": "buy_side", "status": "open", "level": 157.900, "visual_label": "BSL LIQ OPEN"},
+            ]},
+        })
+
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="buy",
+            generated_at=datetime(2026, 5, 5, 22, 15, tzinfo=timezone.utc),
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["status"] == "no_trade"
+        assert any(g["name"] == "rollover_window" and g["ok"] is False for g in result["data"]["gates"])
 
 
 # ===========================================================================
@@ -2153,6 +2293,28 @@ class TestOrder:
         assert row["state"] == "placed"
         assert row["type_filling_name"] == "RETURN"
         assert row["strategy_id"] == "ehukai-sniper-test"
+        assert row["is_agent_magic"] is False
+        assert row["comment_truncated"] is False
+
+    def test_order_list_marks_agent_magic_and_truncated_comment(self, mt5m, cfg):
+        from unittest.mock import MagicMock as MM
+        from metatrader5_cli.mt5.core import order as order_module
+        mt5m.orders_get.return_value = [
+            MM(
+                ticket=99003, symbol="USDJPY", type=3, state=1, volume_initial=0.001,
+                volume_current=0.001, price_open=157.785, price_current=157.635,
+                sl=157.835, tp=157.700, time_setup=1777997494, time_expiration=0,
+                type_time=0, type_filling=2, magic=113054, comment="ehukai-m1-sniper",
+            )
+        ]
+
+        result = order_module.list_pending("USDJPY", cfg=cfg)
+
+        assert result["ok"] is True
+        row = result["data"][0]
+        assert row["strategy_id"] is None
+        assert row["is_agent_magic"] is True
+        assert row["comment_truncated"] is True
 
     def test_cli_order_list_json(self, mt5m, monkeypatch, tmp_path):
         import json
@@ -2310,6 +2472,39 @@ class TestOrder:
         mt5m.order_check.assert_called_once()
         assert isinstance(mt5m.order_check.call_args.args[0], dict)
         assert mt5m.order_check.call_args.kwargs == {}
+
+    def test_dryrun_limit_calls_order_check_with_pending_request(self, mt5m, monkeypatch, cfg):
+        from unittest.mock import MagicMock as MM
+        from metatrader5_cli.mt5.core import order as order_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
+        mt5m.symbol_select.return_value = True
+        mt5m.order_check.return_value = MM(
+            margin=1.0, margin_free=9999.0, margin_level=5000.0, profit=0.0, retcode=0,
+        )
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+
+        result = order_module.dryrun(
+            "USDJPY",
+            "sell",
+            order_type="limit",
+            price=157.785,
+            volume=0.001,
+            sl=157.835,
+            tp=157.700,
+            strategy_id="ehukai-m1-sniper-poc",
+            cfg=cfg,
+            is_live_intent=False,
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["order_type"] == "limit"
+        assert result["data"]["price"] == 157.785
+        mt5m.order_send.assert_not_called()
+        request = mt5m.order_check.call_args.args[0]
+        assert request["action"] == bridge.TRADE_ACTION_PENDING
+        assert request["type"] == bridge.ORDER_TYPE_SELL_LIMIT
+        assert request["type_filling"] == bridge.ORDER_FILLING_RETURN
+        assert request["price"] == 157.785
 
     def test_dryrun_rejects_nonzero_order_check_retcode(self, mt5m, monkeypatch, cfg):
         from unittest.mock import MagicMock as MM

@@ -666,8 +666,36 @@ def analyze_bias_cmd(ctx, symbol):
               help="Minimum entry-to-SL distance in points for the suggested setup.")
 @click.option("--stop-buffer-pips", default=1.0, show_default=True, type=float,
               help="Buffer beyond structural/FVG invalidation for SL.")
+@click.option("--max-fvg-age-bars", default=20, show_default=True, type=int,
+              help="Reject FVGs older than this many bars on their timeframe.")
+@click.option("--max-sweep-age-bars", default=12, show_default=True, type=int,
+              help="Require the enabling liquidity sweep to be this recent.")
+@click.option("--max-entry-distance-pips", default=15.0, show_default=True, type=float,
+              help="Reject FVG midpoints farther than this from the trigger quote.")
+@click.option("--include-partial-fvg", is_flag=True,
+              help="Allow PARTIAL FVGs. Default sniper mode requires OPEN FVGs.")
+@click.option("--allow-rollover", is_flag=True,
+              help="Allow candidates during the FX 21:00-22:59 UTC rollover window.")
+@click.option("--summary", is_flag=True,
+              help="Omit the full per-timeframe frames payload from JSON output.")
 @click.pass_context
-def analyze_sniper_poc_cmd(ctx, symbol, direction, bars, max_spread_points, min_rr, entry_buffer_points, min_stop_points, stop_buffer_pips):
+def analyze_sniper_poc_cmd(
+    ctx,
+    symbol,
+    direction,
+    bars,
+    max_spread_points,
+    min_rr,
+    entry_buffer_points,
+    min_stop_points,
+    stop_buffer_pips,
+    max_fvg_age_bars,
+    max_sweep_age_bars,
+    max_entry_distance_pips,
+    include_partial_fvg,
+    allow_rollover,
+    summary,
+):
     """Non-mutating M1 sniper point-of-confluence limit plan."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
@@ -684,6 +712,12 @@ def analyze_sniper_poc_cmd(ctx, symbol, direction, bars, max_spread_points, min_
             entry_buffer_points=entry_buffer_points,
             min_stop_points=min_stop_points,
             stop_buffer_pips=stop_buffer_pips,
+            max_fvg_age_bars=max_fvg_age_bars,
+            max_sweep_age_bars=max_sweep_age_bars,
+            max_entry_distance_pips=max_entry_distance_pips,
+            include_partial_fvg=include_partial_fvg,
+            avoid_rollover=not allow_rollover,
+            include_frames=not summary,
         ),
         obj["as_json"],
     )
@@ -858,12 +892,17 @@ def order_poll_fill_cmd(ctx, ticket, timeout_ms):
 @click.option("--risk-pct", "risk_pct", type=float, default=None, help="Risk as % of equity.")
 @click.option("--sl", required=True, type=float, help="Stop-loss price.")
 @click.option("--tp", type=float, default=None, help="Take-profit price.")
+@click.option("--order-type", "order_type", default="market", show_default=True,
+              type=click.Choice(["market", "limit", "stop"], case_sensitive=False),
+              help="Validate a market, limit, or stop order.")
+@click.option("--price", type=float, default=None,
+              help="Pending entry price. Required when --order-type is limit or stop.")
 @click.option("--strategy-id", "strategy_id", default=None, help="Strategy identifier.")
 @click.option("--magic", type=int, default=None, help="Magic number override.")
 @click.option("--deviation", default=20, show_default=True, type=int, help="Max price deviation in points.")
 @click.option("--filling", default="auto", show_default=True, help="Filling mode: auto/FOK/IOC/RETURN.")
 @click.pass_context
-def order_dryrun_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, strategy_id, magic, deviation, filling):
+def order_dryrun_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, order_type, price, strategy_id, magic, deviation, filling):
     """Validate an order without placing it (calls order_check, not order_send)."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
@@ -872,6 +911,8 @@ def order_dryrun_cmd(ctx, symbol, side, volume, risk_pct, sl, tp, strategy_id, m
         return
     result = order.dryrun(
         symbol, side,
+        order_type=order_type,
+        price=price,
         volume=volume, risk_pct=risk_pct,
         sl=sl, tp=tp,
         strategy_id=strategy_id, magic=magic,
