@@ -2037,6 +2037,69 @@ class TestHistory:
 # Task 14 — Screenshot (core/screenshot.py + CLI)
 # ===========================================================================
 
+class TestChart:
+    class _Win:
+        def __init__(self, title, hwnd=101):
+            self.hwnd = hwnd
+            self.title = title
+
+    def _patch_switch_tf_win32(self, monkeypatch, chart_module, titles, sleep_calls):
+        title_iter = iter(titles)
+
+        monkeypatch.setattr(chart_module, "find_window", lambda _window: next(title_iter))
+        monkeypatch.setattr(chart_module, "_find_period_toolbar", lambda _hwnd: 202)
+        monkeypatch.setattr(chart_module, "_click_toolbar_button", lambda _hwnd, _toolbar, _tf: True)
+        monkeypatch.setattr(chart_module, "_press_key", lambda _hwnd, _vk: None)
+        monkeypatch.setattr(chart_module.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    def test_switch_tf_retries_until_title_reflects_timeframe(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        sleep_calls = []
+        self._patch_switch_tf_win32(
+            monkeypatch,
+            chart_module,
+            [
+                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
+                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
+                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
+                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,H1]"),
+            ],
+            sleep_calls,
+        )
+
+        result = chart_module.switch_tf("H1", settle_seconds=0)
+
+        assert result["ok"] is True
+        assert result["data"]["timeframe"] == "H1"
+        assert result["data"]["title"].endswith("[USDJPY,H1]")
+        assert sleep_calls == [0.05, 0.05, 0.05]
+
+    def test_switch_tf_timeframe_verify_failure_keeps_error_shape(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        stale_title = "105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"
+        sleep_calls = []
+        self._patch_switch_tf_win32(
+            monkeypatch,
+            chart_module,
+            [self._Win(stale_title) for _ in range(11)],
+            sleep_calls,
+        )
+
+        result = chart_module.switch_tf("H1", settle_seconds=0)
+
+        assert result == {
+            "ok": False,
+            "error": {
+                "code": "CHART_TIMEFRAME_VERIFY_FAILED",
+                "message": f"MT5 title did not show timeframe H1: {stale_title}",
+                "mt5_retcode": None,
+            },
+        }
+        assert sleep_calls == [0.05] * 10
+
+
 class TestScreenshot:
 
     @staticmethod

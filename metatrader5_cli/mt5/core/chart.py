@@ -36,6 +36,8 @@ TF_TITLE_ALIASES = {
     "W1": ("W1", "Weekly"),
     "MN": ("MN", "MN1", "Monthly"),
 }
+TIMEFRAME_VERIFY_POLLS = 10
+TIMEFRAME_VERIFY_POLL_SECONDS = 0.05
 
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
@@ -145,6 +147,26 @@ def title_has_symbol_tf(title: str, symbol: str, tf: str | None = None) -> bool:
         return True
     normalized = normalize_timeframe(tf)
     return any(alias.upper() in title_upper for alias in TF_TITLE_ALIASES[normalized])
+
+
+def _wait_for_timeframe_title(
+    window_substring: str,
+    fallback_title: str,
+    tf: str,
+    *,
+    attempts: int = TIMEFRAME_VERIFY_POLLS,
+    poll_seconds: float = TIMEFRAME_VERIFY_POLL_SECONDS,
+) -> tuple[bool, str]:
+    """Poll the MT5 title until it reflects the requested timeframe."""
+    title = fallback_title
+    for attempt in range(max(1, attempts)):
+        if poll_seconds > 0 and attempt > 0:
+            time.sleep(poll_seconds)
+        refreshed = find_window(window_substring)
+        title = refreshed.title if refreshed else title
+        if title_has_symbol_tf(title, "", tf):
+            return True, title
+    return False, title
 
 
 def _find_period_toolbar(mt5_hwnd: int) -> int | None:
@@ -291,9 +313,9 @@ def switch_tf(tf: str, window_substring: str = "MT5", settle_seconds: float = 0.
     if settle_seconds > 0:
         time.sleep(settle_seconds)
 
-    refreshed = find_window(window_substring)
-    title = refreshed.title if refreshed else match.title
-    if not title_has_symbol_tf(title, "", normalized):
+    time.sleep(TIMEFRAME_VERIFY_POLL_SECONDS)
+    verified, title = _wait_for_timeframe_title(window_substring, match.title, normalized)
+    if not verified:
         return _fail(
             "CHART_TIMEFRAME_VERIFY_FAILED",
             f"MT5 title did not show timeframe {normalized}: {title}",
