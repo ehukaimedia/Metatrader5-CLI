@@ -221,7 +221,7 @@ Metatrader5-CLI/
 **Config key notes:**
 - `magic` — integer tag applied to every agent-placed order; allows filtering agent orders from manually-placed trades in history queries. Default `88888`.
 - `deviation` — max price slippage tolerance in points for market orders; 20 is a safe broker-agnostic default.
-- `filling` — `"auto"` reads `symbol_info().filling_mode` at order time and maps to `ORDER_FILLING_FOK/IOC/RETURN`; set explicitly only if broker requires a fixed mode.
+- `filling` — for market orders, `"auto"` reads `symbol_info().filling_mode` at order time and maps to `ORDER_FILLING_FOK/IOC/RETURN`; for pending limit/stop orders, `"auto"` uses `ORDER_FILLING_RETURN` because MT5 pending-order placement can reject broker market-order filling modes. Set explicitly only if broker requires a fixed mode.
 - `max_daily_loss` — denominated in **account currency** (read from `account_info().currency`), not USD.
 - `screenshot_monitor` — integer monitor index passed to `mss`. `0` = primary monitor. Set to `2` if MT5 is on a secondary display.
 - `strategy_ids` — map of human-readable strategy name → magic integer. Entries here take priority over auto-derivation. Magic integers must be `< 100000` to avoid colliding with the auto-derived range `[100000, 180000)`.
@@ -398,8 +398,9 @@ OS-level screen capture using `mss`. Captures the MT5 window or full desktop. Do
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `order market` | `SYMBOL buy/sell` `--volume FLOAT` `--risk-pct FLOAT` `--sl FLOAT` `--tp FLOAT` `--comment TEXT` `--strategy-id TEXT` `--magic INT` `--deviation INT` `--filling {FOK,IOC,RETURN,auto}` | `ticket`, `symbol`, `type`, `volume`, `price`, `sl`, `tp`, `time`, `magic`, `strategy_id`, `retcode` | Market order. `--risk-pct` auto-sizes volume from account equity and SL distance using `trade_tick_value` (mutually exclusive with `--volume`). `--strategy-id` tags the order for per-strategy history filtering; defaults to config `magic` expressed as string. |
-| `order limit` | `SYMBOL buy/sell` `--price FLOAT` `--volume FLOAT` `--risk-pct FLOAT` `--sl FLOAT` `--tp FLOAT` `--expiry DATETIME` `--strategy-id TEXT` `--magic INT` `--filling {FOK,IOC,RETURN,auto}` | same + `expiry`, `strategy_id` | Limit pending order |
-| `order stop` | `SYMBOL buy/sell` `--price FLOAT` `--volume FLOAT` `--risk-pct FLOAT` `--sl FLOAT` `--tp FLOAT` `--strategy-id TEXT` `--magic INT` `--filling {FOK,IOC,RETURN,auto}` | same + `strategy_id` | Stop pending order |
+| `order list` | `--symbol TEXT` `--strategy-id TEXT` | `[{ticket, symbol, type, volume_initial, volume_current, price_open, price_current, sl, tp, state, type_filling, type_filling_name, magic, strategy_id, comment}]` | Current pending orders from `orders_get`. Use this before relying on chart-only trade-panel reads. |
+| `order limit` | `SYMBOL buy/sell` `--price FLOAT` `--volume FLOAT` `--risk-pct FLOAT` `--sl FLOAT` `--tp FLOAT` `--expiry DATETIME` `--strategy-id TEXT` `--magic INT` `--filling {FOK,IOC,RETURN,auto}` | same + `expiry`, `strategy_id` | Limit pending order. `--filling auto` uses `ORDER_FILLING_RETURN` for pending placement. |
+| `order stop` | `SYMBOL buy/sell` `--price FLOAT` `--volume FLOAT` `--risk-pct FLOAT` `--sl FLOAT` `--tp FLOAT` `--strategy-id TEXT` `--magic INT` `--filling {FOK,IOC,RETURN,auto}` | same + `strategy_id` | Stop pending order. `--filling auto` uses `ORDER_FILLING_RETURN` for pending placement. |
 | `order modify` | `TICKET` `--sl FLOAT` `--tp FLOAT` `--price FLOAT` | `ticket`, `result`, `retcode` | Modify pending/position |
 | `order cancel` | `TICKET` | `ticket`, `result`, `retcode` | Cancel pending order |
 | `order poll-fill` | `TICKET` `--timeout-ms INT` | `ticket`, `filled: bool`, `retcode`, `time_filled` | Poll `orders_get()` + `positions_get()` up to `timeout-ms` (default 5000) to confirm a fill after retcode 10008 (`TRADE_RETCODE_PLACED`). Library entry: `order.poll_fill(ticket, timeout_ms=5000)`. Returns `{"filled": False}` on timeout; caller chooses to cancel. |
@@ -415,7 +416,7 @@ OS-level screen capture using `mss`. Captures the MT5 window or full desktop. Do
 - `--risk-pct FLOAT` auto-computes volume as `equity × risk_pct / (sl_distance_points × trade_tick_value)`. `sl_distance_points = abs(entry_price - sl) / symbol_info.point`. Requires `--sl`. Mutually exclusive with `--volume`. Uses `market info` `trade_tick_value` — never hardcoded. Note: `trade_tick_value` is per 1.0 lot per point; `sl_distance_points` must therefore be in points (not pips) to keep units consistent.
 - `--magic` defaults to config `magic` (88888); override per-order if needed. Prefer `--strategy-id` for new strategies.
 - `--deviation` defaults to config `deviation` (20 points); applies to market orders only.
-- `--filling auto` (default) reads `mt5.symbol_info(symbol).filling_mode` bitmask and selects the correct MT5 `ORDER_FILLING_*` constant. Set explicitly only when the broker requires a fixed mode. Without the correct filling mode, `order_send()` returns `TRADE_RETCODE_INVALID_FILL` (10030). If `filling=auto` still returns 10030, the error envelope includes the raw `filling_mode` bitmask so the caller can pin an explicit mode.
+- `--filling auto` (default) reads `mt5.symbol_info(symbol).filling_mode` bitmask for market orders and uses `ORDER_FILLING_RETURN` for pending orders. Set explicitly only when the broker requires a fixed mode. Without the correct filling mode, `order_send()` returns `TRADE_RETCODE_INVALID_FILL` (10030). If `filling=auto` still returns 10030, the error envelope includes the raw `filling_mode` bitmask so the caller can pin an explicit mode.
 - `--sl` is **required** for `order market`. The risk gate enforces `min_sl_distance_points` and rejects orders with no stop-loss.
 - `order dryrun` calls `mt5.order_check(request)` — full broker-side pre-flight that validates margin, stops, and symbol rules before any real order is sent.
 
@@ -500,7 +501,7 @@ This CLI is designed for use with a locally running MT5 terminal. The primary va
 
 ### Filling mode
 
-Trading.com **only supports `ORDER_FILLING_FOK`** (Fill or Kill). `filling=auto` will select FOK automatically from the `filling_mode` bitmask (bitmask value `1`). If `order_send()` returns retcode `10030` (`TRADE_RETCODE_INVALID_FILL`), force `filling=FOK` explicitly in config:
+Trading.com advertises `ORDER_FILLING_FOK` (Fill or Kill) for market orders through `symbol_info().filling_mode` bitmask value `1`; `filling=auto` will select FOK for market orders. Pending limit/stop placement uses `ORDER_FILLING_RETURN` by default because MT5 accepts it for pending orders on this terminal while FOK pending placement can fail before returning a normal trade retcode. If a market `order_send()` returns retcode `10030` (`TRADE_RETCODE_INVALID_FILL`), force `filling=FOK` explicitly in config:
 ```json
 { "filling": "FOK" }
 ```

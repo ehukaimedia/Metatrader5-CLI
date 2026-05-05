@@ -55,6 +55,9 @@ mt5 --json ehukai fvg USDJPY M15 --max-zones 4
 # 5. Dry-run before committing
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 158.50
 
+# 5b. Inspect existing pending orders
+mt5 --json order list --symbol USDJPY
+
 # 6. Place the order only if dry-run returns ok:true
 mt5 --json order market USDJPY buy --volume 0.01 --sl 158.50
 
@@ -67,6 +70,11 @@ first (position limits, daily loss cap, spread check, margin check), then
 calls the broker's `order_check()` for a broker-side pre-flight — no order
 is sent.  Local risk gates and broker validation are both applied; neither
 substitutes for the other.
+
+Use `order list --symbol SYMBOL` for currently pending orders. Market-order
+`--filling auto` follows the broker `filling_mode` bitmask; pending
+limit/stop-order `--filling auto` uses `ORDER_FILLING_RETURN`, which this MT5
+terminal accepts for pending placement even when market orders advertise FOK.
 
 ---
 

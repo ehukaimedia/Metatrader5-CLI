@@ -21,6 +21,9 @@ else:
     _mt5_mock = MagicMock(name="MetaTrader5")
     _mt5_mock.initialize.return_value = True
     _mt5_mock.last_error.return_value = (1, "Success")
+    _mt5_mock.ORDER_FILLING_FOK = 0
+    _mt5_mock.ORDER_FILLING_IOC = 1
+    _mt5_mock.ORDER_FILLING_RETURN = 2
     sys.modules["MetaTrader5"] = _mt5_mock
 
 import pytest  # noqa: E402  (must come after sys.modules injection)

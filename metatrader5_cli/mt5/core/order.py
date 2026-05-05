@@ -6,6 +6,7 @@ through ``bridge.mt5_call()`` (indirectly, via the bridge module).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import time
 
 from metatrader5_cli.mt5.core import risk as risk_module
@@ -35,6 +36,30 @@ _FILLING_MAP = {
     "RETURN": bridge.ORDER_FILLING_RETURN,
 }
 
+_ORDER_TYPE_STR: dict[int, str] = {
+    0: "buy",
+    1: "sell",
+    2: "buy_limit",
+    3: "sell_limit",
+    4: "buy_stop",
+    5: "sell_stop",
+    6: "buy_stop_limit",
+    7: "sell_stop_limit",
+    8: "close_by",
+}
+
+_ORDER_STATE_STR: dict[int, str] = {
+    0: "started",
+    1: "placed",
+    2: "canceled",
+    3: "partial",
+    4: "filled",
+    5: "rejected",
+    6: "expired",
+}
+
+_FILLING_STR: dict[int, str] = {0: "FOK", 1: "IOC", 2: "RETURN"}
+
 
 def _resolve_filling(symbol: str, filling_str: str) -> int:
     """Map filling string to MT5 constant.
@@ -56,6 +81,87 @@ def _resolve_filling(symbol: str, filling_str: str) -> int:
     if filling_mode & 2:
         return bridge.ORDER_FILLING_IOC
     return bridge.ORDER_FILLING_RETURN
+
+
+def _resolve_pending_filling(filling_str: str) -> int:
+    """Resolve filling for pending orders.
+
+    MT5 accepts RETURN for pending orders on Trading.com even when market-order
+    filling_mode advertises FOK. Keeping pending auto separate avoids 10030 or
+    None-return broker failures during limit/stop placement.
+    """
+    upper = filling_str.upper()
+    if upper in _FILLING_MAP:
+        return _FILLING_MAP[upper]
+    return bridge.ORDER_FILLING_RETURN
+
+
+def _epoch_to_iso(epoch: int | float | None) -> str | None:
+    if not epoch:
+        return None
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+
+
+def _magic_to_strategy_id(magic: int, cfg: dict | None) -> str | None:
+    if cfg is None:
+        return None
+    return next((k for k, v in cfg.get("strategy_ids", {}).items() if int(v) == int(magic)), None)
+
+
+def _pending_order_to_dict(order, cfg: dict | None, strategy_id_hint: str | None = None) -> dict:
+    type_filling = getattr(order, "type_filling", None)
+    try:
+        type_filling_key = int(type_filling)
+    except (TypeError, ValueError):
+        type_filling_key = type_filling
+    return {
+        "ticket": order.ticket,
+        "symbol": order.symbol,
+        "type": _ORDER_TYPE_STR.get(order.type, str(order.type)),
+        "volume_initial": getattr(order, "volume_initial", None),
+        "volume_current": getattr(order, "volume_current", None),
+        "price_open": order.price_open,
+        "price_current": getattr(order, "price_current", None),
+        "sl": order.sl,
+        "tp": order.tp,
+        "time_setup": _epoch_to_iso(getattr(order, "time_setup", None)),
+        "time_expiration": _epoch_to_iso(getattr(order, "time_expiration", None)),
+        "state": _ORDER_STATE_STR.get(getattr(order, "state", None), str(getattr(order, "state", ""))),
+        "type_time": getattr(order, "type_time", None),
+        "type_filling": type_filling,
+        "type_filling_name": _FILLING_STR.get(type_filling_key, str(type_filling)),
+        "magic": order.magic,
+        "strategy_id": strategy_id_hint or _magic_to_strategy_id(order.magic, cfg),
+        "comment": getattr(order, "comment", ""),
+    }
+
+
+def list_pending(
+    symbol: str | None = None,
+    *,
+    strategy_id: str | None = None,
+    cfg: dict | None = None,
+) -> dict:
+    """Return currently pending orders, optionally filtered by symbol/strategy."""
+    if strategy_id and cfg is None:
+        return _fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+
+    if symbol:
+        orders = bridge.mt5_call("orders_get", symbol=symbol)
+    else:
+        orders = bridge.mt5_call("orders_get")
+    if orders is None:
+        return _fail("MT5_NO_DATA", "orders_get returned None.")
+
+    result = list(orders)
+    if strategy_id:
+        magic = risk_module.resolve_magic(strategy_id, cfg)
+        result = [o for o in result if int(o.magic) == int(magic)]
+
+    return {
+        "ok": True,
+        "data": [_pending_order_to_dict(o, cfg, strategy_id_hint=strategy_id) for o in result],
+    }
 
 
 def _finalize_order(
@@ -213,7 +319,7 @@ def place_limit(
         return risk_result
 
     resolved_magic = magic if magic is not None else risk_module.resolve_magic(strategy_id, cfg)
-    resolved_filling = _resolve_filling(symbol, filling)
+    resolved_filling = _resolve_pending_filling(filling)
     order_type = (
         bridge.ORDER_TYPE_BUY_LIMIT if side.lower() == "buy" else bridge.ORDER_TYPE_SELL_LIMIT
     )
@@ -277,7 +383,7 @@ def place_stop(
         return risk_result
 
     resolved_magic = magic if magic is not None else risk_module.resolve_magic(strategy_id, cfg)
-    resolved_filling = _resolve_filling(symbol, filling)
+    resolved_filling = _resolve_pending_filling(filling)
     order_type = (
         bridge.ORDER_TYPE_BUY_STOP if side.lower() == "buy" else bridge.ORDER_TYPE_SELL_STOP
     )

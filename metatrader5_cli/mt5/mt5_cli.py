@@ -633,6 +633,20 @@ def order_group(ctx):
     ctx.ensure_object(dict)
 
 
+@order_group.command("list")
+@click.option("--symbol", default=None, help="Filter by symbol.")
+@click.option("--strategy-id", "strategy_id", default=None, help="Filter by strategy identifier.")
+@click.pass_context
+def order_list_cmd(ctx, symbol, strategy_id):
+    """List currently pending orders."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(order.list_pending(symbol, strategy_id=strategy_id, cfg=obj["cfg"]), obj["as_json"])
+
+
 @order_group.command("market")
 @click.argument("symbol")
 @click.argument("side", type=click.Choice(["buy", "sell"], case_sensitive=False))

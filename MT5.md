@@ -82,6 +82,9 @@ API, so use the GUI screenshot path for Trading.com DOM evidence.
 # Local risk gates + broker order_check(); no order sent
 mt5 --json order dryrun USDJPY buy --volume 0.10 --sl 158.50 --tp 154.00
 
+# Inspect pending orders before/after placement
+mt5 --json order list --symbol USDJPY
+
 # Place only if dry-run ok:true
 mt5 --json order market USDJPY buy --volume 0.10 --sl 158.50 --tp 154.00
 
@@ -147,7 +150,7 @@ last-used symbol (`mt5 (USDJPY)>`), auto-reconnects once on disconnect.
 | 10009 | `TRADE_RETCODE_DONE` | Order fully executed — success |
 | 10008 | `TRADE_RETCODE_PLACED` | Placed but not yet filled — run `order poll-fill TICKET` |
 | 10006 | `TRADE_RETCODE_REJECT` | Rejected by broker — check symbol, volume, margin |
-| 10030 | `TRADE_RETCODE_INVALID_FILL` | Wrong filling mode — add `"filling": "FOK"` to config |
+| 10030 | `TRADE_RETCODE_INVALID_FILL` | Wrong filling mode. Market orders usually need the broker-advertised mode; pending orders default to RETURN. |
 | 10027 | `TRADE_RETCODE_NOT_ALLOWED` | Algo trading disabled — enable in MT5 → Options → Expert Advisors |
 | 10013 | `TRADE_RETCODE_INVALID_STOPS` | SL/TP too close to price — increase buffer |
 | 10016 | `TRADE_RETCODE_INVALID_VOLUME` | Volume outside broker min/max or not a valid step |

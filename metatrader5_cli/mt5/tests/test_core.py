@@ -1863,6 +1863,69 @@ class TestOrder:
         assert result["ok"] is True
         assert result["data"]["strategy_id"] == "scalp_v1"
 
+    def test_place_limit_auto_filling_uses_return_for_pending(self, mt5m, monkeypatch, cfg):
+        from unittest.mock import MagicMock as MM
+        from metatrader5_cli.mt5.core import order as order_module
+        from metatrader5_cli.mt5.utils import mt5_backend as bridge
+        mt5m.symbol_select.return_value = True
+        mt5m.symbol_info.return_value = None
+        mt5m.order_send.return_value = MM(retcode=10009, order=99002, comment="OK", time=1700000000)
+        monkeypatch.setattr(order_module.risk_module, "check_order", lambda *a, **kw: {"ok": True})
+
+        result = order_module.place_limit(
+            "EURUSD", "buy", 1.10, volume=0.1, sl=1.09, tp=1.12,
+            filling="auto", cfg=cfg, is_live_intent=False,
+        )
+
+        assert result["ok"] is True
+        request = mt5m.order_send.call_args[0][0]
+        assert request["type_filling"] == bridge.ORDER_FILLING_RETURN
+
+    def test_order_list_pending_filters_symbol_and_maps_fields(self, mt5m, cfg):
+        from unittest.mock import MagicMock as MM
+        from metatrader5_cli.mt5.core import order as order_module
+        cfg = {**cfg, "strategy_ids": {"ehukai-sniper-test": 12345}}
+        mt5m.orders_get.return_value = [
+            MM(
+                ticket=99002, symbol="USDJPY", type=2, state=1, volume_initial=0.001,
+                volume_current=0.001, price_open=157.814, price_current=157.887,
+                sl=157.760, tp=157.914, time_setup=1777997494, time_expiration=0,
+                type_time=0, type_filling=2, magic=12345, comment="ehukai-sniper-test",
+            )
+        ]
+
+        result = order_module.list_pending("USDJPY", cfg=cfg)
+
+        assert result["ok"] is True
+        mt5m.orders_get.assert_called_once_with(symbol="USDJPY")
+        row = result["data"][0]
+        assert row["type"] == "buy_limit"
+        assert row["state"] == "placed"
+        assert row["type_filling_name"] == "RETURN"
+        assert row["strategy_id"] == "ehukai-sniper-test"
+
+    def test_cli_order_list_json(self, mt5m, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import order as order_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(
+            order_module,
+            "list_pending",
+            lambda symbol=None, **kw: {"ok": True, "data": [{"ticket": 99002, "symbol": symbol}]},
+        )
+
+        result = CliRunner().invoke(mt5_cli.main, ["--json", "order", "list", "--symbol", "USDJPY"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"][0]["ticket"] == 99002
+
     # ------------------------------------------------------------------
     # Test 7 — default magic 88888 when no strategy_id
     # ------------------------------------------------------------------

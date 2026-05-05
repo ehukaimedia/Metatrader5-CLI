@@ -111,6 +111,7 @@ mt5 --json market depth USDJPY --levels 5
 mt5 --json analyze topdown USDJPY --timeframes D1,H4,H1
 mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots" --final-timeframe M15
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
+mt5 --json order list --symbol USDJPY
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json position list --symbol USDJPY
 ```
@@ -122,6 +123,7 @@ Rules for agents:
 - Try `market depth SYMBOL --levels N` when structured book data is available.
 - Use `chart depth-of-market SYMBOL` and `screenshot dom SYMBOL` for the actual MT5 GUI panel opened from Charts > Depth Of Market.
 - Always run `order dryrun` before `order market`, `order limit`, or `order stop`.
+- Use `order list --symbol SYMBOL` to inspect current pending orders; do not rely only on the MT5 chart trade panel.
 - Always branch on JSON `ok` before reading `data`.
 - Never place a live-account order unless the user explicitly requests live trading and all three live gates are intentionally set.
 - Use `mt5 --json ...` for machine-readable output.
@@ -151,6 +153,7 @@ mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$
 mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\screenshots"
 
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
+mt5 --json order list --symbol USDJPY
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json order poll-fill TICKET
 
