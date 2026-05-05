@@ -48,6 +48,35 @@ def _point_for_symbol(symbol: str, rows: list[dict]) -> float:
     return 10 ** (-max_digits) if max_digits else 0.0001
 
 
+def _inferred_digits(rows: list[dict]) -> int:
+    max_digits = 0
+    for row in rows:
+        for key in ("open", "high", "low", "close"):
+            try:
+                dec = Decimal(str(row[key])).normalize()
+            except (InvalidOperation, KeyError):
+                continue
+            max_digits = max(max_digits, max(0, -dec.as_tuple().exponent))
+    return max_digits
+
+
+def _pip_size_for_symbol(symbol: str, rows: list[dict], point: float) -> float:
+    """Return pip size for visual FVG labels, matching the MQ5 indicator."""
+    digits = None
+    try:
+        info = bridge.mt5_call("symbol_info", symbol)
+        raw_digits = getattr(info, "digits", None)
+        if isinstance(raw_digits, int):
+            digits = raw_digits
+    except Exception:  # noqa: BLE001
+        pass
+    if digits is None:
+        digits = _inferred_digits(rows)
+    if digits in {3, 5}:
+        return point * 10.0
+    return point
+
+
 def _fvg_id(symbol: str, timeframe: str, formed_at: str, direction: str, lower: float, upper: float) -> str:
     return f"{symbol.upper()}-{timeframe.upper()}-{formed_at}-{direction}-{lower:.10g}-{upper:.10g}"
 
@@ -109,7 +138,7 @@ def _distance_from_price(price: float, lower: float, upper: float, point: float)
     return round((lower - price) / point, 2)
 
 
-def _zone_render(direction: str, timeframe: str, size_points: float) -> dict:
+def _zone_render(direction: str, timeframe: str, size_points: float, visual_label: str) -> dict:
     color = "rgba(16,185,129,0.18)" if direction == "bullish" else "rgba(239,68,68,0.18)"
     border = "#10b981" if direction == "bullish" else "#ef4444"
     return {
@@ -118,7 +147,8 @@ def _zone_render(direction: str, timeframe: str, size_points: float) -> dict:
         "border": border,
         "boundary_style": "solid",
         "midline_style": "dashed",
-        "label": f"FVG {timeframe.upper()} {direction} {size_points:g}pt",
+        "label": visual_label,
+        "cli_pair": f"mt5 --json indicator fvg SYMBOL {timeframe.upper()}",
     }
 
 
@@ -207,6 +237,7 @@ def fvg(
         return _fail("INDICATOR_ERROR", "FVG requires at least three closed bars.")
 
     point = _point_for_symbol(symbol, rows)
+    pip_size = _pip_size_for_symbol(symbol, rows, point)
     current_price = float(rows[-1]["close"])
     zones: list[dict] = []
     for i in range(2, len(rows)):
@@ -222,6 +253,7 @@ def fvg(
             if direction != "both" and gap_direction != direction:
                 continue
             size_points = round((upper - lower) / point, 2) if point else 0.0
+            size_pips = round((upper - lower) / pip_size, 2) if pip_size else 0.0
             if size_points < float(min_points):
                 continue
             atr = _atr_at(rows, i)
@@ -232,9 +264,14 @@ def fvg(
                 continue
             mid = (lower + upper) / 2.0
             formed_at = right["time"]
+            side_label = "BULL" if gap_direction == "bullish" else "BEAR"
+            visual_label = f"{side_label} FVG {zone_state.upper()} {size_pips:g}p"
             zone = {
                 "id": _fvg_id(symbol, timeframe, formed_at, gap_direction, lower, upper),
                 "type": "fvg",
+                "object_prefix": "EFVG_",
+                "visual_label": visual_label,
+                "visual_contract": "EhukaiFVG",
                 "direction": gap_direction,
                 "formed_at": formed_at,
                 "anchor_times": [left["time"], rows[i - 1]["time"], right["time"]],
@@ -242,9 +279,11 @@ def fvg(
                 "upper": upper,
                 "mid": mid,
                 "size_points": size_points,
+                "size_pips": size_pips,
                 "atr": round(atr, 10) if atr is not None else None,
                 "atr_multiple": round((upper - lower) / atr, 4) if atr else None,
                 "distance_points": _distance_from_price(current_price, lower, upper, point),
+                "distance_pips": _distance_from_price(current_price, lower, upper, pip_size),
                 "state": zone_state,
                 "fill_pct": fill_pct,
                 "age_bars": len(rows) - 1 - i,
@@ -253,7 +292,7 @@ def fvg(
                     "upper": {"price": upper, "role": "upper"},
                     "mid": {"price": mid, "role": "mid"},
                 },
-                "render": _zone_render(gap_direction, timeframe, size_points),
+                "render": _zone_render(gap_direction, timeframe, size_points, visual_label),
             }
             zones.append(zone)
 

@@ -40,17 +40,41 @@ def structure(symbol: str, timeframe: str, bars: int = 200, pivot_n: int = 5) ->
 
     swing_highs = []
     swing_lows = []
+    swing_points = []
 
     for i in range(pivot_n, n - pivot_n):
         window_h = highs[i - pivot_n:i] + highs[i + 1:i + pivot_n + 1]
         if highs[i] > max(window_h):
-            swing_highs.append({"time": times[i], "price": highs[i]})
+            point = {"time": times[i], "price": highs[i]}
+            swing_highs.append(point)
+            swing_points.append({**point, "side": "high"})
 
         window_l = lows[i - pivot_n:i] + lows[i + 1:i + pivot_n + 1]
         if lows[i] < min(window_l):
-            swing_lows.append({"time": times[i], "price": lows[i]})
+            point = {"time": times[i], "price": lows[i]}
+            swing_lows.append(point)
+            swing_points.append({**point, "side": "low"})
 
     current_price = float(df["close"].iloc[-1])
+    last_high = None
+    last_low = None
+    for point in swing_points:
+        if point["side"] == "high":
+            if last_high is None:
+                kind = "SH"
+            else:
+                kind = "HH" if point["price"] > last_high else "LH"
+            last_high = point["price"]
+        else:
+            if last_low is None:
+                kind = "SL"
+            else:
+                kind = "HL" if point["price"] > last_low else "LL"
+            last_low = point["price"]
+        point["kind"] = kind
+        point["visual_label"] = kind
+        point["visual_contract"] = "EhukaiMarketStructure"
+        point["object_prefix"] = "EMS_"
 
     resistance_candidates = [s["price"] for s in swing_highs if s["price"] > current_price]
     support_candidates = [s["price"] for s in swing_lows if s["price"] < current_price]
@@ -63,9 +87,18 @@ def structure(symbol: str, timeframe: str, bars: int = 200, pivot_n: int = 5) ->
             "pivot_n": pivot_n,
             "swing_highs": swing_highs,
             "swing_lows": swing_lows,
+            "swing_points": swing_points,
+            "latest_swing_high": next((p for p in reversed(swing_points) if p["side"] == "high"), None),
+            "latest_swing_low": next((p for p in reversed(swing_points) if p["side"] == "low"), None),
             "support": max(support_candidates) if support_candidates else None,
             "resistance": min(resistance_candidates) if resistance_candidates else None,
             "current_price": current_price,
+            "visual_contract": {
+                "indicator": "EhukaiMarketStructure",
+                "object_prefix": "EMS_",
+                "swing_labels": ["SH", "SL", "HH", "HL", "LH", "LL"],
+                "level_suffixes": ["SUPPORT", "RESISTANCE"],
+            },
         },
     }
 

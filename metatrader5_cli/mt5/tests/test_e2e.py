@@ -83,6 +83,7 @@ def test_core_apis_are_callable():
     assert callable(indicator.ema)
     assert callable(market.info)
     assert callable(market.tick)
+    assert callable(market.depth)
     assert callable(market.search)
     assert callable(order.place_market)
     assert callable(order.poll_fill)
@@ -128,7 +129,23 @@ class TestE2ERoundTrip:
         assert all(isinstance(v["ema"], float) for v in values)
 
     # ------------------------------------------------------------------
-    # Test 3 — market order round-trip (place → poll → close → history)
+    # Test 3 — Depth of Market snapshot, when broker/symbol supports it
+    # ------------------------------------------------------------------
+
+    def test_market_depth_snapshot_when_available(self):
+        result = market.depth("USDJPY", levels=3)
+        if not result["ok"]:
+            assert result["error"]["code"] in {
+                "MT5_MARKET_BOOK_SUBSCRIBE_FAILED",
+                "MT5_MARKET_BOOK_UNAVAILABLE",
+            }
+            return
+        assert result["data"]["symbol"] == "USDJPY"
+        assert len(result["data"]["bids"]) <= 3
+        assert len(result["data"]["asks"]) <= 3
+
+    # ------------------------------------------------------------------
+    # Test 4 — market order round-trip (place → poll → close → history)
     # ------------------------------------------------------------------
 
     def test_market_order_round_trip(self):

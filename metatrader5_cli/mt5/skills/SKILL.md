@@ -32,11 +32,25 @@ mt5 market search --pattern USDJPY
 # 2. Inspect tick and spread
 mt5 --json market info USDJPY
 
+# Keep the active GUI chart deterministic for visual analysis
+mt5 --json chart ensure USDJPY --timeframe M15
+
+# Optional: inspect current Depth of Market liquidity as JSON
+mt5 --json market depth USDJPY --levels 5
+mt5 --json screenshot dom USDJPY                     # GUI DOM panel from Charts > Depth Of Market
+
 # 3. Multi-timeframe bias
 mt5 --json analyze topdown USDJPY --timeframes MN1,W1,D1,H4,H1,M15
 
 # 4. Key structure levels
 mt5 --json analyze structure USDJPY H4 --bars 200
+
+# Optional visual pass; returns chart to M15 after capture by default
+mt5 --json screenshot tda USDJPY --timeframes H1,M15,M5 --final-timeframe M15
+
+# Optional direct data for the same visual overlay logic
+mt5 --json ehukai structure USDJPY M15
+mt5 --json ehukai fvg USDJPY M15 --max-zones 4
 
 # 5. Dry-run before committing
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 158.50
@@ -108,6 +122,100 @@ Always branch on `result["ok"]` before reading `result["data"]`.
 
 ---
 
+## Active Chart Targeting
+
+Before any GUI-facing task, use chart targeting instead of relying on the
+currently active MT5 tab:
+
+```bash
+mt5 --json chart current
+mt5 --json chart ensure USDJPY --timeframe M15
+mt5 --json chart ensure USDJPY --timeframe none
+```
+
+`chart ensure` is symbol agnostic. It switches the active chart to the
+broker-exact symbol and optional timeframe using MT5 chart controls, then
+verifies the MT5 window title. Prefer it over File > New Chart automation
+because broker symbol menus and recent-symbol lists vary by terminal.
+
+---
+
+## Visual TDA Indicator Contract
+
+`screenshot tda` gives visual agents both screenshot pixels and data:
+
+- PNG frames show the MT5 chart with the Ehukai overlays.
+- `visual_manifest` explains how to interpret the overlays.
+- `manifest_path` points to a sibling JSON file containing the same frame paths,
+  legend, and structured context.
+- Each frame can include `structured_context.structure` from `analyze structure`
+  and `structured_context.fvg.zones` from `indicator fvg`.
+
+The canonical indicator sources are vendored in
+`metatrader5_cli/mt5/mql5/Indicators/`:
+
+- `EhukaiFVG.mq5`: `EFVG_` objects, `BULL/BEAR FVG OPEN/PARTIAL/FILLED <pips>p`
+  labels, rectangle bounds, upper/lower lines, and dashed midlines.
+- `EhukaiMarketStructure.mq5`: `EMS_` objects, `HH/HL/LH/LL` labels, `MS <TF>:`
+  bias panel, BOS labels, and support/resistance levels.
+
+Use screenshots for spatial confluence and JSON for exact levels. If visual
+labels and structured context disagree, report the discrepancy instead of
+forcing agreement.
+
+For visual TDA, prefer `ehukai structure` and `ehukai fvg` over generic
+`analyze structure` / `indicator fvg`. The generic commands remain available for
+research, but the Ehukai commands intentionally mirror the chart overlays.
+
+---
+
+## Depth of Market (DOM)
+
+Use DOM when an agent needs execution context near the current price. There are
+two paths:
+
+```bash
+# Structured MT5 Python API path
+mt5 --json market depth USDJPY --levels 5
+
+# GUI path matching MT5 Charts > Depth Of Market
+mt5 --json chart depth-of-market USDJPY
+mt5 --json screenshot dom USDJPY --output-dir "$TEMP/mt5-cli/dom"
+```
+
+`market depth` returns nearest-first `bids` and `asks`, `best_bid`,
+`best_ask`, `spread_points`, `mid`, and `volume_imbalance` when the broker
+exposes Python market-book data. `chart depth-of-market` opens the actual MT5
+GUI panel. `screenshot dom` opens and captures that panel by default, then
+closes/toggles it afterward so it does not block the chart. Use `--no-close`
+only when intentionally inspecting the panel manually.
+
+Use it to decide whether to wait, tighten/avoid execution, or ask for human
+confirmation when the book is thin, spread is wide, or one side is unusually
+heavy. Do not use DOM alone as directional strategy logic. If the broker or
+symbol does not expose structured DOM, handle `MT5_MARKET_BOOK_SUBSCRIBE_FAILED`
+or `MT5_MARKET_BOOK_UNAVAILABLE`, then use `screenshot dom` for GUI evidence and
+continue with `market info`, `market tick`, analysis, and dry-run validation.
+
+For TDA workflows, run DOM as an optional side check after screenshots:
+
+```bash
+mt5 --json screenshot tda USDJPY --timeframes H1,M15,M5 --output-dir "$TEMP/mt5-cli/tda"
+mt5 --json market depth USDJPY --levels 5
+mt5 --json screenshot dom USDJPY --output-dir "$TEMP/mt5-cli/dom"
+```
+
+If DOM fails on Trading.com or another retail broker, do not block the TDA
+workflow. Use the GUI DOM capture when available, plus TDA frames, `market
+tick`, spread from `market info`, and `order dryrun` for execution validation.
+
+TDA should leave the workspace readable for the operator. `screenshot tda`
+defaults to `--final-timeframe M15` after all frames are captured. Use
+`--final-timeframe none` only when the caller intentionally wants to leave the
+chart on the last captured timeframe.
+
+---
+
 ## Strategy Isolation (`--strategy-id`)
 
 Tag each strategy's orders for isolated history filtering:
@@ -137,6 +245,7 @@ from metatrader5_cli.mt5.core import account, indicator, market, order, position
 
 info = account.info()                    # {"ok": True, "data": {...}}
 tick = market.tick("EURUSD")
+depth = market.depth("EURUSD", levels=5)
 r    = rates.fetch("EURUSD", "H1", bars=200)   # list of OHLCV dicts
 ema  = indicator.ema("EURUSD", "H1", period=20)
 result = order.place_market(

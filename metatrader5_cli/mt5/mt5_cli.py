@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from metatrader5_cli.mt5.core import account, analyze, chart, history, indicator, market, order, position, project, rates, screenshot
+from metatrader5_cli.mt5.core import account, analyze, chart, ehukai, history, indicator, market, order, position, project, rates, screenshot
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -256,6 +256,21 @@ def market_tick_cmd(ctx, symbol):
     output(market.tick(symbol), obj["as_json"])
 
 
+@market_group.command("depth")
+@click.argument("symbol")
+@click.option("--levels", default=0, show_default=True, type=int,
+              help="Price levels per side to return. 0 returns all available levels.")
+@click.pass_context
+def market_depth_cmd(ctx, symbol, levels):
+    """Depth of Market snapshot for SYMBOL."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(market.depth(symbol, levels=levels), obj["as_json"])
+
+
 @market_group.command("search")
 @click.option("--pattern", required=True, help="Symbol search pattern (bare term auto-wrapped as *PATTERN*).")
 @click.pass_context
@@ -471,6 +486,78 @@ def indicator_fvg_cmd(ctx, symbol, timeframe, bars, min_points, min_atr_multiple
             state=state,
             mitigation=mitigation,
             limit=limit or None,
+        ),
+        obj["as_json"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ehukai command group
+# ---------------------------------------------------------------------------
+
+@main.group("ehukai")
+@click.pass_context
+def ehukai_group(ctx):
+    """Ehukai visual-TDA indicators: FVG and Market Structure."""
+    ctx.ensure_object(dict)
+
+
+@ehukai_group.command("fvg")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--bars", default=100, show_default=True, type=int,
+              help="Lookback bars. Matches EhukaiFVG default.")
+@click.option("--min-gap-pips", default=1.0, show_default=True, type=float,
+              help="Minimum FVG size in pips.")
+@click.option("--max-zones", default=4, show_default=True, type=int,
+              help="Maximum visible open/partial zones. Capped at 4.")
+@click.option("--max-distance-pips", default=120.0, show_default=True, type=float,
+              help="Maximum distance from current price. 0 disables.")
+@click.pass_context
+def ehukai_fvg_cmd(ctx, symbol, timeframe, bars, min_gap_pips, max_zones, max_distance_pips):
+    """EhukaiFVG-compatible visible zones for SYMBOL / TIMEFRAME."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        ehukai.fvg(
+            symbol,
+            timeframe,
+            bars=bars,
+            min_gap_pips=min_gap_pips,
+            max_zones=max_zones,
+            max_distance_pips=max_distance_pips,
+        ),
+        obj["as_json"],
+    )
+
+
+@ehukai_group.command("structure")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--bars", default=300, show_default=True, type=int,
+              help="Lookback bars. Matches EhukaiMarketStructure default.")
+@click.option("--pivot-bars", default=4, show_default=True, type=int,
+              help="Base pivot bars before timeframe adaptation.")
+@click.option("--max-swings", default=10, show_default=True, type=int,
+              help="Maximum latest swing labels to return.")
+@click.pass_context
+def ehukai_structure_cmd(ctx, symbol, timeframe, bars, pivot_bars, max_swings):
+    """EhukaiMarketStructure-compatible bias, swings, and levels."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        ehukai.market_structure(
+            symbol,
+            timeframe,
+            bars=bars,
+            pivot_bars=pivot_bars,
+            max_swings=max_swings,
         ),
         obj["as_json"],
     )
@@ -884,7 +971,7 @@ def history_stats_cmd(ctx, date_from, date_to, strategy_id):
 @main.group("chart")
 @click.pass_context
 def chart_group(ctx):
-    """Chart controls: symbol and timeframe switching."""
+    """Chart controls and Depth of Market snapshots."""
     ctx.ensure_object(dict)
 
 
@@ -905,6 +992,16 @@ def chart_switch_tf_cmd(ctx, timeframe, window_substring, settle_seconds):
     )
 
 
+@chart_group.command("current")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.pass_context
+def chart_current_cmd(ctx, window_substring):
+    """Show the currently matched MT5 chart window title."""
+    obj = ctx.obj
+    output(chart.current_title(window_substring=window_substring), obj["as_json"])
+
+
 @chart_group.command("symbol")
 @click.argument("symbol")
 @click.option("--window", "window_substring", default="MT5", show_default=True,
@@ -918,6 +1015,69 @@ def chart_symbol_cmd(ctx, symbol, window_substring, settle_seconds):
     output(
         chart.symbol(symbol, window_substring=window_substring,
                      settle_seconds=settle_seconds),
+        obj["as_json"],
+    )
+
+
+@chart_group.command("ensure")
+@click.argument("symbol")
+@click.option("--timeframe", default="M15", show_default=True,
+              help="Timeframe to leave active. Use 'none' to only ensure symbol.")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after symbol/timeframe changes before title verification.")
+@click.pass_context
+def chart_ensure_cmd(ctx, symbol, timeframe, window_substring, settle_seconds):
+    """Ensure the active MT5 chart is on SYMBOL and optional timeframe."""
+    obj = ctx.obj
+    output(
+        chart.ensure_chart(
+            symbol,
+            timeframe=timeframe,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+        ),
+        obj["as_json"],
+    )
+
+
+@chart_group.command("depth-of-market")
+@click.argument("symbol")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after opening the DOM panel.")
+@click.pass_context
+def chart_depth_of_market_cmd(ctx, symbol, window_substring, settle_seconds):
+    """Open Charts > Depth Of Market for SYMBOL."""
+    obj = ctx.obj
+    output(
+        chart.open_depth_of_market(
+            symbol,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+        ),
+        obj["as_json"],
+    )
+
+
+@chart_group.command("dom")
+@click.argument("symbol")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after opening the DOM panel.")
+@click.pass_context
+def chart_dom_cmd(ctx, symbol, window_substring, settle_seconds):
+    """Alias for chart depth-of-market."""
+    obj = ctx.obj
+    output(
+        chart.open_depth_of_market(
+            symbol,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+        ),
         obj["as_json"],
     )
 
@@ -989,10 +1149,30 @@ def screenshot_list_cmd(ctx, directory):
               help="Monitor index (0=primary). Overrides screenshot_monitor config.")
 @click.option("--settle-seconds", type=float, default=0.5, show_default=True,
               help="Delay after each chart switch before capture.")
+@click.option("--final-timeframe", default="M15", show_default=True,
+              help="Timeframe to leave the chart on after capture. Use 'none' to leave the last captured TF.")
+@click.option("--visual-manifest/--no-visual-manifest", default=True, show_default=True,
+              help="Attach the Ehukai indicator visual legend/contract to the result.")
+@click.option("--context/--no-context", "structured_context", default=True, show_default=True,
+              help="Attach recomputed structure and FVG context for each frame.")
+@click.option("--manifest/--no-manifest", "write_manifest", default=True, show_default=True,
+              help="Write a sibling JSON manifest next to the PNG captures.")
+@click.option("--context-bars", type=int, default=300, show_default=True,
+              help="Bars used for structured TDA/FVG context.")
+@click.option("--fvg-limit", type=int, default=8, show_default=True,
+              help="Maximum open/partial FVG zones per frame in structured context.")
 @click.pass_context
-def screenshot_tda_cmd(ctx, symbol, timeframes, output_dir, crop, max_width, window_substring, monitor, settle_seconds):
+def screenshot_tda_cmd(ctx, symbol, timeframes, output_dir, crop, max_width,
+                       window_substring, monitor, settle_seconds, final_timeframe,
+                       visual_manifest, structured_context, write_manifest,
+                       context_bars, fvg_limit):
     """Capture visual top-down-analysis frames for SYMBOL."""
     obj = ctx.obj
+    if structured_context:
+        # Best-effort data-channel initialization. Screenshot capture should
+        # still be able to run if the Python bridge cannot connect; per-frame
+        # context will carry its own fail-soft error details in that case.
+        _ensure_connected(obj["cfg"])
     output(
         screenshot.tda(
             symbol,
@@ -1003,6 +1183,54 @@ def screenshot_tda_cmd(ctx, symbol, timeframes, output_dir, crop, max_width, win
             monitor=monitor,
             cfg=obj["cfg"],
             window_substring=window_substring,
+            settle_seconds=settle_seconds,
+            final_timeframe=final_timeframe,
+            visual_manifest=visual_manifest,
+            structured_context=structured_context,
+            write_manifest=write_manifest,
+            context_bars=context_bars,
+            fvg_limit=fvg_limit,
+        ),
+        obj["as_json"],
+    )
+
+
+@screenshot_group.command("dom")
+@click.argument("symbol")
+@click.option("--output", "output_path", default=None, help="Output file path.")
+@click.option("--output-dir", default=None,
+              help="Directory for generated PNG. Defaults to screenshot.output_dir/config/temp.")
+@click.option("--crop", type=click.Choice(["window", "none"]), default="window",
+              show_default=True, help="Post-capture crop mode.")
+@click.option("--max-width", type=int, default=1280, show_default=True,
+              help="Resize captures wider than this value. Use 0 to disable.")
+@click.option("--window", "window_substring", default=None,
+              help="MT5 window title substring. Defaults to MT5.")
+@click.option("--monitor", type=int, default=None,
+              help="Monitor index (0=primary). Overrides screenshot_monitor config.")
+@click.option("--open/--no-open", "open_panel", default=True, show_default=True,
+              help="Open Charts > Depth Of Market before capture.")
+@click.option("--close/--no-close", "close_panel", default=True, show_default=True,
+              help="Close the DOM panel after capture. Use --no-close to inspect it manually.")
+@click.option("--settle-seconds", type=float, default=0.5, show_default=True,
+              help="Delay after opening the DOM panel before capture.")
+@click.pass_context
+def screenshot_dom_cmd(ctx, symbol, output_path, output_dir, crop, max_width,
+                       window_substring, monitor, open_panel, close_panel, settle_seconds):
+    """Capture the GUI Depth of Market window for SYMBOL."""
+    obj = ctx.obj
+    output(
+        screenshot.dom(
+            symbol,
+            output_path=output_path,
+            output_dir=output_dir,
+            crop=crop,
+            max_width=max_width or None,
+            monitor=monitor,
+            cfg=obj["cfg"],
+            window_substring=window_substring,
+            open_panel=open_panel,
+            close_panel=close_panel,
             settle_seconds=settle_seconds,
         ),
         obj["as_json"],

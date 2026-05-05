@@ -106,8 +106,10 @@ Use this sequence before any trade:
 ```powershell
 mt5 market search --pattern USDJPY
 mt5 --json market info USDJPY
+mt5 --json chart ensure USDJPY --timeframe M15
+mt5 --json market depth USDJPY --levels 5
 mt5 --json analyze topdown USDJPY --timeframes D1,H4,H1
-mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots"
+mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots" --final-timeframe M15
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json position list --symbol USDJPY
@@ -116,6 +118,9 @@ mt5 --json position list --symbol USDJPY
 Rules for agents:
 
 - Always run `market search --pattern SYMBOL` first.
+- Use `chart ensure SYMBOL --timeframe M15` before GUI/screenshot work so MT5 is on the intended active chart.
+- Try `market depth SYMBOL --levels N` when structured book data is available.
+- Use `chart depth-of-market SYMBOL` and `screenshot dom SYMBOL` for the actual MT5 GUI panel opened from Charts > Depth Of Market.
 - Always run `order dryrun` before `order market`, `order limit`, or `order stop`.
 - Always branch on JSON `ok` before reading `data`.
 - Never place a live-account order unless the user explicitly requests live trading and all three live gates are intentionally set.
@@ -130,14 +135,20 @@ mt5 --json account risk
 
 mt5 market search --pattern EUR
 mt5 --json market tick USDJPY
+mt5 --json market depth USDJPY --levels 5
 
 mt5 --json rates fetch USDJPY H1 --bars 100
 mt5 --json indicator ema USDJPY H1 --period 20 --bars 100
 mt5 --json indicator fvg USDJPY M15 --bars 300 --min-points 5 --state open --limit 20
 mt5 --json analyze bias USDJPY
+mt5 --json chart current
+mt5 --json chart ensure USDJPY --timeframe M15
 mt5 --json chart switch-tf H1
 mt5 --json chart symbol USDJPY
+mt5 --json chart depth-of-market USDJPY
+mt5 --json chart dom USDJPY
 mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots"
+mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\screenshots"
 
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
@@ -171,13 +182,121 @@ Output shape:
     "symbol": "USDJPY",
     "captured_at": "2026-04-29T00:00:00+00:00",
     "frames": [
-      {"tf": "D1", "path": "C:\\...\\USDJPY_D1_....png", "w": 1280, "h": 720}
-    ]
+      {
+        "tf": "D1",
+        "path": "C:\\...\\USDJPY_D1_....png",
+        "w": 1280,
+        "h": 720,
+        "structured_context": {
+          "structure": {"support": 157.1, "resistance": 158.2},
+          "fvg": {"zones": [{"visual_label": "BULL FVG OPEN 4.2p"}]}
+        }
+      }
+    ],
+    "visual_manifest": {"indicator_assets": {"EhukaiFVG": "C:\\...\\EhukaiFVG.mq5"}},
+    "manifest_path": "C:\\...\\USDJPY_TDA_manifest_....json"
   }
 }
 ```
 
 The implementation is broker-agnostic. It defaults to matching the standard MT5 window class or a title containing `MT5`, uses the standard MT5 period toolbar, and writes only to `--output-dir`, `screenshot.output_dir`, legacy `screenshot_path`, or the OS temp directory (`%TEMP%\mt5-cli\screenshots` on Windows, `$TMPDIR/mt5-cli/screenshots` on POSIX). No broker-specific paths or project-specific paths are required.
+
+Visual TDA returns the best of both worlds for agents. The PNGs show the MT5 chart exactly as the operator sees it, while the JSON manifest explains the vendored Ehukai indicator contract and attaches recomputed structure/FVG data. The canonical MQ5 sources live in `metatrader5_cli/mt5/mql5/Indicators/`:
+
+- `EhukaiFVG.mq5`: stable `EFVG_` objects, `BULL/BEAR FVG OPEN/PARTIAL/FILLED <pips>p` labels, rectangle boundaries, and dashed midlines.
+- `EhukaiMarketStructure.mq5`: stable `EMS_` objects, `HH/HL/LH/LL` swing labels, `MS <TF>: ...` bias panel, BOS labels, and support/resistance levels.
+
+Use `--no-context` when only screenshots are needed, and `--no-manifest` when a sibling JSON file should not be written.
+
+For visual-TDA decisions, prefer the Ehukai-specific CLI commands so the data
+matches the chart overlays:
+
+```powershell
+mt5 --json ehukai structure USDJPY M15
+mt5 --json ehukai fvg USDJPY M15 --max-zones 4
+```
+
+The older generic `analyze structure` and `indicator fvg` commands remain
+available for raw strategy research, but `screenshot tda` now uses the Ehukai
+context layer so agents are not choosing between duplicate interpretations.
+
+Use `chart current` and `chart ensure` to make the active chart explicit before any visual task:
+
+```powershell
+mt5 --json chart current
+mt5 --json chart ensure USDJPY --timeframe M15
+mt5 --json chart ensure USDJPY --timeframe none
+```
+
+`chart ensure` is symbol agnostic: it works with any broker-exact symbol that MT5 accepts in the active chart and any supported timeframe (`M1 M5 M15 M30 H1 H4 D1 W1 MN`). It is preferred over automating File > New Chart because broker menus and recent-symbol lists vary by terminal.
+
+After the capture loop, TDA leaves the active chart on `M15` by default so the operator workspace returns to the normal working timeframe. This is configurable and broker-agnostic:
+
+```powershell
+mt5 --json screenshot tda USDJPY --final-timeframe M15
+mt5 --json screenshot tda USDJPY --final-timeframe H1
+mt5 --json screenshot tda USDJPY --final-timeframe none
+```
+
+## Depth of Market
+
+Depth of Market has two useful CLI paths:
+
+```powershell
+# Structured Python API path, when the broker exposes market_book_* data
+mt5 --json market depth USDJPY --levels 5
+
+# GUI path, matching MT5 Charts > Depth Of Market
+mt5 --json chart depth-of-market USDJPY
+mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\screenshots"
+```
+
+`market depth` is the canonical structured data command. `chart depth-of-market` opens the actual MT5 GUI panel from Charts > Depth Of Market, and `screenshot dom` captures that panel for visual agent review. By default `screenshot dom` closes/toggles the DOM panel after capture so it does not block the chart; pass `--no-close` only when intentionally inspecting the panel manually. DOM data availability depends on broker and symbol support, but the GUI panel can still be useful when the Python API returns `MT5_MARKET_BOOK_*` errors.
+
+Agents should use DOM as a pre-entry liquidity check, not as a trading signal by itself:
+
+- `best_bid`, `best_ask`, `spread`, and `spread_points` show whether the current top of book is tradable.
+- `bids` and `asks` are sorted nearest-first and limited per side by `--levels`.
+- `bid_volume`, `ask_volume`, and `volume_imbalance` summarize near-price pressure across the returned levels.
+- `MT5_MARKET_BOOK_SUBSCRIBE_FAILED` and `MT5_MARKET_BOOK_UNAVAILABLE` mean the broker or symbol may not expose DOM; fall back to `market info`, `market tick`, and normal dry-run checks.
+
+Validated behavior on this Trading.com demo terminal: visual TDA screenshots work, and the GUI DOM panel opens through Charts > Depth Of Market. The Python `market_book_add()` path currently returns `False` for USDJPY/EURUSD/GBPUSD, so agents should use `screenshot dom` for Trading.com GUI DOM context and treat `market depth` as opportunistic structured data.
+
+TDA + DOM workflow:
+
+```powershell
+# 1. Capture chart context
+mt5 --json screenshot tda USDJPY --timeframes H1,M15,M5 --output-dir "$env:TEMP\mt5-cli\tda"
+
+# 2. Try structured book context
+mt5 --json market depth USDJPY --levels 5
+
+# 3. If depth returns MT5_MARKET_BOOK_* errors, capture the GUI DOM panel
+mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\dom"
+
+# 4. Use tick/spread/dryrun for execution validation
+mt5 --json market tick USDJPY
+mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
+```
+
+Output shape:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "symbol": "USDJPY",
+    "levels": 5,
+    "best_bid": 157.890,
+    "best_ask": 157.891,
+    "spread_points": 1.0,
+    "mid": 157.8905,
+    "volume_imbalance": 0.14,
+    "bids": [{"side": "bid", "price": 157.890, "volume_dbl": 20.0}],
+    "asks": [{"side": "ask", "price": 157.891, "volume_dbl": 10.0}]
+  }
+}
+```
 
 ## Python API
 
@@ -197,6 +316,7 @@ bridge.connect(
 
 info = account.info()
 tick = market.tick("USDJPY")
+depth = market.depth("USDJPY", levels=5)
 bars = rates.fetch("USDJPY", "H1", bars=100)
 ema = indicator.ema("USDJPY", "H1", period=20, bars=100)
 dryrun = order.dryrun(

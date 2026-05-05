@@ -26,7 +26,7 @@
 ### Non-Goals
 - **Strategy logic** — entry/exit rules and backtesting live in a separate layer; this CLI exposes primitives only. Simple derived analytics (bias summaries, confluence scores from `analyze`) are in scope as convenient compositions of rate + indicator data — not strategy signals.
 - **Economic calendar** — `MetaTrader5` Python package v5.0.5260 has no `calendar_events()` API (verified: `dir(mt5)` returns no calendar symbol). News blackout logic is the strategy layer's responsibility; use an operator-maintained `news_calendar.json` file. Not a v2 candidate unless a future MT5 package version exposes it.
-- **Chart-level GUI control** — v1 does not toggle the on-screen timeframe, apply indicators to the chart window, or automate MT5 UI elements (deferred to v2 EA-bridge extension; see §10)
+- **Full chart GUI automation** — v1 includes focused Win32 chart primitives where they are reliable (symbol/timeframe switching and screenshots) and data-layer access to Depth of Market. Applying indicators to the chart window and native EA-driven chart operations remain deferred (see §10).
 - **Multi-broker abstraction** — targets a single locally running MT5 terminal (Windows)
 - **Live trading by default** — hard-blocked unless `--live` is explicitly set (see §7)
 - **Web or remote execution** — Windows-only; the official `MetaTrader5` Python package requires a locally installed MT5 terminal
@@ -286,6 +286,7 @@ All `data` keys shown in the command tables below are nested inside `"data": { .
 |---------|------|-----------------|-------------|
 | `market info` | `SYMBOL` | `symbol`, `bid`, `ask`, `spread`, `digits`, `pip_size`, `trade_tick_value`, `volume_min`, `volume_step`, `volume_max`, `swap_long`, `swap_short`, `filling_mode`, `trade_mode` | Symbol spec. `pip_size` = one pip in price units (USDJPY: `0.01`, EURUSD: `0.0001`). `trade_tick_value` = account-currency value of one tick per 1.0 lot — use this for position sizing, not a hardcoded constant. `filling_mode` = raw broker bitmask (1=FOK, 2=IOC, 4=RETURN). |
 | `market tick` | `SYMBOL` | `symbol`, `time`, `bid`, `ask`, `last`, `volume` | Latest tick |
+| `market depth` | `SYMBOL --levels INT` | `symbol`, `captured_at`, `levels`, `raw_count`, `bids`, `asks`, `best_bid`, `best_ask`, `spread`, `spread_points`, `mid`, `bid_volume`, `ask_volume`, `volume_imbalance`, `raw` | One-shot Depth of Market snapshot using `market_book_add()` -> `market_book_get()` -> `market_book_release()`. Bids are sorted high-to-low, asks low-to-high. `--levels 0` returns all available levels; positive values limit each side. DOM is broker/symbol dependent and may return `MT5_MARKET_BOOK_SUBSCRIBE_FAILED` or `MT5_MARKET_BOOK_UNAVAILABLE`. |
 | `market search` | `--pattern TEXT` | `[{symbol, description, currency_base, currency_profit}]` | Symbol search. `--pattern EUR` is auto-wrapped as `*EUR*` glob passed to `mt5.symbols_get(group=...)`. Users may supply explicit MT5 glob syntax (e.g. `EUR*,GBP*`). |
 | `market session` | `SYMBOL` | `is_open`, `opens_at`, `closes_at` | Current session window for the symbol |
 | `market sessions` | `SYMBOL` | `{tokyo: {start_utc, end_utc}, london: {start_utc, end_utc}, ny: {start_utc, end_utc}, sydney: {start_utc, end_utc}}` | Named FX session boundaries in UTC. Static lookup table keyed by symbol class (FX majors, metals, indices). Eliminates per-strategy hardcoded session times. |
@@ -306,6 +307,16 @@ All `data` keys shown in the command tables below are nested inside `"data": { .
 
 **Tick flags:** raw MT5 `TICK_FLAG_*` bitmask surfaced as-is; bridge converts to ISO-8601 timestamps.
 
+### 6.3.1 `mt5 chart` — GUI-facing chart aliases
+
+| Command | Args | JSON output keys | Description |
+|---------|------|-----------------|-------------|
+| `chart switch-tf` | `TIMEFRAME` `--window TEXT` `--settle-seconds FLOAT` | `timeframe`, `title`, `hwnd` | Switch the active MT5 chart timeframe through the period toolbar and verify the title. |
+| `chart current` | `--window TEXT` | `title`, `hwnd` | Read the currently matched MT5 chart window title. Use this before GUI workflows to confirm the active chart. |
+| `chart symbol` | `SYMBOL` `--window TEXT` `--settle-seconds FLOAT` | `symbol`, `title`, `hwnd` | Switch the active MT5 chart symbol and verify the title. |
+| `chart ensure` | `SYMBOL --timeframe TF --window TEXT --settle-seconds FLOAT` | `symbol`, `timeframe`, `title`, `hwnd` | Ensure the active MT5 chart is on the broker-exact SYMBOL and optional timeframe, then verify the title. Defaults to `M15`; use `--timeframe none` to only ensure the symbol. This is the preferred chart-selection primitive for agents. |
+| `chart depth-of-market` / `chart dom` | `SYMBOL --window TEXT --settle-seconds FLOAT` | `symbol`, `menu`, `command_id`, `title`, `hwnd` | Open the actual MT5 Charts > Depth Of Market GUI panel for SYMBOL via the terminal menu. This is the visual/menu path; use `market depth` for structured Python API book data. |
+
 ### 6.4 `mt5 indicator` — Python-Computed Indicators
 
 Indicators are computed from fetched rate data using `pandas-ta`. No chart-window interaction.
@@ -314,8 +325,20 @@ Indicators are computed from fetched rate data using `pandas-ta`. No chart-windo
 |---------|------|-----------------|-------------|
 | `indicator ema` | `SYMBOL TIMEFRAME --period INT --bars INT` | `symbol`, `timeframe`, `period`, `values: [{time, ema}]` | EMA series |
 | `indicator atr` | `SYMBOL TIMEFRAME --period INT --bars INT` | `values: [{time, atr}]` | ATR series |
-| `indicator fvg` | `SYMBOL TIMEFRAME --bars INT --min-points FLOAT --state STATE` | `zones`, `values` | Fair Value Gap zones |
+| `indicator fvg` | `SYMBOL TIMEFRAME --bars INT --min-points FLOAT --state STATE` | `zones`, `values` | Fair Value Gap zones. Each zone includes exact `lower`, `upper`, `mid`, `state`, `size_points`, `size_pips`, `distance_points`, `distance_pips`, `visual_label`, `object_prefix`, and `visual_contract` fields so agents can pair CLI data with the vendored `EhukaiFVG.mq5` overlay. |
 | `indicator list` | — | `[{name, description, params}]` | Available indicators |
+
+### 6.4.1 `mt5 ehukai` — Visual-TDA Indicator Mirrors
+
+These commands are the preferred structured data companions for screenshots
+that use the vendored Ehukai MT5 overlays. They intentionally mirror
+`EhukaiFVG.mq5` and `EhukaiMarketStructure.mq5` so visual agents do not choose
+between duplicate generic interpretations.
+
+| Command | Args | JSON output keys | Description |
+|---------|------|-----------------|-------------|
+| `ehukai fvg` | `SYMBOL TIMEFRAME --bars INT --min-gap-pips FLOAT --max-zones INT --max-distance-pips FLOAT` | `source`, `object_prefix`, `zones`, `visual_contract` | Visible open/partial FVG zones matching `EhukaiFVG.mq5` defaults: `EFVG_` prefix, pips-based labels, max four zones, distance filter, exact lower/upper/mid levels. |
+| `ehukai structure` | `SYMBOL TIMEFRAME --bars INT --pivot-bars INT --max-swings INT` | `source`, `bias`, `panel_label`, `support`, `resistance`, `visible_swings`, `visual_contract` | Bias, support/resistance, and swing labels matching `EhukaiMarketStructure.mq5`: adaptive pivot bars, `EMS_` prefix, `HH/HL/LH/LL`, BOS labels, and the `MS <TF>: ...` panel text. |
 
 ### 6.5 `mt5 analyze` — Top-Down Market Structure Analysis
 
@@ -324,7 +347,7 @@ The high-value workflow: fetch rates across multiple TFs, read swing structure, 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `analyze topdown` | `SYMBOL` `--timeframes TF[,TF...]` `--bars INT` | See schema below | Multi-TF market-structure summary. `--timeframes` accepts comma-separated TFs in one value (`--timeframes D1,H4,H1`) or repeated flags (`--timeframes D1 --timeframes H4`). Space-separated in a single flag is not supported by Click. |
-| `analyze structure` | `SYMBOL TIMEFRAME --bars INT` `--pivot-n INT` | `support`, `resistance`, `swing_highs`, `swing_lows` | Key S/R levels via N-bar pivot detection. A bar at index `i` is a swing high if its `high` is the highest of the `N` bars before and after it; swing low symmetrically. Default `--pivot-n 5`. `support` = highest swing low below current price; `resistance` = lowest swing high above current price. |
+| `analyze structure` | `SYMBOL TIMEFRAME --bars INT` `--pivot-n INT` | `support`, `resistance`, `swing_highs`, `swing_lows`, `swing_points`, `visual_contract` | Key S/R levels via N-bar pivot detection. A bar at index `i` is a swing high if its `high` is the highest of the `N` bars before and after it; swing low symmetrically. Default `--pivot-n 5`. `support` = highest swing low below current price; `resistance` = lowest swing high above current price. `swing_points` adds `SH/SL/HH/HL/LH/LL` visual labels matching `EhukaiMarketStructure.mq5`. |
 | `analyze bias` | `SYMBOL` | `bias: bullish/bearish/neutral`, `confidence: float`, `reasoning: str` | One-line directional bias |
 
 **`analyze topdown` JSON schema:**
@@ -361,6 +384,8 @@ OS-level screen capture using `mss`. Captures the MT5 window or full desktop. Do
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `screenshot take` | `--output PATH` `--window TEXT` `--monitor INT` | `path`, `width`, `height`, `timestamp` | Capture MT5 window. `--monitor` overrides `screenshot_monitor` config (default `0` = primary). |
+| `screenshot tda` | `SYMBOL --timeframes TEXT --output-dir PATH --final-timeframe TF --visual-manifest/--no-visual-manifest --context/--no-context --manifest/--no-manifest --context-bars INT --fvg-limit INT` | `symbol`, `captured_at`, `frames`, `visual_manifest`, `ehukai_analysis`, `manifest_path`, `final_timeframe`, `final_title` | Capture visual top-down-analysis frames. After capture, restores the active chart to `--final-timeframe` (default `M15`). Use `--final-timeframe none` to leave the last captured timeframe active. By default writes a sibling JSON manifest and attaches per-frame Ehukai structure/FVG context so agents can combine screenshots with exact data from the same visual indicator semantics. |
+| `screenshot dom` | `SYMBOL` `--output PATH` `--output-dir PATH` `--window TEXT` `--open/--no-open` `--close/--no-close` `--settle-seconds FLOAT` | `path`, `symbol`, `w`, `h`, `window_title`, `panel_opened`, `panel_closed`, `open_result`, `close_result` | Open Charts > Depth Of Market for SYMBOL, capture the MT5 window, and close/toggle the DOM panel by default so it does not block the chart. Use `--no-close` only for manual inspection. |
 | `screenshot annotate` | `--input PATH` `--output PATH` `--text TEXT` `--xy INT INT` | `path` | Add text overlay to image |
 | `screenshot list` | `--dir PATH` | `[{path, timestamp, size_kb}]` | List saved screenshots |
 
@@ -597,7 +622,6 @@ console_scripts:
 
 | Feature | Why deferred | Likely approach |
 |---------|-------------|-----------------|
-| Chart timeframe toggle (GUI) | MT5 Python package has no chart UI API | MQL5 EA bridge writing commands to a named pipe / shared file |
 | Apply indicator to chart window | Same | EA bridge + `ChartIndicatorAdd()` |
 | Native `ChartScreenShot()` | Requires running EA; higher fidelity than mss | EA bridge |
 | Multi-terminal routing | Out of scope for v1 | Config profiles + `--profile` flag |

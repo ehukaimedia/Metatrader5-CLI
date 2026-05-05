@@ -7,6 +7,7 @@ window targeting.  This module does NOT interact with MT5 internals.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import tempfile
 
@@ -126,6 +127,8 @@ def take(
         screenshot_dir.mkdir(parents=True, exist_ok=True)
         ts_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         output_path = str(screenshot_dir / f"mt5_{ts_str}.png")
+    else:
+        Path(output_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
 
     region = None
     window_matched = False
@@ -214,6 +217,12 @@ def tda(
     cfg: dict | None = None,
     window_substring: str = "MT5",
     settle_seconds: float = 0.5,
+    final_timeframe: str | None = "M15",
+    visual_manifest: bool = True,
+    structured_context: bool = True,
+    write_manifest: bool = True,
+    context_bars: int = 300,
+    fvg_limit: int = 8,
 ) -> dict:
     """Capture a visual top-down-analysis screenshot set for one symbol."""
     from metatrader5_cli.mt5.core import chart  # noqa: PLC0415
@@ -254,16 +263,140 @@ def tda(
         title = switch_result.get("data", {}).get("title")
         if title:
             frame["title"] = title
+        if structured_context:
+            from metatrader5_cli.mt5.core import tda_manifest  # noqa: PLC0415
+
+            frame["structured_context"] = tda_manifest.frame_context(
+                symbol,
+                tf,
+                bars=context_bars,
+                fvg_limit=fvg_limit,
+            )
         frames.append(frame)
+
+    final_result = None
+    if final_timeframe and final_timeframe.lower() not in {"none", "off", "false"}:
+        final_result = chart.switch_tf(
+            final_timeframe,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+        )
+        if not final_result.get("ok"):
+            return final_result
+
+    data = {
+        "symbol": symbol.upper(),
+        "captured_at": captured_at,
+        "frames": frames,
+    }
+    if visual_manifest:
+        from metatrader5_cli.mt5.core import tda_manifest  # noqa: PLC0415
+
+        data["visual_manifest"] = tda_manifest.visual_manifest()
+    if structured_context:
+        try:
+            from metatrader5_cli.mt5.core import ehukai  # noqa: PLC0415
+
+            data["ehukai_analysis"] = ehukai.summarize_contexts(frames)
+        except Exception as exc:  # noqa: BLE001
+            data["ehukai_analysis_error"] = {
+                "code": "EHUKAI_ANALYSIS_EXCEPTION",
+                "message": str(exc),
+                "mt5_retcode": None,
+            }
+    if final_result:
+        data["final_timeframe"] = final_result.get("data", {}).get("timeframe", final_timeframe.upper())
+        data["final_title"] = final_result.get("data", {}).get("title")
+    if write_manifest:
+        manifest_path = output_root / f"{safe_symbol}_TDA_manifest_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.json"
+        data["manifest_path"] = str(manifest_path)
+        manifest_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
     return {
         "ok": True,
-        "data": {
-            "symbol": symbol.upper(),
-            "captured_at": captured_at,
-            "frames": frames,
-        },
+        "data": data,
     }
+
+
+# ---------------------------------------------------------------------------
+# dom
+# ---------------------------------------------------------------------------
+
+def dom(
+    symbol: str,
+    output_path: str | None = None,
+    output_dir: str | None = None,
+    crop: str = "window",
+    max_width: int | None = 1280,
+    monitor: int | None = None,
+    cfg: dict | None = None,
+    window_substring: str | None = None,
+    open_panel: bool = True,
+    close_panel: bool = True,
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Capture the GUI Depth of Market window for *symbol*.
+
+    This is the screenshot-backed counterpart to ``market.depth()``. It targets
+    the DOM window opened by MT5's Charts > Depth Of Market menu item.
+    """
+    safe_symbol = "".join(ch for ch in symbol.upper() if ch.isalnum() or ch in ("_", "-"))
+    target_window = window_substring or "MT5"
+    if output_path is None:
+        output_root = _resolve_dir(output_dir, cfg)
+        output_root.mkdir(parents=True, exist_ok=True)
+        output_path = str(
+            output_root
+            / f"{safe_symbol}_DOM_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.png"
+        )
+
+    open_result = None
+    if open_panel:
+        from metatrader5_cli.mt5.core import chart  # noqa: PLC0415
+
+        open_result = chart.open_depth_of_market(
+            symbol,
+            window_substring=target_window,
+            settle_seconds=settle_seconds,
+        )
+        if not open_result.get("ok"):
+            return open_result
+
+    close_result = None
+    try:
+        result = take(
+            output_path=output_path,
+            window_substring=target_window,
+            monitor=monitor,
+            cfg=cfg,
+        )
+        if not result.get("ok"):
+            return result
+    finally:
+        if close_panel and open_panel:
+            from metatrader5_cli.mt5.core import chart  # noqa: PLC0415
+
+            close_result = chart.close_depth_of_market(symbol, window_substring=target_window)
+
+    width, height = _postprocess_image(Path(output_path), crop, max_width)
+    data = dict(result["data"])
+    data.update(
+        {
+            "symbol": symbol.upper(),
+            "path": output_path,
+            "w": width,
+            "h": height,
+            "dom_window_substring": target_window,
+            "source": "gui_depth_of_market_window",
+            "panel_opened": bool(open_panel),
+            "panel_closed": bool(close_panel and open_panel and close_result and close_result.get("ok")),
+        }
+    )
+    if open_result:
+        data["open_result"] = open_result.get("data", {})
+    if close_result:
+        data["close_result"] = close_result
+    return {"ok": True, "data": data}
 
 
 # ---------------------------------------------------------------------------

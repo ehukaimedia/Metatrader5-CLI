@@ -801,6 +801,352 @@ class TestMarket:
         dt = datetime.fromisoformat(time_str)
         assert dt.tzinfo is not None  # timezone-aware
 
+    def test_market_depth_subscribes_reads_sorts_and_releases(self, mt5m):
+        from collections import namedtuple
+        from metatrader5_cli.mt5.core import market
+
+        BookInfo = namedtuple("BookInfo", "type price volume volume_dbl")
+        mt5m.symbol_select.return_value = True
+        mt5m.market_book_add.return_value = True
+        mt5m.market_book_get.return_value = (
+            BookInfo(1, 157.892, 25, 25.0),
+            BookInfo(2, 157.889, 15, 15.0),
+            BookInfo(1, 157.891, 10, 10.0),
+            BookInfo(2, 157.890, 20, 20.0),
+        )
+        mt5m.market_book_release.return_value = True
+
+        result = market.depth("USDJPY")
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert [row["price"] for row in data["asks"]] == [157.891, 157.892]
+        assert [row["price"] for row in data["bids"]] == [157.890, 157.889]
+        assert data["best_bid"] == pytest.approx(157.890)
+        assert data["best_ask"] == pytest.approx(157.891)
+        assert data["spread"] == pytest.approx(0.001)
+        mt5m.symbol_select.assert_called_with("USDJPY", True)
+        mt5m.market_book_add.assert_called_once_with("USDJPY")
+        mt5m.market_book_get.assert_called_once_with("USDJPY")
+        mt5m.market_book_release.assert_called_once_with("USDJPY")
+
+    def test_market_depth_limits_levels_per_side(self, mt5m):
+        from collections import namedtuple
+        from metatrader5_cli.mt5.core import market
+
+        BookInfo = namedtuple("BookInfo", "type price volume volume_dbl")
+        mt5m.symbol_select.return_value = True
+        mt5m.market_book_add.return_value = True
+        mt5m.market_book_get.return_value = (
+            BookInfo(1, 1.1010, 1, 1.0),
+            BookInfo(1, 1.1009, 1, 1.0),
+            BookInfo(2, 1.1007, 1, 1.0),
+            BookInfo(2, 1.1008, 1, 1.0),
+        )
+
+        result = market.depth("EURUSD", levels=1)
+
+        assert result["ok"] is True
+        assert len(result["data"]["asks"]) == 1
+        assert len(result["data"]["bids"]) == 1
+        assert result["data"]["asks"][0]["price"] == pytest.approx(1.1009)
+        assert result["data"]["bids"][0]["price"] == pytest.approx(1.1008)
+
+    def test_market_depth_subscribe_failure_returns_error(self, mt5m):
+        from metatrader5_cli.mt5.core import market
+
+        mt5m.symbol_select.return_value = True
+        mt5m.market_book_add.return_value = False
+        mt5m.last_error.return_value = (4302, "Market book unavailable")
+
+        result = market.depth("USDJPY")
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_MARKET_BOOK_SUBSCRIBE_FAILED"
+        assert result["error"]["mt5_retcode"] == 4302
+        mt5m.market_book_get.assert_not_called()
+        mt5m.market_book_release.assert_not_called()
+
+    def test_market_depth_success_last_error_gets_broker_hint(self, mt5m):
+        from metatrader5_cli.mt5.core import market
+
+        mt5m.symbol_select.return_value = True
+        mt5m.market_book_add.return_value = False
+        mt5m.last_error.return_value = (1, "Success")
+
+        result = market.depth("USDJPY")
+
+        assert result["ok"] is False
+        assert "may not expose Depth of Market" in result["error"]["message"]
+
+    def test_market_depth_get_failure_releases_subscription(self, mt5m):
+        from metatrader5_cli.mt5.core import market
+
+        mt5m.symbol_select.return_value = True
+        mt5m.market_book_add.return_value = True
+        mt5m.market_book_get.return_value = None
+        mt5m.last_error.return_value = (4303, "No market book data")
+
+        result = market.depth("USDJPY")
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "MT5_MARKET_BOOK_UNAVAILABLE"
+        mt5m.market_book_release.assert_called_once_with("USDJPY")
+
+    def test_cli_market_depth_json(self, mt5m, monkeypatch, tmp_path):
+        import json
+        from collections import namedtuple
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
+
+        BookInfo = namedtuple("BookInfo", "type price volume volume_dbl")
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        mt5m.symbol_select.return_value = True
+        mt5m.market_book_add.return_value = True
+        mt5m.market_book_get.return_value = (
+            BookInfo(1, 1.1002, 10, 10.0),
+            BookInfo(2, 1.1000, 20, 20.0),
+        )
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "market", "depth", "EURUSD", "--levels", "1"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["symbol"] == "EURUSD"
+        assert len(data["data"]["asks"]) == 1
+        assert len(data["data"]["bids"]) == 1
+
+    def test_cli_chart_depth_of_market_opens_gui_panel(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        monkeypatch.setattr(
+            chart_module,
+            "open_depth_of_market",
+            lambda symbol, **kwargs: {
+                "ok": True,
+                "data": {"symbol": symbol, "menu": "Charts > Depth Of Market", "title": "[USDJPY,M1]"},
+            },
+        )
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "chart", "depth-of-market", "USDJPY"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["symbol"] == "USDJPY"
+        assert data["data"]["menu"] == "Charts > Depth Of Market"
+
+    def test_cli_chart_dom_alias_opens_gui_panel(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        monkeypatch.setattr(
+            chart_module,
+            "open_depth_of_market",
+            lambda symbol, **kwargs: {
+                "ok": True,
+                "data": {"symbol": symbol, "menu": "Charts > Depth Of Market", "title": "[USDJPY,M1]"},
+            },
+        )
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "chart", "dom", "USDJPY"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["symbol"] == "USDJPY"
+        assert data["data"]["menu"] == "Charts > Depth Of Market"
+
+    def test_cli_chart_current_reports_title(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        monkeypatch.setattr(
+            chart_module,
+            "current_title",
+            lambda **kwargs: {
+                "ok": True,
+                "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
+            },
+        )
+
+        result = CliRunner().invoke(mt5_cli.main, ["--json", "chart", "current"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert "[USDJPY,M15]" in data["data"]["title"]
+
+    def test_cli_chart_ensure_sets_symbol_and_timeframe(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        captured = {}
+
+        def fake_ensure_chart(symbol, **kwargs):
+            captured["symbol"] = symbol
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "timeframe": kwargs["timeframe"],
+                    "title": f"105112007 - Trading.comMarkets-MT5 - [{symbol},{kwargs['timeframe']}]",
+                },
+            }
+
+        monkeypatch.setattr(chart_module, "ensure_chart", fake_ensure_chart)
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "chart", "ensure", "USDJPY", "--timeframe", "M15"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["symbol"] == "USDJPY"
+        assert captured["symbol"] == "USDJPY"
+        assert captured["timeframe"] == "M15"
+
+    def test_cli_chart_ensure_timeframe_none(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        captured = {}
+
+        def fake_ensure_chart(symbol, **kwargs):
+            captured["symbol"] = symbol
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "timeframe": None,
+                    "title": f"105112007 - Trading.comMarkets-MT5 - [{symbol},H1]",
+                },
+            }
+
+        monkeypatch.setattr(chart_module, "ensure_chart", fake_ensure_chart)
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "chart", "ensure", "USDJPY", "--timeframe", "none"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["timeframe"] is None
+        assert captured["timeframe"] == "none"
+
+    def test_cli_ehukai_fvg_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import ehukai as ehukai_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(
+            ehukai_module,
+            "fvg",
+            lambda symbol, timeframe, **kw: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "source": "EhukaiFVG",
+                    "zones": [{"visual_label": "BULL FVG OPEN 5p"}],
+                },
+            },
+        )
+
+        result = CliRunner().invoke(mt5_cli.main, ["--json", "ehukai", "fvg", "USDJPY", "M15"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["source"] == "EhukaiFVG"
+        assert data["data"]["zones"][0]["visual_label"] == "BULL FVG OPEN 5p"
+
+    def test_cli_ehukai_structure_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import ehukai as ehukai_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(
+            ehukai_module,
+            "market_structure",
+            lambda symbol, timeframe, **kw: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "source": "EhukaiMarketStructure",
+                    "bias": "BULLISH HH/HL",
+                    "panel_label": "MS M15: BULLISH HH/HL | H HH 158.000 | L HL 157.000",
+                },
+            },
+        )
+
+        result = CliRunner().invoke(mt5_cli.main, ["--json", "ehukai", "structure", "USDJPY", "M15"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["source"] == "EhukaiMarketStructure"
+        assert data["data"]["bias"] == "BULLISH HH/HL"
+
     def test_market_search_auto_wraps_bare_pattern(self, mt5m):
         from metatrader5_cli.mt5.core import market
         mt5m.symbols_get.return_value = []
@@ -1076,12 +1422,18 @@ class TestIndicator:
         assert zone["upper"] == 1.05
         assert zone["mid"] == 1.025
         assert zone["size_points"] == 5
+        assert zone["size_pips"] == 5
+        assert zone["visual_label"] == "BULL FVG OPEN 5p"
+        assert zone["visual_contract"] == "EhukaiFVG"
+        assert zone["object_prefix"] == "EFVG_"
         assert zone["state"] == "open"
         assert zone["distance_points"] == 6
+        assert zone["distance_pips"] == 6
         assert zone["atr_multiple"] is not None
         assert "boundaries" in zone
         assert set(zone["boundaries"]) == {"lower", "upper", "mid"}
         assert zone["render"]["kind"] == "zone"
+        assert zone["render"]["label"] == zone["visual_label"]
         assert "lines" not in zone, "FVG boundaries must not be exposed as loose line objects"
 
     def test_fvg_partial_mitigation_uses_one_zone_state(self, monkeypatch):
@@ -1235,6 +1587,8 @@ class TestAnalyze:
         result = analyze.structure("EURUSD", "H1", bars=20, pivot_n=5)
         assert result["ok"] is True
         assert any(abs(sh["price"] - 2.0) < 1e-9 for sh in result["data"]["swing_highs"])
+        assert result["data"]["visual_contract"]["indicator"] == "EhukaiMarketStructure"
+        assert all("visual_label" in p for p in result["data"]["swing_points"])
 
     def test_structure_support_resistance_relative_to_current_price(self, monkeypatch):
         from metatrader5_cli.mt5.core import analyze
@@ -2099,6 +2453,82 @@ class TestChart:
         }
         assert sleep_calls == [0.05] * 10
 
+    def test_ensure_chart_sets_symbol_and_default_m15(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        calls = []
+        monkeypatch.setattr(
+            chart_module,
+            "symbol",
+            lambda symbol, **kw: calls.append(("symbol", symbol, kw)) or {
+                "ok": True,
+                "data": {"symbol": symbol, "title": f"[{symbol},M1]", "hwnd": 101},
+            },
+        )
+
+        def fake_switch_tf(tf, **kw):
+            calls.append(("switch_tf", tf, kw))
+            return {"ok": True, "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"}}
+
+        monkeypatch.setattr(chart_module, "switch_tf", fake_switch_tf)
+        monkeypatch.setattr(
+            chart_module,
+            "current_title",
+            lambda _window: {
+                "ok": True,
+                "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
+            },
+        )
+
+        result = chart_module.ensure_chart("USDJPY")
+
+        assert result["ok"] is True
+        assert result["data"]["symbol"] == "USDJPY"
+        assert result["data"]["timeframe"] == "M15"
+        assert calls[0][0:2] == ("symbol", "USDJPY")
+        assert calls[1][0:2] == ("switch_tf", "M15")
+
+    def test_ensure_chart_timeframe_none_only_sets_symbol(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        switch_calls = []
+        monkeypatch.setattr(
+            chart_module,
+            "symbol",
+            lambda symbol, **kw: {
+                "ok": True,
+                "data": {"symbol": symbol, "title": f"[{symbol},H1]", "hwnd": 101},
+            },
+        )
+        monkeypatch.setattr(chart_module, "switch_tf", lambda tf, **kw: switch_calls.append(tf))
+        monkeypatch.setattr(
+            chart_module,
+            "current_title",
+            lambda _window: {
+                "ok": True,
+                "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,H1]"},
+            },
+        )
+
+        result = chart_module.ensure_chart("USDJPY", timeframe="none")
+
+        assert result["ok"] is True
+        assert result["data"]["symbol"] == "USDJPY"
+        assert result["data"]["timeframe"] is None
+        assert switch_calls == []
+
+    def test_ensure_chart_rejects_invalid_timeframe_before_gui_calls(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        symbol_calls = []
+        monkeypatch.setattr(chart_module, "symbol", lambda symbol, **kw: symbol_calls.append(symbol))
+
+        result = chart_module.ensure_chart("USDJPY", timeframe="M2")
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "CHART_INVALID_TIMEFRAME"
+        assert symbol_calls == []
+
 
 class TestScreenshot:
 
@@ -2154,7 +2584,27 @@ class TestScreenshot:
         mock_sct.grab.assert_called_once_with(mock_sct.monitors[2])
 
     # ------------------------------------------------------------------
-    # Test 3 — take window match failure fails closed
+    # Test 3 — explicit output parent directories are created
+    # ------------------------------------------------------------------
+
+    def test_take_explicit_output_creates_parent_dir(self, tmp_path, monkeypatch):
+        from metatrader5_cli.mt5.core import screenshot as ss_module
+        mock_mss, _mock_sct, _ = self._make_mss_mock(monitor_count=2)
+        monkeypatch.setattr(ss_module, "mss", mock_mss)
+
+        output_path = tmp_path / "nested" / "dom" / "s.png"
+        result = ss_module.take(
+            output_path=str(output_path),
+            window_substring="",
+            monitor=1,
+            cfg={},
+        )
+
+        assert result["ok"] is True
+        assert output_path.parent.exists()
+
+    # ------------------------------------------------------------------
+    # Test 4 — take window match failure fails closed
     # ------------------------------------------------------------------
 
     def test_take_window_match_failure_returns_error(self, tmp_path, monkeypatch):
@@ -2259,6 +2709,7 @@ class TestScreenshot:
         from PIL import Image
         from metatrader5_cli.mt5.core import chart as chart_module
         from metatrader5_cli.mt5.core import screenshot as ss_module
+        from metatrader5_cli.mt5.core import tda_manifest
 
         timeframes = ["D1", "H4", "H1", "M15", "M5", "M1"]
 
@@ -2267,10 +2718,16 @@ class TestScreenshot:
             "symbol",
             lambda symbol, **kw: {"ok": True, "data": {"symbol": symbol, "title": f"[{symbol},D1]"}},
         )
+        switch_calls = []
+
+        def fake_switch_tf(tf, **_kw):
+            switch_calls.append(tf)
+            return {"ok": True, "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"}}
+
         monkeypatch.setattr(
             chart_module,
             "switch_tf",
-            lambda tf, **kw: {"ok": True, "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"}},
+            fake_switch_tf,
         )
 
         def fake_take(output_path, **_kwargs):
@@ -2288,6 +2745,21 @@ class TestScreenshot:
             }
 
         monkeypatch.setattr(ss_module, "take", fake_take)
+        monkeypatch.setattr(
+            tda_manifest,
+            "frame_context",
+            lambda symbol, timeframe, **kw: {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "market_structure": {"support": 157.0, "resistance": 158.0, "bias": "BULLISH HH/HL"},
+                "fvg": {"zones": []},
+            },
+        )
+        monkeypatch.setattr(
+            tda_manifest,
+            "visual_manifest",
+            lambda: {"version": "test", "legend": [{"label_pattern": "HH|HL"}]},
+        )
 
         result = ss_module.tda(
             "USDJPY",
@@ -2301,10 +2773,161 @@ class TestScreenshot:
         frames = result["data"]["frames"]
         assert len(frames) == 6
         assert [frame["tf"] for frame in frames] == timeframes
+        assert switch_calls == timeframes + ["M15"]
+        assert result["data"]["final_timeframe"] == "M15"
+        assert result["data"]["visual_manifest"]["version"] == "test"
+        assert result["data"]["ehukai_analysis"]["dominant_bias"] == "BULLISH HH/HL"
+        assert os.path.exists(result["data"]["manifest_path"])
         for frame in frames:
             assert frame["path"].endswith(".png")
             assert os.path.getsize(frame["path"]) >= 50 * 1024
             assert f"[USDJPY,{frame['tf']}]" in frame["title"]
+            assert frame["structured_context"]["market_structure"]["support"] == 157.0
+
+    def test_screenshot_tda_final_timeframe_none_leaves_last_tf(self, tmp_path, monkeypatch):
+        from PIL import Image
+        from metatrader5_cli.mt5.core import chart as chart_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
+
+        switch_calls = []
+        monkeypatch.setattr(
+            chart_module,
+            "symbol",
+            lambda symbol, **kw: {"ok": True, "data": {"symbol": symbol, "title": f"[{symbol},H1]"}},
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "switch_tf",
+            lambda tf, **kw: switch_calls.append(tf) or {"ok": True, "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"}},
+        )
+
+        def fake_take(output_path, **_kwargs):
+            Image.new("RGB", (1280, 720), color=(255, 255, 255)).save(output_path)
+            return {
+                "ok": True,
+                "data": {"path": output_path, "width": 1280, "height": 720, "timestamp": "2026-05-05T00:00:00+00:00"},
+            }
+
+        monkeypatch.setattr(ss_module, "take", fake_take)
+
+        result = ss_module.tda(
+            "USDJPY",
+            timeframes="H1,M5",
+            output_dir=str(tmp_path),
+            crop="window",
+            final_timeframe="none",
+        )
+
+        assert result["ok"] is True
+        assert switch_calls == ["H1", "M5"]
+        assert "final_timeframe" not in result["data"]
+
+    # ------------------------------------------------------------------
+    # Test 8 — GUI Depth of Market window capture uses symbol title by default
+    # ------------------------------------------------------------------
+
+    def test_screenshot_dom_captures_symbol_window(self, tmp_path, monkeypatch):
+        from PIL import Image
+        from metatrader5_cli.mt5.core import chart as chart_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
+
+        captured = {}
+
+        def fake_take(output_path, window_substring, **_kwargs):
+            captured["window_substring"] = window_substring
+            img = Image.new("RGB", (640, 900), color=(255, 255, 255))
+            img.save(output_path)
+            return {
+                "ok": True,
+                "data": {
+                    "path": output_path,
+                    "width": 640,
+                    "height": 900,
+                    "timestamp": "2026-05-05T00:00:00+00:00",
+                    "window_matched": True,
+                    "window_title": "USDJPY, US Dollar vs Japanese Yen",
+                },
+            }
+
+        monkeypatch.setattr(ss_module, "take", fake_take)
+        monkeypatch.setattr(
+            chart_module,
+            "open_depth_of_market",
+            lambda symbol, **kwargs: {
+                "ok": True,
+                "data": {"symbol": symbol, "menu": "Charts > Depth Of Market"},
+            },
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "close_depth_of_market",
+            lambda symbol, **kwargs: {
+                "ok": True,
+                "data": {"symbol": symbol, "closed": 1},
+            },
+        )
+
+        result = ss_module.dom("USDJPY", output_dir=str(tmp_path), max_width=1280, close_panel=True)
+
+        assert result["ok"] is True
+        assert captured["window_substring"] == "MT5"
+        assert result["data"]["symbol"] == "USDJPY"
+        assert result["data"]["source"] == "gui_depth_of_market_window"
+        assert result["data"]["panel_opened"] is True
+        assert result["data"]["panel_closed"] is True
+        assert result["data"]["path"].endswith(".png")
+
+    def test_screenshot_dom_closes_panel_by_default(self, tmp_path, monkeypatch):
+        from PIL import Image
+        from metatrader5_cli.mt5.core import chart as chart_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
+
+        closed = {"called": False}
+
+        def fake_take(output_path, **_kwargs):
+            img = Image.new("RGB", (640, 900), color=(255, 255, 255))
+            img.save(output_path)
+            return {
+                "ok": True,
+                "data": {
+                    "path": output_path,
+                    "width": 640,
+                    "height": 900,
+                    "timestamp": "2026-05-05T00:00:00+00:00",
+                    "window_matched": True,
+                    "window_title": "USDJPY, US Dollar vs Japanese Yen",
+                },
+            }
+
+        monkeypatch.setattr(ss_module, "take", fake_take)
+        monkeypatch.setattr(
+            chart_module,
+            "open_depth_of_market",
+            lambda symbol, **kwargs: {"ok": True, "data": {"symbol": symbol}},
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "close_depth_of_market",
+            lambda symbol, **kwargs: closed.update(called=True) or {
+                "ok": True,
+                "data": {"symbol": symbol, "closed": 1},
+            },
+        )
+
+        result = ss_module.dom("USDJPY", output_dir=str(tmp_path), max_width=1280)
+
+        assert result["ok"] is True
+        assert closed["called"] is True
+        assert result["data"]["panel_closed"] is True
+
+    def test_depth_of_market_child_title_does_not_match_chart_title(self):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        assert chart_module.is_depth_of_market_child_title(
+            "USDJPY, US Dollar vs Japanese Yen", "USDJPY"
+        )
+        assert not chart_module.is_depth_of_market_child_title("USDJPY,M15", "USDJPY")
+        assert not chart_module.is_depth_of_market_child_title("[USDJPY,M15]", "USDJPY")
 
 
 # ===========================================================================

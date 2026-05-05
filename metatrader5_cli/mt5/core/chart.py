@@ -36,6 +36,7 @@ TF_TITLE_ALIASES = {
     "W1": ("W1", "Weekly"),
     "MN": ("MN", "MN1", "Monthly"),
 }
+DEPTH_OF_MARKET_MENU_TEXT = "depth of market"
 TIMEFRAME_VERIFY_POLLS = 10
 TIMEFRAME_VERIFY_POLL_SECONDS = 0.05
 
@@ -45,6 +46,7 @@ WM_COMMAND = 0x0111
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
+WM_CLOSE = 0x0010
 VK_RETURN = 0x0D
 VK_END = 0x23
 TB_BUTTONCOUNT = 0x0418
@@ -147,6 +149,16 @@ def title_has_symbol_tf(title: str, symbol: str, tf: str | None = None) -> bool:
         return True
     normalized = normalize_timeframe(tf)
     return any(alias.upper() in title_upper for alias in TF_TITLE_ALIASES[normalized])
+
+
+def is_depth_of_market_child_title(title: str, symbol_name: str) -> bool:
+    """Return True for MT5 DOM child titles, not normal chart titles."""
+    symbol_upper = symbol_name.upper()
+    title_upper = title.upper().strip()
+    if symbol_upper not in title_upper or "," not in title_upper or "[" in title_upper:
+        return False
+    timeframe_titles = tuple(f"{symbol_upper},{tf}" for tf in TIMEFRAMES)
+    return not any(title_upper == tf_title for tf_title in timeframe_titles)
 
 
 def _wait_for_timeframe_title(
@@ -290,6 +302,178 @@ def _send_text(hwnd: int, text: str) -> None:
         win32gui.PostMessage(hwnd, WM_CHAR, ord(ch), 0)
         time.sleep(0.01)
     _press_key(hwnd, VK_RETURN)
+
+
+def _normalize_menu_text(text: str) -> str:
+    return " ".join(text.replace("&", "").split()).split("\t", 1)[0].strip().lower()
+
+
+def _menu_string(hmenu: int, index: int, flags: int) -> str:
+    user32 = ctypes.windll.user32
+    buffer = ctypes.create_unicode_buffer(256)
+    user32.GetMenuStringW(
+        wintypes.HMENU(hmenu),
+        wintypes.UINT(index),
+        buffer,
+        ctypes.sizeof(buffer) // ctypes.sizeof(ctypes.c_wchar),
+        wintypes.UINT(flags),
+    )
+    return buffer.value
+
+
+def _find_menu_command_id(hwnd: int, target_text: str) -> int | None:
+    win32gui, win32con, _ = _win32()
+    menu = win32gui.GetMenu(hwnd)
+    if not menu:
+        return None
+    target = target_text.lower()
+
+    def walk(hmenu: int) -> int | None:
+        count = win32gui.GetMenuItemCount(hmenu)
+        for index in range(count):
+            text = _menu_string(hmenu, index, win32con.MF_BYPOSITION)
+            if target in _normalize_menu_text(text):
+                command_id = win32gui.GetMenuItemID(hmenu, index)
+                if command_id != -1:
+                    return int(command_id)
+            submenu = win32gui.GetSubMenu(hmenu, index)
+            if submenu:
+                found = walk(submenu)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(menu)
+
+
+def open_depth_of_market(
+    symbol_name: str | None = None,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Open MT5's Charts > Depth Of Market panel through the main menu."""
+    if symbol_name:
+        symbol_result = symbol(symbol_name, window_substring=window_substring, settle_seconds=settle_seconds)
+        if not symbol_result.get("ok"):
+            return symbol_result
+
+    match = find_window(window_substring)
+    if not match:
+        return _fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
+
+    command_id = _find_menu_command_id(match.hwnd, DEPTH_OF_MARKET_MENU_TEXT)
+    if command_id is None:
+        return _fail("CHART_MENU_ITEM_NOT_FOUND", "Could not find Charts > Depth Of Market in the MT5 menu.")
+
+    win32gui, _, _ = _win32()
+    win32gui.PostMessage(match.hwnd, WM_COMMAND, command_id, 0)
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+
+    refreshed = find_window(window_substring)
+    title = refreshed.title if refreshed else match.title
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol_name.upper() if symbol_name else None,
+            "menu": "Charts > Depth Of Market",
+            "command_id": command_id,
+            "title": title,
+            "hwnd": match.hwnd,
+        },
+    }
+
+
+def ensure_chart(
+    symbol_name: str,
+    timeframe: str | None = "M15",
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Ensure the active MT5 chart is on *symbol_name* and optional timeframe."""
+    normalized_timeframe = None
+    if timeframe and str(timeframe).lower() not in {"none", "off", "false"}:
+        try:
+            normalized_timeframe = normalize_timeframe(str(timeframe))
+        except ValueError as exc:
+            return _fail("CHART_INVALID_TIMEFRAME", str(exc))
+
+    symbol_result = symbol(symbol_name, window_substring=window_substring, settle_seconds=settle_seconds)
+    if not symbol_result.get("ok"):
+        return symbol_result
+
+    tf_result = None
+    if normalized_timeframe:
+        tf_result = switch_tf(normalized_timeframe, window_substring=window_substring, settle_seconds=settle_seconds)
+        if not tf_result.get("ok"):
+            return tf_result
+
+    title_result = current_title(window_substring)
+    title = title_result.get("data", {}).get("title", symbol_result.get("data", {}).get("title"))
+    if not title_has_symbol_tf(title or "", symbol_name, normalized_timeframe):
+        return _fail(
+            "CHART_VERIFY_FAILED",
+            f"MT5 title did not show {symbol_name.upper()}"
+            + (f",{normalized_timeframe}" if normalized_timeframe else "")
+            + f": {title}",
+        )
+
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol_name.upper(),
+            "timeframe": normalized_timeframe,
+            "title": title,
+            "hwnd": title_result.get("data", {}).get("hwnd", symbol_result.get("data", {}).get("hwnd")),
+        },
+    }
+
+
+def close_depth_of_market(symbol_name: str, window_substring: str = "MT5") -> dict:
+    """Close the active GUI Depth Of Market child window for *symbol_name*."""
+    match = find_window(window_substring)
+    if not match:
+        return _fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
+
+    win32gui, _, _ = _win32()
+    symbol_upper = symbol_name.upper()
+    candidates: list[int] = []
+
+    def enum_child(hwnd, _extra):
+        title = win32gui.GetWindowText(hwnd) or ""
+        if is_depth_of_market_child_title(title, symbol_upper):
+            candidates.append(hwnd)
+
+    win32gui.EnumChildWindows(match.hwnd, enum_child, None)
+    if not candidates:
+        command_id = _find_menu_command_id(match.hwnd, DEPTH_OF_MARKET_MENU_TEXT)
+        if command_id is None:
+            return _fail("CHART_MENU_ITEM_NOT_FOUND", "Could not find Charts > Depth Of Market in the MT5 menu.")
+        win32gui.PostMessage(match.hwnd, WM_COMMAND, command_id, 0)
+        return {
+            "ok": True,
+            "data": {
+                "symbol": symbol_upper,
+                "closed": 0,
+                "hwnds": [],
+                "parent_hwnd": match.hwnd,
+                "method": "menu_toggle",
+                "command_id": command_id,
+            },
+        }
+
+    for hwnd in candidates:
+        win32gui.PostMessage(hwnd, WM_CLOSE, 0, 0)
+
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol_upper,
+            "closed": len(candidates),
+            "hwnds": candidates,
+            "parent_hwnd": match.hwnd,
+        },
+    }
 
 
 def switch_tf(tf: str, window_substring: str = "MT5", settle_seconds: float = 0.5) -> dict:

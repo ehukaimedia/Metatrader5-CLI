@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 
-def _fail(code: str, message: str) -> dict:
-    return {"ok": False, "error": {"code": code, "message": message, "mt5_retcode": None}}
+def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:
+    return {"ok": False, "error": {"code": code, "message": message, "mt5_retcode": mt5_retcode}}
 
 
 def _pip_size(digits: int) -> float:
@@ -22,6 +22,54 @@ def _pip_size(digits: int) -> float:
     Formula: 10 ** (1 - digits).
     """
     return 10 ** (1 - digits)
+
+
+BOOK_TYPE_NAMES = {
+    1: "ask",
+    2: "bid",
+    3: "sell_market",
+    4: "buy_market",
+}
+
+
+def _last_error() -> tuple[int | None, str]:
+    err = bridge.mt5_call("last_error")
+    if isinstance(err, tuple) and len(err) >= 2:
+        message = str(err[1])
+        if err[0] == 1 and message.lower() == "success":
+            message = "No terminal error details; broker/symbol may not expose Depth of Market through the Python API."
+        return err[0], message
+    return None, str(err)
+
+
+def _entry_dict(entry) -> dict:
+    if hasattr(entry, "_asdict"):
+        return dict(entry._asdict())
+    return {
+        "type": getattr(entry, "type", None),
+        "price": getattr(entry, "price", None),
+        "volume": getattr(entry, "volume", None),
+        "volume_dbl": getattr(entry, "volume_dbl", getattr(entry, "volume_real", None)),
+    }
+
+
+def _normalize_book_entry(entry) -> dict:
+    raw = _entry_dict(entry)
+    type_id = int(raw.get("type", 0) or 0)
+    volume_dbl = raw.get("volume_dbl", raw.get("volume_real", raw.get("volume")))
+    return {
+        "type": type_id,
+        "side": BOOK_TYPE_NAMES.get(type_id, "unknown"),
+        "price": float(raw.get("price")),
+        "volume": int(raw.get("volume", 0) or 0),
+        "volume_dbl": float(volume_dbl if volume_dbl is not None else raw.get("volume", 0) or 0),
+    }
+
+
+def _limited_levels(entries: list[dict], levels: int) -> list[dict]:
+    if levels <= 0:
+        return entries
+    return entries[:levels]
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +167,85 @@ def tick(symbol: str) -> dict:
             "volume": t.volume,
         },
     }
+
+
+def depth(symbol: str, levels: int = 0) -> dict:
+    """Return a one-shot Depth of Market snapshot for *symbol*.
+
+    MT5 requires a DOM subscription before ``market_book_get`` can return
+    entries. This CLI command is intentionally one-shot: subscribe, read,
+    release. Long-running streamers should manage their own subscription
+    lifecycle outside the command process.
+    """
+    if levels < 0:
+        return _fail("MT5_INVALID_ARGUMENT", "--levels must be zero or greater.")
+    if not bridge.ensure_symbol(symbol):
+        return _fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} could not be added to Market Watch.")
+
+    if not bridge.mt5_call("market_book_add", symbol):
+        code, message = _last_error()
+        return _fail(
+            "MT5_MARKET_BOOK_SUBSCRIBE_FAILED",
+            f"Could not subscribe to Depth of Market for {symbol!r}: {message}",
+            mt5_retcode=code,
+        )
+
+    try:
+        book = bridge.mt5_call("market_book_get", symbol)
+        if book is None:
+            code, message = _last_error()
+            return _fail(
+                "MT5_MARKET_BOOK_UNAVAILABLE",
+                f"No Depth of Market data for {symbol!r}: {message}",
+                mt5_retcode=code,
+            )
+
+        entries = [_normalize_book_entry(entry) for entry in book]
+        asks = sorted(
+            (entry for entry in entries if entry["side"] in {"ask", "sell_market"}),
+            key=lambda entry: entry["price"],
+        )
+        bids = sorted(
+            (entry for entry in entries if entry["side"] in {"bid", "buy_market"}),
+            key=lambda entry: entry["price"],
+            reverse=True,
+        )
+        asks = _limited_levels(asks, levels)
+        bids = _limited_levels(bids, levels)
+        best_ask = asks[0]["price"] if asks else None
+        best_bid = bids[0]["price"] if bids else None
+        spread = (best_ask - best_bid) if best_ask is not None and best_bid is not None else None
+        mid = ((best_ask + best_bid) / 2) if best_ask is not None and best_bid is not None else None
+        bid_volume = sum(entry["volume_dbl"] for entry in bids)
+        ask_volume = sum(entry["volume_dbl"] for entry in asks)
+        total_volume = bid_volume + ask_volume
+        volume_imbalance = ((bid_volume - ask_volume) / total_volume) if total_volume else None
+        sym = bridge.mt5_call("symbol_info", symbol)
+        point = getattr(sym, "point", None) if sym is not None else None
+        spread_points = (spread / point) if spread is not None and isinstance(point, (int, float)) and point else None
+
+        return {
+            "ok": True,
+            "data": {
+                "symbol": symbol,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "levels": levels,
+                "raw_count": len(entries),
+                "bids": bids,
+                "asks": asks,
+                "best_bid": best_bid,
+                "best_ask": best_ask,
+                "spread": spread,
+                "spread_points": spread_points,
+                "mid": mid,
+                "bid_volume": bid_volume,
+                "ask_volume": ask_volume,
+                "volume_imbalance": volume_imbalance,
+                "raw": entries,
+            },
+        }
+    finally:
+        bridge.mt5_call("market_book_release", symbol)
 
 
 def search(pattern: str) -> dict:

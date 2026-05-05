@@ -26,11 +26,53 @@ Options → Expert Advisors → "Allow algorithmic trading"** is enabled.
 ```bash
 mt5 market search --pattern USDJPY                 # confirm broker symbol name
 mt5 --json market info USDJPY                      # tick, spread, volume limits
+mt5 --json chart ensure USDJPY --timeframe M15     # make active chart explicit
+mt5 --json market depth USDJPY --levels 5          # optional structured DOM snapshot
+mt5 --json screenshot dom USDJPY                   # GUI DOM panel from Charts > Depth Of Market
 mt5 --json analyze topdown USDJPY \
     --timeframes MN1,W1,D1,H4,H1,M15
 mt5 --json analyze structure USDJPY H4 --bars 200
-mt5 screenshot take --output ~/charts/usdjpy-h4.png
+mt5 --json screenshot tda USDJPY --timeframes H1,M15,M5 --final-timeframe M15
 ```
+
+Use `chart current` to read the active MT5 chart title and `chart ensure
+SYMBOL --timeframe M15` before GUI or screenshot work. This is symbol/broker
+agnostic: the command targets whatever broker-exact symbol MT5 accepts in the
+active chart, then uses the standard timeframe toolbar. It is preferred over
+automating File > New Chart because broker menus and recent-symbol lists vary.
+
+TDA leaves the active chart on `M15` after capture by default. This is
+symbol/broker agnostic and only depends on MT5 timeframe toolbar support. Use
+`--final-timeframe none` when an agent should leave the chart on the last
+captured timeframe instead.
+
+Visual TDA also returns a JSON manifest. The PNGs show the chart overlays, and
+the manifest explains the vendored Ehukai indicators plus recomputed structure
+and FVG data for each frame. The canonical indicator sources are kept in the
+repo under `metatrader5_cli/mt5/mql5/Indicators/`; the MT5 terminal copy is the
+deployed runtime copy. Agents should compare screenshot labels such as `BULL
+FVG OPEN`, `HH`, `HL`, `BULLISH BOS`, and `MS M15: ...` with the returned
+`structured_context` levels before forming a trade thesis.
+
+Use `mt5 --json ehukai structure SYMBOL TF` and `mt5 --json ehukai fvg SYMBOL
+TF` when an agent needs the data representation of the exact visual overlay
+logic. Generic `analyze` and `indicator` commands remain available for research,
+but visual TDA uses the Ehukai layer to avoid duplicate market-structure or FVG
+interpretations.
+
+Depth of Market has two paths. Use `market depth` for structured bid/ask
+ladder data when the broker exposes MT5 Python `market_book_*` data. Use
+`chart depth-of-market` or `screenshot dom` for the actual MT5 GUI panel opened
+from Charts > Depth Of Market. Treat DOM as an execution-quality input: spread,
+top-of-book liquidity, nearby liquidity pockets, and imbalance.
+
+Practical validation on this Trading.com demo terminal: `screenshot tda`
+captures H1/M15/M5 chart context, `chart depth-of-market USDJPY` opens the GUI
+DOM panel, and `screenshot dom USDJPY` captures it. By default the command
+closes/toggles the DOM panel after capture so it does not block the chart; use
+`--no-close` only when intentionally inspecting it manually. `market depth USDJPY` currently fails because the
+broker/terminal does not expose DOM through `market_book_add()` in the Python
+API, so use the GUI screenshot path for Trading.com DOM evidence.
 
 ---
 
