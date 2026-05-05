@@ -41,10 +41,12 @@ input int           InpPivotBars          = 4;                    // Structure p
 input int           InpMaxSwingLabels     = 6;                    // Max swing labels
 input int           InpMaxFVGZones        = 3;                    // Max FVG zones
 input double        InpMinFVGGapPips      = 1.0;                  // Min FVG size
+input double        InpMaxFVGSizePips     = 80.0;                 // Max FVG size in screenshot mode
 input double        InpMaxFVGDistancePips = 160.0;                // Max FVG distance
 input int           InpLiquidityLookback  = 14;                   // Liquidity pivot lookback
 input int           InpMaxLiquidityPools  = 4;                    // Max liquidity pools
 input bool          InpShowSweptLiquidity = true;                 // Include swept pools
+input double        InpMaxLiquidityDistancePips = 120.0;          // Max liquidity distance
 input bool          InpFillSmallZones     = false;                // Fill small zones
 input double        InpMaxFillPips        = 25.0;                 // Max filled-zone size
 input int           InpLabelFontSize      = 8;                    // Label size
@@ -443,6 +445,15 @@ double FVGDistancePips(const FVGZone &zone, const double current_price)
    return d / PipsToPrice(1.0);
   }
 
+bool FVGDisplayAllowed(const FVGZone &zone, const double current_price)
+  {
+   if(InpMaxFVGSizePips > 0 && zone.gap_pips > InpMaxFVGSizePips)
+      return false;
+   if(InpMaxFVGDistancePips > 0 && FVGDistancePips(zone, current_price) > InpMaxFVGDistancePips)
+      return false;
+   return true;
+  }
+
 void AddFVG(FVGZone &zones[], int &count, const FVGZone &zone)
   {
    count++;
@@ -544,7 +555,7 @@ void RenderFVGs(const double &open[], const double &high[], const double &low[],
          ProcessFVGFill(z, high, low, time, c3, rates_total);
          if(z.is_filled)
             continue;
-         if(InpMaxFVGDistancePips > 0 && FVGDistancePips(z, current_price) > InpMaxFVGDistancePips)
+         if(!FVGDisplayAllowed(z, current_price))
             continue;
          AddFVG(zones, count, z);
         }
@@ -616,6 +627,16 @@ bool FindSweep(const bool buy_side, const int start_index, const double top,
    return false;
   }
 
+double LiquidityDistancePips(const double top, const double bottom, const double current_price)
+  {
+   double d = 0.0;
+   if(current_price > top)
+      d = current_price - top;
+   else if(current_price < bottom)
+      d = bottom - current_price;
+   return d / PipsToPrice(1.0);
+  }
+
 void DrawLiquidity(const int ordinal, const bool buy_side, const datetime pivot_time,
                    const datetime right_time, const double top, const double bottom,
                    const double level, const bool swept, const int count, const double volume)
@@ -653,7 +674,7 @@ void DrawLiquidity(const int ordinal, const bool buy_side, const datetime pivot_
    string label = base + "_label";
    double y = buy_side ? level + PipsToPrice(InpLabelOffsetPips)
                        : level - PipsToPrice(InpLabelOffsetPips);
-   if(ObjectCreate(0, label, OBJ_TEXT, 0, pivot_time, y))
+   if(ObjectCreate(0, label, OBJ_TEXT, 0, right_time, y))
      {
       ObjectSetString(0, label, OBJPROP_TEXT, text);
       ObjectSetInteger(0, label, OBJPROP_COLOR, c);
@@ -677,6 +698,7 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
    int start = MathMax(length, rates_total - lookback);
    int stop = rates_total - length;
    datetime future_time = FutureTime(time, rates_total);
+   double current_price = close[rates_total - 1];
    int drawn = 0;
 
    for(int i = stop - 1; i >= start && drawn < ModeMaxLiquidity(); i--)
@@ -690,7 +712,8 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          PoolStats(i, top, bottom, high, low, tick_volume, rates_total, count, vol);
          datetime swept_time = 0;
          bool swept = FindSweep(true, i, top, bottom, close, time, rates_total, swept_time);
-         if(count > 0 && (!swept || InpShowSweptLiquidity))
+         if(count > 0 && (!swept || InpShowSweptLiquidity)
+            && (InpMaxLiquidityDistancePips <= 0 || LiquidityDistancePips(top, bottom, current_price) <= InpMaxLiquidityDistancePips))
            {
             DrawLiquidity(drawn, true, time[i], swept ? swept_time : future_time,
                           top, bottom, top, swept, count, vol);
@@ -708,7 +731,8 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          PoolStats(i, top, bottom, high, low, tick_volume, rates_total, count, vol);
          datetime swept_time = 0;
          bool swept = FindSweep(false, i, top, bottom, close, time, rates_total, swept_time);
-         if(count > 0 && (!swept || InpShowSweptLiquidity))
+         if(count > 0 && (!swept || InpShowSweptLiquidity)
+            && (InpMaxLiquidityDistancePips <= 0 || LiquidityDistancePips(top, bottom, current_price) <= InpMaxLiquidityDistancePips))
            {
             DrawLiquidity(drawn, false, time[i], swept ? swept_time : future_time,
                           top, bottom, bottom, swept, count, vol);

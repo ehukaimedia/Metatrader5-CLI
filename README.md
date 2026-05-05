@@ -110,6 +110,7 @@ mt5 --json chart ensure USDJPY --timeframe M15
 mt5 --json market depth USDJPY --levels 5
 mt5 --json analyze topdown USDJPY --timeframes D1,H4,H1
 mt5 --json screenshot tda USDJPY --timeframes D1,H4,H1,M15,M5,M1 --output-dir "$env:TEMP\mt5-cli\screenshots" --final-timeframe M15
+mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
 mt5 --json order list --symbol USDJPY
 mt5 --json order market USDJPY buy --volume 0.01 --sl 159.500
@@ -143,6 +144,7 @@ mt5 --json rates fetch USDJPY H1 --bars 100
 mt5 --json indicator ema USDJPY H1 --period 20 --bars 100
 mt5 --json indicator fvg USDJPY M15 --bars 300 --min-points 5 --state open --limit 20
 mt5 --json analyze bias USDJPY
+mt5 --json analyze sniper-poc USDJPY --direction auto
 mt5 --json chart current
 mt5 --json chart ensure USDJPY --timeframe M15
 mt5 --json chart switch-tf H1
@@ -210,7 +212,7 @@ Visual TDA returns the best of both worlds for agents. The PNGs show the MT5 cha
 - `EhukaiFVG.mq5`: stable `EFVG_` objects, `BULL/BEAR FVG OPEN/PARTIAL/FILLED <pips>p` labels, rectangle boundaries, and dashed midlines.
 - `EhukaiMarketStructure.mq5`: stable `EMS_` objects, `HH/HL/LH/LL` swing labels, `MS <TF>: ...` bias panel, BOS labels, and support/resistance levels.
 - `EhukaiLiquiditySwings.mq5`: stable `ELS_` objects, `BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>` labels, swing-high/swing-low liquidity rectangles, and dashed levels after sweep.
-- `EhukaiTDAOverlay.mq5`: stable `ETDA_` objects and the recommended single chart overlay for screenshots. It composes structure, nearest FVGs, and nearest liquidity pools with low-noise defaults.
+- `EhukaiTDAOverlay.mq5`: stable `ETDA_` objects and the recommended single chart overlay for screenshots. It composes structure, nearest FVGs, and nearest liquidity pools with low-noise defaults. In agent screenshot mode it filters oversized FVGs and distant liquidity pools so historic zones do not visually overpower actionable near-price context.
 
 For live charts and screenshot agents, apply only `EhukaiTDAOverlay.mq5` by
 default. Keep the primitive overlays above for debugging a single concept, but
@@ -234,6 +236,14 @@ context layer so agents are not choosing between duplicate interpretations.
 Use `ehukai liquidity` as a liquidity-map layer: buy-side pools above swing
 highs and sell-side pools below swing lows are targets/trap zones, not standalone
 entry signals.
+
+For M1 sniper planning, use the non-mutating POC command after TDA/DOM context:
+
+```powershell
+mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --min-rr 1.5 --min-stop-points 50
+```
+
+`analyze sniper-poc` combines Ehukai structure, FVG, liquidity sweeps, market depth when available, and current bid/ask quote rules. It returns either `status: "candidate"` with a suggested limit-order command for review/dry-run, or `status: "no_trade"` with failed gates. It explicitly models the execution side: buy limits fill on ask, sell limits fill on bid, so spread traps are rejected before a pending order is proposed. It also expands the SL to at least `--min-stop-points` so the plan is closer to what `order dryrun` and broker stop-distance rules will accept.
 
 Use `chart current` and `chart ensure` to make the active chart explicit before any visual task:
 
@@ -291,6 +301,7 @@ mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\dom"
 
 # 4. Use tick/spread/dryrun for execution validation
 mt5 --json market tick USDJPY
+mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --min-stop-points 50
 mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500
 ```
 

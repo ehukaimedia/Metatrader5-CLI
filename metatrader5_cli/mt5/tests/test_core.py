@@ -1725,6 +1725,158 @@ class TestAnalyze:
         assert captured["timeframes"] == ["D1", "H4", "H1"]
         assert isinstance(result["data"]["reasoning"], str), "reasoning must be a str per spec §6.5"
 
+    def test_sniper_poc_returns_quote_aware_buy_limit_candidate(self, monkeypatch):
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(
+            analyze.market,
+            "info",
+            lambda symbol: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "bid": 157.830,
+                    "ask": 157.840,
+                    "spread": 10,
+                    "digits": 3,
+                    "point": 0.001,
+                    "pip_size": 0.01,
+                },
+            },
+        )
+        monkeypatch.setattr(
+            analyze.market,
+            "tick",
+            lambda symbol: {"ok": True, "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840}},
+        )
+        monkeypatch.setattr(
+            analyze.market,
+            "depth",
+            lambda symbol, levels=5: {
+                "ok": False,
+                "error": {"code": "MT5_MARKET_BOOK_SUBSCRIBE_FAILED", "message": "no book", "mt5_retcode": 1},
+            },
+        )
+
+        def mock_structure(symbol, timeframe, bars=300, pivot_bars=4, max_swings=10):
+            return {
+                "ok": True,
+                "data": {
+                    "timeframe": timeframe,
+                    "bias": "BULLISH HH/HL",
+                    "support": 157.760,
+                    "resistance": 157.900,
+                },
+            }
+
+        def mock_fvg(symbol, timeframe, bars=100, min_gap_pips=1.0, max_zones=4, max_distance_pips=120.0):
+            zone = {
+                "direction": "bullish",
+                "lower": 157.790,
+                "upper": 157.810,
+                "mid": 157.800,
+                "visual_label": "BULL FVG OPEN 2.0p",
+            }
+            return {"ok": True, "data": {"timeframe": timeframe, "zones": [zone] if timeframe in {"M1", "M5"} else []}}
+
+        def mock_liquidity(symbol, timeframe, bars=300, length=14, area="wick", filter_by="count", filter_value=0.0, max_pools=10):
+            pools = [
+                {
+                    "side": "sell_side",
+                    "status": "swept",
+                    "bottom": 157.770,
+                    "top": 157.785,
+                    "level": 157.770,
+                    "visual_label": "SSL LIQ SWEPT C2 V100",
+                },
+                {
+                    "side": "buy_side",
+                    "status": "open",
+                    "bottom": 157.890,
+                    "top": 157.900,
+                    "level": 157.900,
+                    "visual_label": "BSL LIQ OPEN C3 V200",
+                },
+            ]
+            return {"ok": True, "data": {"timeframe": timeframe, "pools": pools}}
+
+        monkeypatch.setattr(analyze.ehukai, "market_structure", mock_structure)
+        monkeypatch.setattr(analyze.ehukai, "fvg", mock_fvg)
+        monkeypatch.setattr(analyze.ehukai, "liquidity", mock_liquidity)
+
+        result = analyze.sniper_poc("USDJPY", direction="auto", max_spread_points=30)
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["status"] == "candidate"
+        assert data["direction"] == "buy"
+        assert data["quote"]["buy_limits_trigger_on"] == "ask"
+        assert data["setup"]["order_type"] == "buy_limit"
+        assert data["setup"]["entry"] == 157.8
+        assert data["setup"]["stop_points"] == 50.0
+        assert data["setup"]["rr"] >= 1.5
+        assert "order limit USDJPY buy" in data["setup"]["order_command"]
+
+    def test_sniper_poc_blocks_wide_spread_trap(self, monkeypatch):
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(
+            analyze.market,
+            "info",
+            lambda symbol: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "bid": 157.830,
+                    "ask": 157.914,
+                    "spread": 84,
+                    "digits": 3,
+                    "point": 0.001,
+                    "pip_size": 0.01,
+                },
+            },
+        )
+        monkeypatch.setattr(
+            analyze.market,
+            "tick",
+            lambda symbol: {"ok": True, "data": {"symbol": symbol, "bid": 157.830, "ask": 157.914}},
+        )
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": True, "data": {}})
+        monkeypatch.setattr(
+            analyze.ehukai,
+            "market_structure",
+            lambda symbol, timeframe, bars=300, pivot_bars=4, max_swings=10: {
+                "ok": True,
+                "data": {"timeframe": timeframe, "bias": "BULLISH HH/HL", "support": 157.760, "resistance": 157.900},
+            },
+        )
+        monkeypatch.setattr(
+            analyze.ehukai,
+            "fvg",
+            lambda symbol, timeframe, bars=100, min_gap_pips=1.0, max_zones=4, max_distance_pips=120.0: {
+                "ok": True,
+                "data": {"timeframe": timeframe, "zones": [{"direction": "bullish", "lower": 157.790, "upper": 157.810, "mid": 157.800}]},
+            },
+        )
+        monkeypatch.setattr(
+            analyze.ehukai,
+            "liquidity",
+            lambda symbol, timeframe, bars=300, length=14, area="wick", filter_by="count", filter_value=0.0, max_pools=10: {
+                "ok": True,
+                "data": {"timeframe": timeframe, "pools": [
+                    {"side": "sell_side", "status": "swept", "bottom": 157.770, "top": 157.785, "level": 157.770},
+                    {"side": "buy_side", "status": "open", "level": 157.900, "visual_label": "BSL LIQ OPEN"},
+                ]},
+            },
+        )
+
+        result = analyze.sniper_poc("USDJPY", direction="buy", max_spread_points=30)
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["status"] == "no_trade"
+        assert any(g["name"] == "spread" and g["ok"] is False for g in data["gates"])
+
 
 # ===========================================================================
 # Task 10 — Analyze CLI smoke tests
@@ -1801,6 +1953,37 @@ class TestAnalyzeCLI:
         data = json.loads(result.output)
         assert data["ok"] is True
         assert captured["timeframes"] == ["D1", "H4", "H1"]
+
+    def test_cli_analyze_sniper_poc_json(self, monkeypatch, tmp_path):
+        import json
+        from metatrader5_cli.mt5.core import analyze
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+
+        monkeypatch.setattr(
+            analyze,
+            "sniper_poc",
+            lambda symbol, **kwargs: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "status": "candidate",
+                    "direction": kwargs["direction"],
+                    "setup": {"order_type": "buy_limit"},
+                },
+            },
+        )
+
+        result = runner.invoke(mt5_cli.main, [
+            "--json", "analyze", "sniper-poc", "USDJPY",
+            "--direction", "buy",
+            "--max-spread-points", "20",
+        ])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["status"] == "candidate"
+        assert data["data"]["direction"] == "buy"
 
 
 # ===========================================================================

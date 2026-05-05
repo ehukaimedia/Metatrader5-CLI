@@ -336,8 +336,10 @@ that use the vendored Ehukai MT5 overlays. They intentionally mirror
 between duplicate generic interpretations.
 
 `EhukaiTDAOverlay.mq5` is the preferred single chart overlay for screenshots.
-The FVG, MarketStructure, and LiquiditySwings MQ5 files are primitive/debug
-overlays and should not be stacked on normal TDA charts.
+In agent screenshot mode it filters oversized FVGs and distant liquidity pools
+so old zones do not visually overpower near-price context. The FVG,
+MarketStructure, and LiquiditySwings MQ5 files are primitive/debug overlays and
+should not be stacked on normal TDA charts.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
@@ -347,13 +349,14 @@ overlays and should not be stacked on normal TDA charts.
 
 ### 6.5 `mt5 analyze` — Top-Down Market Structure Analysis
 
-The high-value workflow: fetch rates across multiple TFs, read swing structure, and return a structured JSON summary suitable for AI decision-making. This workflow does not use technical indicators.
+The high-value workflow: fetch rates across multiple TFs, read swing structure, and return a structured JSON summary suitable for AI decision-making. `topdown`, `structure`, and `bias` stay generic. `sniper-poc` is the Ehukai-specific M1 point-of-confluence planner that consumes structure, FVG, liquidity, and quote/DOM context without placing orders.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `analyze topdown` | `SYMBOL` `--timeframes TF[,TF...]` `--bars INT` | See schema below | Multi-TF market-structure summary. `--timeframes` accepts comma-separated TFs in one value (`--timeframes D1,H4,H1`) or repeated flags (`--timeframes D1 --timeframes H4`). Space-separated in a single flag is not supported by Click. |
 | `analyze structure` | `SYMBOL TIMEFRAME --bars INT` `--pivot-n INT` | `support`, `resistance`, `swing_highs`, `swing_lows`, `swing_points`, `visual_contract` | Key S/R levels via N-bar pivot detection. A bar at index `i` is a swing high if its `high` is the highest of the `N` bars before and after it; swing low symmetrically. Default `--pivot-n 5`. `support` = highest swing low below current price; `resistance` = lowest swing high above current price. `swing_points` adds `SH/SL/HH/HL/LH/LL` visual labels matching `EhukaiMarketStructure.mq5`. |
 | `analyze bias` | `SYMBOL` | `bias: bullish/bearish/neutral`, `confidence: float`, `reasoning: str` | One-line directional bias |
+| `analyze sniper-poc` | `SYMBOL --direction auto\|buy\|sell --bars INT --max-spread-points INT --min-rr FLOAT --entry-buffer-points INT --min-stop-points INT --stop-buffer-pips FLOAT` | `status`, `direction`, `quote`, `dom`, `bias_counts`, `gates`, `setup`, `frames`, `visual_contract` | Non-mutating M1 sniper point-of-confluence limit planner. Uses H4/H1/M15/M5 structure majority, M1/M5/M15 FVG midpoints, liquidity sweep/target context, DOM when available, and current bid/ask quote rules. Returns `candidate` only when spread, quote-side, liquidity, stop-distance, and R:R gates pass; otherwise returns `no_trade` with failed gates. Buy limits are validated against ask-trigger behavior and sell limits against bid-trigger behavior. SL is widened to at least `--min-stop-points`. |
 
 **`analyze topdown` JSON schema:**
 ```json

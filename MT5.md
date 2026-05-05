@@ -33,6 +33,7 @@ mt5 --json analyze topdown USDJPY \
     --timeframes MN1,W1,D1,H4,H1,M15
 mt5 --json analyze structure USDJPY H4 --bars 200
 mt5 --json screenshot tda USDJPY --timeframes H1,M15,M5 --final-timeframe M15
+mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --min-stop-points 50
 ```
 
 Use `chart current` to read the active MT5 chart title and `chart ensure
@@ -54,11 +55,21 @@ deployed runtime copy. Agents should compare screenshot labels such as `BULL
 FVG OPEN`, `HH`, `HL`, `BULLISH BOS`, and `MS M15: ...` with the returned
 `structured_context` levels before forming a trade thesis.
 
-Use `mt5 --json ehukai structure SYMBOL TF` and `mt5 --json ehukai fvg SYMBOL
-TF` when an agent needs the data representation of the exact visual overlay
-logic. Generic `analyze` and `indicator` commands remain available for research,
-but visual TDA uses the Ehukai layer to avoid duplicate market-structure or FVG
-interpretations.
+Use `mt5 --json ehukai structure SYMBOL TF`, `mt5 --json ehukai fvg SYMBOL TF`,
+and `mt5 --json ehukai liquidity SYMBOL TF` when an agent needs the data
+representation of the exact visual overlay logic. Generic `analyze` and
+`indicator` commands remain available for research, but visual TDA uses the
+Ehukai layer to avoid duplicate market-structure or FVG interpretations. Apply
+only `EhukaiTDAOverlay` for normal screenshots; its screenshot mode hides
+oversized FVGs and distant liquidity pools so historic zones do not visually
+overpower actionable context.
+
+`analyze sniper-poc` is read-only. It combines Ehukai structure/FVG/liquidity,
+DOM when available, and current bid/ask rules to return either a candidate M1
+POC limit plan or `no_trade`. A buy limit must be safely below bid because it
+fills on ask; a sell limit must be safely above ask because it fills on bid.
+The suggested SL is widened to at least `--min-stop-points` so the plan is
+closer to what `order dryrun` and broker stop-distance rules will accept.
 
 Depth of Market has two paths. Use `market depth` for structured bid/ask
 ladder data when the broker exposes MT5 Python `market_book_*` data. Use

@@ -649,6 +649,46 @@ def analyze_bias_cmd(ctx, symbol):
     output(analyze.bias(symbol), obj["as_json"])
 
 
+@analyze_group.command("sniper-poc")
+@click.argument("symbol")
+@click.option("--direction", default="auto", show_default=True,
+              type=click.Choice(["auto", "buy", "sell"], case_sensitive=False),
+              help="Trade direction. auto derives from H4/H1/M15/M5 structure majority.")
+@click.option("--bars", default=300, show_default=True, type=int,
+              help="Bars per timeframe for Ehukai context.")
+@click.option("--max-spread-points", default=30, show_default=True, type=int,
+              help="Reject candidate when current bid/ask spread is wider than this.")
+@click.option("--min-rr", default=1.5, show_default=True, type=float,
+              help="Minimum reward:risk for candidate output.")
+@click.option("--entry-buffer-points", default=5, show_default=True, type=int,
+              help="Limit entry must be this many points beyond the correct quote side.")
+@click.option("--min-stop-points", default=50, show_default=True, type=int,
+              help="Minimum entry-to-SL distance in points for the suggested setup.")
+@click.option("--stop-buffer-pips", default=1.0, show_default=True, type=float,
+              help="Buffer beyond structural/FVG invalidation for SL.")
+@click.pass_context
+def analyze_sniper_poc_cmd(ctx, symbol, direction, bars, max_spread_points, min_rr, entry_buffer_points, min_stop_points, stop_buffer_pips):
+    """Non-mutating M1 sniper point-of-confluence limit plan."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        analyze.sniper_poc(
+            symbol,
+            direction=direction,
+            bars=bars,
+            max_spread_points=max_spread_points,
+            min_rr=min_rr,
+            entry_buffer_points=entry_buffer_points,
+            min_stop_points=min_stop_points,
+            stop_buffer_pips=stop_buffer_pips,
+        ),
+        obj["as_json"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Order command group
 # ---------------------------------------------------------------------------

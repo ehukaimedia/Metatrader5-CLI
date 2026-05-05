@@ -5,7 +5,7 @@
 
 ## Goal
 
-Expose MetaTrader 5 Depth of Market as both structured JSON when broker data is available and as a GUI visual capture when agents need to inspect the MT5 panel.
+Expose MetaTrader 5 Depth of Market as both structured JSON when broker data is available and as a GUI visual capture when agents need to inspect the MT5 panel. Use that context with Ehukai visual TDA to produce non-mutating, quote-aware M1 sniper POC plans.
 
 ## Architecture Decision
 
@@ -15,6 +15,7 @@ Implement DOM as two explicit paths:
 - `chart depth-of-market` / `chart dom` is the GUI menu path that opens Charts > Depth Of Market for the active symbol.
 - `screenshot dom` captures the GUI panel for visual agent review and closes/toggles it by default so it does not block the chart.
 - `chart current` and `chart ensure SYMBOL --timeframe M15` make the active chart deterministic before GUI/TDA/DOM workflows.
+- `analyze sniper-poc` consumes Ehukai structure/FVG/liquidity context plus DOM or quote fallback to return `candidate` or `no_trade`; it never places orders.
 
 ## Commands
 
@@ -25,6 +26,7 @@ mt5 --json chart ensure USDJPY --timeframe M15
 mt5 --json chart depth-of-market USDJPY
 mt5 --json chart dom USDJPY
 mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\dom"
+mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --min-stop-points 50
 ```
 
 ## Implementation Notes
@@ -36,8 +38,11 @@ mt5 --json screenshot dom USDJPY --output-dir "$env:TEMP\mt5-cli\dom"
 - Return best bid/ask, spread, midpoint, side volumes, and volume imbalance.
 - Treat unsupported broker/symbol DOM as an error envelope, not an exception.
 - Open GUI DOM through the terminal menu when structured `market_book_*` data is unavailable.
-- Keep DOM child-window closing opt-in only; default captures must not close or disturb the operator's chart layout.
+- Close/toggle the DOM panel after default captures so it does not block the operator's chart layout.
 - Leave TDA workflows on `M15` by default after capture.
+- Reject sniper POC plans when the current bid/ask spread is wider than the configured gate or the proposed limit is not safely beyond the correct trigger quote side.
+- Widen the suggested SL to at least the configured minimum stop distance before computing R:R so the plan is closer to what broker dry-run checks will accept.
+- Keep `EhukaiTDAOverlay` visually low-noise: in agent screenshot mode, hide oversized FVGs and distant liquidity pools while preserving full structured context in JSON.
 
 ## Verification
 

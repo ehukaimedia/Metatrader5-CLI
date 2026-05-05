@@ -1,8 +1,8 @@
 """
 analyze.py — Top-down multi-timeframe analysis and price structure for the MT5 CLI.
 
-This module NEVER imports MetaTrader5 directly.  All MT5 API access goes
-through ``bridge.mt5_call()`` indirectly via the rates module.
+This module NEVER imports MetaTrader5 directly.  MT5 access stays behind core
+modules such as rates, market, and the structured Ehukai mirrors.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from metatrader5_cli.mt5.core import rates as rates_module
+from metatrader5_cli.mt5.core import ehukai, market, rates as rates_module
 
 
 def _fail(code: str, message: str) -> dict:
@@ -198,6 +198,7 @@ def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
+_SNIPER_TIMEFRAMES = ["H4", "H1", "M15", "M5", "M1"]
 
 
 def bias(symbol: str) -> dict:
@@ -213,5 +214,303 @@ def bias(symbol: str) -> dict:
             "bias": data["bias"],
             "confidence": data["confluence_score"],
             "reasoning": "\n".join(data["notes"]),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# sniper_poc
+# ---------------------------------------------------------------------------
+
+def _side_from_bias(bias_value: str | None) -> str | None:
+    text = (bias_value or "").upper()
+    if "BULLISH" in text:
+        return "buy"
+    if "BEARISH" in text:
+        return "sell"
+    return None
+
+
+def _pip_size_from_info(info_data: dict) -> float:
+    pip_size = info_data.get("pip_size")
+    if isinstance(pip_size, (int, float)) and pip_size:
+        return float(pip_size)
+    digits = int(info_data.get("digits", 5) or 5)
+    return 10 ** (1 - digits)
+
+
+def _round_price(price: float, digits: int) -> float:
+    return round(float(price), max(0, int(digits)))
+
+
+def _gate(name: str, ok: bool, detail: str, severity: str = "blocker") -> dict:
+    return {"name": name, "ok": bool(ok), "severity": severity, "detail": detail}
+
+
+def _frame(symbol: str, timeframe: str, bars: int) -> dict:
+    frame = {"timeframe": timeframe}
+    structure = ehukai.market_structure(symbol, timeframe, bars=bars)
+    fvg = ehukai.fvg(symbol, timeframe, bars=min(bars, 100), max_zones=4)
+    liquidity = ehukai.liquidity(symbol, timeframe, bars=bars, max_pools=10)
+    frame["market_structure"] = structure["data"] if structure.get("ok") else None
+    frame["fvg"] = fvg["data"] if fvg.get("ok") else None
+    frame["liquidity"] = liquidity["data"] if liquidity.get("ok") else None
+    frame["errors"] = {
+        "market_structure": structure.get("error") if not structure.get("ok") else None,
+        "fvg": fvg.get("error") if not fvg.get("ok") else None,
+        "liquidity": liquidity.get("error") if not liquidity.get("ok") else None,
+    }
+    return frame
+
+
+def _matching_zones(frames: dict[str, dict], direction: str, quote_price: float) -> list[dict]:
+    wanted = "bullish" if direction == "buy" else "bearish"
+    zones: list[dict] = []
+    for tf in ("M1", "M5", "M15"):
+        fvg_data = (frames.get(tf) or {}).get("fvg") or {}
+        for zone in fvg_data.get("zones") or []:
+            if zone.get("direction") != wanted:
+                continue
+            mid = zone.get("mid")
+            if not isinstance(mid, (int, float)):
+                continue
+            if direction == "buy" and float(mid) >= quote_price:
+                continue
+            if direction == "sell" and float(mid) <= quote_price:
+                continue
+            item = dict(zone)
+            item["timeframe"] = tf
+            item["entry_price"] = float(mid)
+            item["entry_role"] = "fvg_mid"
+            item["distance_to_quote"] = abs(quote_price - float(mid))
+            zones.append(item)
+    return sorted(zones, key=lambda z: ({"M1": 0, "M5": 1, "M15": 2}.get(z["timeframe"], 9), z["distance_to_quote"]))
+
+
+def _pools(frames: dict[str, dict], *, side: str, status: str | None = None) -> list[dict]:
+    pools: list[dict] = []
+    for tf in ("M1", "M5", "M15"):
+        liquidity = (frames.get(tf) or {}).get("liquidity") or {}
+        for pool in liquidity.get("pools") or []:
+            if pool.get("side") != side:
+                continue
+            if status and pool.get("status") != status:
+                continue
+            item = dict(pool)
+            item["timeframe"] = tf
+            pools.append(item)
+    return pools
+
+
+def _nearest_target(pools: list[dict], structures: list[dict], direction: str, entry: float) -> dict | None:
+    candidates = []
+    if direction == "buy":
+        for pool in pools:
+            level = pool.get("level")
+            if isinstance(level, (int, float)) and float(level) > entry:
+                candidates.append({"source": "liquidity", "timeframe": pool.get("timeframe"), "price": float(level), "label": pool.get("visual_label")})
+        for structure_data in structures:
+            resistance = structure_data.get("resistance")
+            if isinstance(resistance, (int, float)) and float(resistance) > entry:
+                candidates.append({"source": "structure", "timeframe": structure_data.get("timeframe"), "price": float(resistance), "label": "resistance"})
+        return min(candidates, key=lambda c: c["price"] - entry) if candidates else None
+
+    for pool in pools:
+        level = pool.get("level")
+        if isinstance(level, (int, float)) and float(level) < entry:
+            candidates.append({"source": "liquidity", "timeframe": pool.get("timeframe"), "price": float(level), "label": pool.get("visual_label")})
+    for structure_data in structures:
+        support = structure_data.get("support")
+        if isinstance(support, (int, float)) and float(support) < entry:
+            candidates.append({"source": "structure", "timeframe": structure_data.get("timeframe"), "price": float(support), "label": "support"})
+    return max(candidates, key=lambda c: c["price"]) if candidates else None
+
+
+def sniper_poc(
+    symbol: str,
+    *,
+    direction: str = "auto",
+    bars: int = 300,
+    max_spread_points: int = 30,
+    min_rr: float = 1.5,
+    entry_buffer_points: int = 5,
+    min_stop_points: int = 50,
+    stop_buffer_pips: float = 1.0,
+) -> dict:
+    """Build a non-mutating M1 sniper point-of-confluence limit plan.
+
+    This analysis combines Ehukai structure, FVG, liquidity swings, and quote/DOM
+    context. It intentionally returns a setup plan or ``no_trade``; order
+    placement remains in the guarded order module.
+    """
+    direction = direction.lower()
+    if direction not in {"auto", "buy", "sell"}:
+        return _fail("MT5_INVALID_ARGUMENT", "direction must be one of: auto, buy, sell.")
+    if max_spread_points < 0 or entry_buffer_points < 0 or min_stop_points < 0 or min_rr <= 0:
+        return _fail("MT5_INVALID_ARGUMENT", "max_spread_points, entry_buffer_points, and min_stop_points must be >= 0; min_rr must be > 0.")
+
+    info = market.info(symbol)
+    if not info.get("ok"):
+        return info
+    info_data = info["data"]
+    tick = market.tick(symbol)
+    quote_source = "market tick" if tick.get("ok") else "market info"
+    quote = tick["data"] if tick.get("ok") else info_data
+    bid = float(quote.get("bid") or info_data.get("bid"))
+    ask = float(quote.get("ask") or info_data.get("ask"))
+    point = float(info_data.get("point") or 0.00001)
+    pip_size = _pip_size_from_info(info_data)
+    digits = int(info_data.get("digits", 5) or 5)
+    spread_points = int(round((ask - bid) / point)) if point else int(info_data.get("spread") or 0)
+
+    depth = market.depth(symbol, levels=5)
+    dom_context = {
+        "source": "market depth" if depth.get("ok") else "quote_fallback",
+        "available": bool(depth.get("ok")),
+        "data": depth.get("data") if depth.get("ok") else None,
+        "error": depth.get("error") if not depth.get("ok") else None,
+    }
+
+    frames = {tf: _frame(symbol, tf, bars) for tf in _SNIPER_TIMEFRAMES}
+    side_counts = {"buy": 0, "sell": 0, "neutral": 0}
+    for tf in ("H4", "H1", "M15", "M5"):
+        bias_side = _side_from_bias(((frames.get(tf) or {}).get("market_structure") or {}).get("bias"))
+        side_counts[bias_side or "neutral"] += 1
+
+    selected_direction = direction
+    if selected_direction == "auto":
+        if side_counts["buy"] == side_counts["sell"]:
+            selected_direction = "buy" if side_counts["buy"] > 0 else "neutral"
+        else:
+            selected_direction = "buy" if side_counts["buy"] > side_counts["sell"] else "sell"
+    if selected_direction == "neutral":
+        return {
+            "ok": True,
+            "data": {
+                "symbol": symbol.upper(),
+                "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+                "status": "no_trade",
+                "direction": None,
+                "reason": "No directional majority across H4/H1/M15/M5 Ehukai structure.",
+                "quote": {"source": quote_source, "bid": bid, "ask": ask, "spread_points": spread_points},
+                "dom": dom_context,
+                "frames": frames,
+            },
+        }
+
+    quote_trigger = ask if selected_direction == "buy" else bid
+    zones = _matching_zones(frames, selected_direction, quote_trigger)
+    primary_zone = zones[0] if zones else None
+    opposing_sweep_side = "sell_side" if selected_direction == "buy" else "buy_side"
+    target_side = "buy_side" if selected_direction == "buy" else "sell_side"
+    swept_pools = _pools(frames, side=opposing_sweep_side, status="swept")
+    target_pools = _pools(frames, side=target_side, status="open")
+    structures = []
+    for tf in ("M1", "M5", "M15"):
+        structure_data = (frames.get(tf) or {}).get("market_structure")
+        if structure_data:
+            structures.append({**structure_data, "timeframe": tf})
+
+    gates = [
+        _gate("spread", spread_points <= max_spread_points, f"spread={spread_points} points; max={max_spread_points}"),
+        _gate("m1_fvg_poc", bool(primary_zone), "matching M1/M5/M15 FVG midpoint found" if primary_zone else "no matching nearby FVG midpoint"),
+        _gate("liquidity_sweep", bool(swept_pools), f"{opposing_sweep_side} swept before entry" if swept_pools else f"no swept {opposing_sweep_side} pool in M1/M5/M15 context"),
+    ]
+
+    setup = None
+    if primary_zone:
+        entry = float(primary_zone["entry_price"])
+        quote_side_ok = entry <= bid - entry_buffer_points * point if selected_direction == "buy" else entry >= ask + entry_buffer_points * point
+        gates.append(_gate(
+            "quote_side_limit",
+            quote_side_ok,
+            (
+                f"buy limit entry {entry} must be below bid {bid} by {entry_buffer_points} points"
+                if selected_direction == "buy"
+                else f"sell limit entry {entry} must be above ask {ask} by {entry_buffer_points} points"
+            ),
+        ))
+
+        if selected_direction == "buy":
+            stop_refs = [float(primary_zone.get("lower", entry))]
+            stop_refs += [float(s["support"]) for s in structures if isinstance(s.get("support"), (int, float)) and float(s["support"]) < entry]
+            stop_refs += [float(p["bottom"]) for p in swept_pools if isinstance(p.get("bottom"), (int, float)) and float(p["bottom"]) < entry]
+            sl = max(stop_refs) - stop_buffer_pips * pip_size
+            sl = min(sl, entry - min_stop_points * point)
+        else:
+            stop_refs = [float(primary_zone.get("upper", entry))]
+            stop_refs += [float(s["resistance"]) for s in structures if isinstance(s.get("resistance"), (int, float)) and float(s["resistance"]) > entry]
+            stop_refs += [float(p["top"]) for p in swept_pools if isinstance(p.get("top"), (int, float)) and float(p["top"]) > entry]
+            sl = min(stop_refs) + stop_buffer_pips * pip_size
+            sl = max(sl, entry + min_stop_points * point)
+
+        target = _nearest_target(target_pools, structures, selected_direction, entry)
+        target_ok = target is not None
+        gates.append(_gate("liquidity_or_structure_target", target_ok, target.get("label", "target found") if target else "no target beyond entry"))
+
+        tp = float(target["price"]) if target else None
+        risk = abs(entry - sl)
+        reward = abs(tp - entry) if tp is not None else 0.0
+        rr = reward / risk if risk else 0.0
+        stop_points = risk / point if point else 0.0
+        gates.append(_gate("minimum_stop_distance", stop_points >= min_stop_points, f"stop={stop_points:.0f} points; min={min_stop_points}"))
+        gates.append(_gate("minimum_rr", rr >= min_rr, f"rr={rr:.2f}; min={min_rr}"))
+
+        setup = {
+            "order_type": "buy_limit" if selected_direction == "buy" else "sell_limit",
+            "entry": _round_price(entry, digits),
+            "sl": _round_price(sl, digits),
+            "tp": _round_price(tp, digits) if tp is not None else None,
+            "stop_points": round(stop_points, 1),
+            "risk_pips": round(risk / pip_size, 2) if pip_size else None,
+            "reward_pips": round(reward / pip_size, 2) if pip_size else None,
+            "rr": round(rr, 2),
+            "poc": {
+                "source": "Ehukai FVG midpoint",
+                "timeframe": primary_zone["timeframe"],
+                "zone": primary_zone,
+            },
+            "target": target,
+            "strategy_id_suggestion": "ehukai-m1-sniper-poc",
+        }
+        if all(g["ok"] for g in gates):
+            setup["order_command"] = (
+                f"mt5 --json order limit {symbol.upper()} {selected_direction} "
+                f"--price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
+                "--strategy-id ehukai-m1-sniper-poc"
+            )
+
+    status = "candidate" if setup and all(g["ok"] for g in gates) else "no_trade"
+    confidence = sum(1 for g in gates if g["ok"]) / len(gates) if gates else 0.0
+    blockers = [g for g in gates if not g["ok"] and g["severity"] == "blocker"]
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol.upper(),
+            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "status": status,
+            "direction": selected_direction,
+            "confidence_score": round(confidence, 2),
+            "reason": "candidate ready for dry-run" if status == "candidate" else "; ".join(g["detail"] for g in blockers),
+            "quote": {
+                "source": quote_source,
+                "bid": bid,
+                "ask": ask,
+                "spread_points": spread_points,
+                "point": point,
+                "pip_size": pip_size,
+                "buy_limits_trigger_on": "ask",
+                "sell_limits_trigger_on": "bid",
+            },
+            "dom": dom_context,
+            "bias_counts": side_counts,
+            "gates": gates,
+            "setup": setup,
+            "frames": frames,
+            "visual_contract": {
+                "recommended_overlay": "EhukaiTDAOverlay",
+                "entry_model": "M1 sniper point-of-confluence limit plan",
+                "uses": ["EhukaiMarketStructure", "EhukaiFVG", "EhukaiLiquiditySwings", "market depth or quote fallback"],
+            },
         },
     }
