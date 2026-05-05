@@ -281,8 +281,6 @@ def tda(
             window_substring=window_substring,
             settle_seconds=settle_seconds,
         )
-        if not final_result.get("ok"):
-            return final_result
 
     data = {
         "symbol": symbol.upper(),
@@ -304,9 +302,18 @@ def tda(
                 "message": str(exc),
                 "mt5_retcode": None,
             }
-    if final_result:
+    if final_result and final_result.get("ok"):
         data["final_timeframe"] = final_result.get("data", {}).get("timeframe", final_timeframe.upper())
         data["final_title"] = final_result.get("data", {}).get("title")
+    elif final_result:
+        data["final_timeframe_error"] = final_result.get(
+            "error",
+            {
+                "code": "CHART_FINAL_TIMEFRAME_FAILED",
+                "message": f"Could not restore chart to {final_timeframe}.",
+                "mt5_retcode": None,
+            },
+        )
     if write_manifest:
         manifest_path = output_root / f"{safe_symbol}_TDA_manifest_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.json"
         data["manifest_path"] = str(manifest_path)

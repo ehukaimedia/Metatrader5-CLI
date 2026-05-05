@@ -1436,6 +1436,31 @@ class TestIndicator:
         assert zone["render"]["label"] == zone["visual_label"]
         assert "lines" not in zone, "FVG boundaries must not be exposed as loose line objects"
 
+    def test_fvg_visual_pips_use_jpy_three_digit_mapping(self, monkeypatch):
+        from unittest.mock import MagicMock as MM
+        ind = self._mock_fetch(monkeypatch, bars=[
+            {"time": "2024-01-01T00:00:00+00:00", "open": 157.760, "high": 157.798, "low": 157.740, "close": 157.790, "tick_volume": 100},
+            {"time": "2024-01-01T00:15:00+00:00", "open": 157.800, "high": 157.820, "low": 157.790, "close": 157.810, "tick_volume": 100},
+            {"time": "2024-01-01T00:30:00+00:00", "open": 157.840, "high": 157.870, "low": 157.830, "close": 157.860, "tick_volume": 100},
+            {"time": "2024-01-01T00:45:00+00:00", "open": 157.860, "high": 157.880, "low": 157.850, "close": 157.870, "tick_volume": 100},
+        ])
+        monkeypatch.setattr(ind.bridge, "mt5_call", lambda *a, **kw: MM(point=0.001, digits=3))
+
+        result = ind.fvg("USDJPY", "M15", bars=4, min_points=1)
+
+        assert result["ok"] is True
+        zone = result["data"]["zones"][0]
+        assert zone["size_points"] == 32
+        assert zone["size_pips"] == 3.2
+        assert zone["visual_label"] == "BULL FVG OPEN 3.2p"
+
+    def test_inferred_digits_ignores_float_repr_artifacts(self):
+        from metatrader5_cli.mt5.core import indicator
+
+        rows = [{"open": 0.1 + 0.2, "high": 157.123, "low": 157.100, "close": 157.120}]
+
+        assert indicator._inferred_digits(rows) == 3
+
     def test_fvg_partial_mitigation_uses_one_zone_state(self, monkeypatch):
         from unittest.mock import MagicMock as MM
         ind = self._mock_fetch(monkeypatch, bars=[
@@ -2821,6 +2846,62 @@ class TestScreenshot:
         assert result["ok"] is True
         assert switch_calls == ["H1", "M5"]
         assert "final_timeframe" not in result["data"]
+
+    def test_screenshot_tda_final_timeframe_failure_preserves_captures(self, tmp_path, monkeypatch):
+        import json
+        import os
+        from PIL import Image
+        from metatrader5_cli.mt5.core import chart as chart_module
+        from metatrader5_cli.mt5.core import screenshot as ss_module
+
+        switch_calls = []
+        monkeypatch.setattr(
+            chart_module,
+            "symbol",
+            lambda symbol, **kw: {"ok": True, "data": {"symbol": symbol, "title": f"[{symbol},H1]"}},
+        )
+
+        def fake_switch_tf(tf, **_kw):
+            switch_calls.append(tf)
+            if tf == "M15":
+                return {
+                    "ok": False,
+                    "error": {
+                        "code": "CHART_TIMEFRAME_VERIFY_FAILED",
+                        "message": "title lagged",
+                        "mt5_retcode": None,
+                    },
+                }
+            return {"ok": True, "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"}}
+
+        monkeypatch.setattr(chart_module, "switch_tf", fake_switch_tf)
+
+        def fake_take(output_path, **_kwargs):
+            Image.new("RGB", (1280, 720), color=(255, 255, 255)).save(output_path)
+            return {
+                "ok": True,
+                "data": {"path": output_path, "width": 1280, "height": 720, "timestamp": "2026-05-05T00:00:00+00:00"},
+            }
+
+        monkeypatch.setattr(ss_module, "take", fake_take)
+
+        result = ss_module.tda(
+            "USDJPY",
+            timeframes="H1",
+            output_dir=str(tmp_path),
+            crop="window",
+            structured_context=False,
+            visual_manifest=False,
+        )
+
+        assert result["ok"] is True
+        assert switch_calls == ["H1", "M15"]
+        assert len(result["data"]["frames"]) == 1
+        assert os.path.exists(result["data"]["frames"][0]["path"])
+        assert result["data"]["final_timeframe_error"]["code"] == "CHART_TIMEFRAME_VERIFY_FAILED"
+        with open(result["data"]["manifest_path"], encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        assert manifest["final_timeframe_error"]["message"] == "title lagged"
 
     # ------------------------------------------------------------------
     # Test 8 — GUI Depth of Market window capture uses symbol title by default

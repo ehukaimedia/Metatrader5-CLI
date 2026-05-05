@@ -27,6 +27,21 @@ def _values_with_time(df: pd.DataFrame, col: str, field: str) -> list[dict]:
     ]
 
 
+def _price_digits(value) -> int:
+    """Infer decimal places from a price while ignoring binary-float noise."""
+    try:
+        text = f"{float(value):.10f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        try:
+            dec = Decimal(str(value)).normalize()
+        except InvalidOperation:
+            return 0
+        return min(max(0, -dec.as_tuple().exponent), 8)
+    if "." not in text:
+        return 0
+    return min(len(text.rsplit(".", 1)[1]), 8)
+
+
 def _point_for_symbol(symbol: str, rows: list[dict]) -> float:
     """Return symbol point from MT5 when available, otherwise infer from prices."""
     try:
@@ -41,10 +56,10 @@ def _point_for_symbol(symbol: str, rows: list[dict]) -> float:
     for row in rows:
         for key in ("open", "high", "low", "close"):
             try:
-                dec = Decimal(str(row[key])).normalize()
-            except (InvalidOperation, KeyError):
+                digits = _price_digits(row[key])
+            except KeyError:
                 continue
-            max_digits = max(max_digits, max(0, -dec.as_tuple().exponent))
+            max_digits = max(max_digits, digits)
     return 10 ** (-max_digits) if max_digits else 0.0001
 
 
@@ -53,10 +68,10 @@ def _inferred_digits(rows: list[dict]) -> int:
     for row in rows:
         for key in ("open", "high", "low", "close"):
             try:
-                dec = Decimal(str(row[key])).normalize()
-            except (InvalidOperation, KeyError):
+                digits = _price_digits(row[key])
+            except KeyError:
                 continue
-            max_digits = max(max_digits, max(0, -dec.as_tuple().exponent))
+            max_digits = max(max_digits, digits)
     return max_digits
 
 
