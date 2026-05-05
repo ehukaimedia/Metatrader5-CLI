@@ -2316,6 +2316,26 @@ class TestOrder:
         assert row["is_agent_magic"] is True
         assert row["comment_truncated"] is True
 
+    def test_order_list_marks_known_strategy_prefix_comment_as_truncated(self, mt5m, cfg):
+        from unittest.mock import MagicMock as MM
+        from metatrader5_cli.mt5.core import order as order_module
+        cfg = {**cfg, "strategy_ids": {"ehukai-sniper-test": 12345}}
+        mt5m.orders_get.return_value = [
+            MM(
+                ticket=99004, symbol="USDJPY", type=2, state=1, volume_initial=0.001,
+                volume_current=0.001, price_open=157.814, price_current=157.887,
+                sl=157.760, tp=157.914, time_setup=1777997494, time_expiration=0,
+                type_time=0, type_filling=2, magic=12345, comment="ehukai-sniper-te",
+            )
+        ]
+
+        result = order_module.list_pending("USDJPY", cfg=cfg)
+
+        assert result["ok"] is True
+        row = result["data"][0]
+        assert row["strategy_id"] == "ehukai-sniper-test"
+        assert row["comment_truncated"] is True
+
     def test_cli_order_list_json(self, mt5m, monkeypatch, tmp_path):
         import json
         from click.testing import CliRunner

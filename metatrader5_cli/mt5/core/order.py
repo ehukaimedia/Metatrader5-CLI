@@ -129,7 +129,7 @@ def _pending_order_to_dict(order, cfg: dict | None, strategy_id_hint: str | None
     comment_truncated = bool(
         comment
         and len(comment) >= 16
-        and (strategy_id is None or not str(strategy_id).startswith(comment))
+        and (strategy_id is None or comment != str(strategy_id))
     )
     return {
         "ticket": order.ticket,
