@@ -4,6 +4,7 @@ ehukai.py - Structured mirrors for the vendored Ehukai MT5 indicators.
 These helpers intentionally follow the visual indicator contracts used by:
 - EhukaiFVG.mq5
 - EhukaiMarketStructure.mq5
+- EhukaiLiquiditySwings.mq5
 
 They are used by visual TDA so agents see one coherent Ehukai interpretation
 instead of competing generic analysis labels.
@@ -32,6 +33,35 @@ def _effective_pivot_bars(timeframe: str, pivot_bars: int = 4) -> int:
     if tf in {"M15", "M30"}:
         return min(pivot, 3)
     return pivot
+
+
+def _pip_size(symbol: str, rows: list[dict]) -> float:
+    point = indicator._point_for_symbol(symbol, rows)  # noqa: SLF001 - shared CLI/MQ5 visual contract helper
+    return indicator._pip_size_for_symbol(symbol, rows, point)  # noqa: SLF001
+
+
+def _liquidity_id(symbol: str, timeframe: str, side: str, pivot_time: str, price: float) -> str:
+    return f"{symbol.upper()}-{_tf_label(timeframe)}-{side}-{pivot_time}-{price:.10g}"
+
+
+def _pool_status(side: str, top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[bool, str | None]:
+    for row in rows[start_idx + 1:]:
+        if side == "buy_side" and float(row["close"]) > top:
+            return True, row["time"]
+        if side == "sell_side" and float(row["close"]) < bottom:
+            return True, row["time"]
+    return False, None
+
+
+def _pool_counts(top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[int, float]:
+    count = 0
+    volume = 0.0
+    for row in rows[start_idx + 1:]:
+        overlaps = float(row["low"]) < top and float(row["high"]) > bottom
+        if overlaps:
+            count += 1
+            volume += float(row.get("tick_volume", row.get("volume", 0)) or 0)
+    return count, volume
 
 
 def _classify_swings(swings: list[dict]) -> list[dict]:
@@ -215,9 +245,159 @@ def fvg(
     }
 
 
+def liquidity(
+    symbol: str,
+    timeframe: str,
+    *,
+    bars: int = 300,
+    length: int = 14,
+    area: str = "wick",
+    filter_by: str = "count",
+    filter_value: float = 0.0,
+    max_pools: int = 10,
+) -> dict:
+    """Return liquidity swing pools matching EhukaiLiquiditySwings.mq5.
+
+    Swing highs are buy-side liquidity; swing lows are sell-side liquidity.
+    Pools are counted when later candles trade back through the pivot zone.
+    A pool becomes swept when a later close crosses beyond the pivot extreme.
+    """
+    area = area.lower().replace("_", "-")
+    filter_by = filter_by.lower()
+    if area not in {"wick", "full-range"}:
+        return _fail("EHUKAI_INVALID_ARGUMENT", "area must be one of: wick, full-range.")
+    if filter_by not in {"count", "volume"}:
+        return _fail("EHUKAI_INVALID_ARGUMENT", "filter_by must be one of: count, volume.")
+    if length < 1:
+        return _fail("EHUKAI_INVALID_ARGUMENT", "length must be >= 1.")
+
+    result = rates_module.fetch(symbol, _tf_label(timeframe), bars)
+    if not result.get("ok"):
+        return result
+
+    rows = result["data"]
+    if len(rows) < (length * 2 + 3):
+        return _fail("MT5_NO_DATA", f"Not enough bars for Ehukai liquidity swings on {symbol} {timeframe}.")
+
+    pip_size = _pip_size(symbol, rows)
+    current_price = float(rows[-1]["close"])
+    pools: list[dict] = []
+    start = length
+    stop = len(rows) - length
+
+    for i in range(start, stop):
+        high = float(rows[i]["high"])
+        low = float(rows[i]["low"])
+        is_high = True
+        is_low = True
+        for j in range(i - length, i + length + 1):
+            if j == i:
+                continue
+            if high <= float(rows[j]["high"]):
+                is_high = False
+            if low >= float(rows[j]["low"]):
+                is_low = False
+            if not is_high and not is_low:
+                break
+
+        candidates: list[tuple[str, str, float, float, float]] = []
+        if is_high:
+            top = high
+            bottom = max(float(rows[i]["open"]), float(rows[i]["close"])) if area == "wick" else low
+            candidates.append(("buy_side", "BSL", top, bottom, top))
+        if is_low:
+            top = min(float(rows[i]["open"]), float(rows[i]["close"])) if area == "wick" else high
+            bottom = low
+            candidates.append(("sell_side", "SSL", top, bottom, bottom))
+
+        for side, short_label, top, bottom, level in candidates:
+            count, volume = _pool_counts(top, bottom, rows, i)
+            target = count if filter_by == "count" else volume
+            if target <= filter_value:
+                continue
+            swept, swept_at = _pool_status(side, top, bottom, rows, i)
+            status = "swept" if swept else "open"
+            distance_pips = 0.0
+            if current_price > top:
+                distance_pips = (current_price - top) / pip_size
+            elif current_price < bottom:
+                distance_pips = (bottom - current_price) / pip_size
+            visual_label = f"{short_label} LIQ {status.upper()} C{count} V{volume:g}"
+            pool = {
+                "id": _liquidity_id(symbol, timeframe, side, rows[i]["time"], level),
+                "source": "EhukaiLiquiditySwings",
+                "type": "liquidity_swing",
+                "object_prefix": "ELS_",
+                "visual_contract": "EhukaiLiquiditySwings",
+                "side": side,
+                "short_label": short_label,
+                "status": status,
+                "pivot_time": rows[i]["time"],
+                "swept_at": swept_at,
+                "level": level,
+                "top": top,
+                "bottom": bottom,
+                "mid": (top + bottom) / 2.0,
+                "count": count,
+                "volume": volume,
+                "filter_target": target,
+                "distance_pips": round(distance_pips, 2),
+                "age_bars": len(rows) - 1 - i,
+                "visual_label": visual_label,
+                "boundaries": {
+                    "top": {"price": top, "role": "top"},
+                    "bottom": {"price": bottom, "role": "bottom"},
+                    "level": {"price": level, "role": "liquidity_level"},
+                },
+                "render": {
+                    "kind": "liquidity_zone",
+                    "fill": "rgba(239,68,68,0.16)" if side == "buy_side" else "rgba(20,184,166,0.16)",
+                    "border": "#ef4444" if side == "buy_side" else "#14b8a6",
+                    "level_style": "dashed" if swept else "solid",
+                    "label": visual_label,
+                    "cli_pair": f"mt5 --json ehukai liquidity SYMBOL {_tf_label(timeframe)}",
+                },
+            }
+            pools.append(pool)
+
+    pools.sort(key=lambda item: item["pivot_time"], reverse=True)
+    visible = pools[:max(1, int(max_pools))]
+    open_pools = [pool for pool in visible if pool["status"] == "open"]
+    swept_pools = [pool for pool in visible if pool["status"] == "swept"]
+    open_by_distance = sorted(open_pools, key=lambda pool: pool["distance_pips"])
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol.upper(),
+            "timeframe": _tf_label(timeframe),
+            "source": "EhukaiLiquiditySwings",
+            "object_prefix": "ELS_",
+            "length": length,
+            "area": area,
+            "filter_by": filter_by,
+            "filter_value": filter_value,
+            "current_price": current_price,
+            "pools": visible,
+            "open_pools": open_pools,
+            "swept_pools": swept_pools,
+            "nearest_buy_side": next((p for p in open_by_distance if p["side"] == "buy_side"), None),
+            "nearest_sell_side": next((p for p in open_by_distance if p["side"] == "sell_side"), None),
+            "visual_contract": {
+                "indicator": "EhukaiLiquiditySwings",
+                "object_prefix": "ELS_",
+                "label_pattern": "BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>",
+                "sides": {"buy_side": "liquidity above swing highs", "sell_side": "liquidity below swing lows"},
+                "geometry": ["rectangle", "liquidity level", "count/volume label"],
+            },
+        },
+    }
+
+
 def summarize_contexts(frames: list[dict]) -> dict:
     biases: dict[str, int] = {}
     zone_count = 0
+    open_liquidity_count = 0
+    swept_liquidity_count = 0
     for frame in frames:
         context = frame.get("structured_context") or {}
         structure = context.get("market_structure") or {}
@@ -226,6 +406,9 @@ def summarize_contexts(frames: list[dict]) -> dict:
             biases[bias] = biases.get(bias, 0) + 1
         fvg_context = context.get("fvg") or {}
         zone_count += len(fvg_context.get("zones") or [])
+        liquidity_context = context.get("liquidity") or {}
+        open_liquidity_count += len(liquidity_context.get("open_pools") or [])
+        swept_liquidity_count += len(liquidity_context.get("swept_pools") or [])
 
     dominant_bias = max(biases, key=biases.get) if biases else None
     return {
@@ -234,4 +417,6 @@ def summarize_contexts(frames: list[dict]) -> dict:
         "dominant_bias": dominant_bias,
         "bias_counts": biases,
         "visible_fvg_zone_count": zone_count,
+        "open_liquidity_pool_count": open_liquidity_count,
+        "swept_liquidity_pool_count": swept_liquidity_count,
     }

@@ -485,7 +485,7 @@ def indicator_fvg_cmd(ctx, symbol, timeframe, bars, min_points, min_atr_multiple
 @main.group("ehukai")
 @click.pass_context
 def ehukai_group(ctx):
-    """Ehukai visual-TDA indicators: FVG and Market Structure."""
+    """Ehukai visual-TDA indicators: FVG, Market Structure, and Liquidity."""
     ctx.ensure_object(dict)
 
 
@@ -545,6 +545,46 @@ def ehukai_structure_cmd(ctx, symbol, timeframe, bars, pivot_bars, max_swings):
             bars=bars,
             pivot_bars=pivot_bars,
             max_swings=max_swings,
+        ),
+        obj["as_json"],
+    )
+
+
+@ehukai_group.command("liquidity")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--bars", default=300, show_default=True, type=int,
+              help="Lookback bars for liquidity swing detection.")
+@click.option("--length", default=14, show_default=True, type=int,
+              help="Pivot lookback bars left/right.")
+@click.option("--area", default="wick", show_default=True,
+              type=click.Choice(["wick", "full-range"], case_sensitive=False),
+              help="Swing zone area: wick extremity or full candle range.")
+@click.option("--filter-by", default="count", show_default=True,
+              type=click.Choice(["count", "volume"], case_sensitive=False),
+              help="Filter pools by interaction count or tick volume.")
+@click.option("--filter-value", default=0.0, show_default=True, type=float,
+              help="Minimum count or volume threshold.")
+@click.option("--max-pools", default=10, show_default=True, type=int,
+              help="Maximum latest pools to return.")
+@click.pass_context
+def ehukai_liquidity_cmd(ctx, symbol, timeframe, bars, length, area, filter_by, filter_value, max_pools):
+    """EhukaiLiquiditySwings-compatible buy/sell-side liquidity pools."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        ehukai.liquidity(
+            symbol,
+            timeframe,
+            bars=bars,
+            length=length,
+            area=area,
+            filter_by=filter_by,
+            filter_value=filter_value,
+            max_pools=max_pools,
         ),
         obj["as_json"],
     )

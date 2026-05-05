@@ -23,10 +23,12 @@ _VISUAL_MANIFEST = {
     "indicator_assets": {
         "EhukaiFVG": str(INDICATOR_ROOT / "EhukaiFVG.mq5"),
         "EhukaiMarketStructure": str(INDICATOR_ROOT / "EhukaiMarketStructure.mq5"),
+        "EhukaiLiquiditySwings": str(INDICATOR_ROOT / "EhukaiLiquiditySwings.mq5"),
     },
     "object_contract": {
         "fvg_prefix": "EFVG_",
         "market_structure_prefix": "EMS_",
+        "liquidity_swings_prefix": "ELS_",
         "stable_name_parts": ["prefix", "symbol", "timeframe", "type", "ordinal_or_bar_index"],
         "tooltip_policy": "Objects should expose timeframe, side/status, and price levels when MT5 supports tooltips.",
     },
@@ -86,6 +88,27 @@ _VISUAL_MANIFEST = {
             "label_pattern": "SUPPORT|RESISTANCE",
             "meaning": "Latest swing low/high level extended right for visual reference.",
             "structured_source": "analyze structure support/resistance",
+        },
+        {
+            "indicator": "EhukaiLiquiditySwings",
+            "visual": "red liquidity zone above a swing high",
+            "label_pattern": "BSL LIQ <OPEN|SWEPT> C<count> V<volume>",
+            "meaning": "Buy-side liquidity resting above a swing high. Use as a target or trap zone, not as a long signal.",
+            "structured_source": "ehukai liquidity pools[].side == buy_side",
+        },
+        {
+            "indicator": "EhukaiLiquiditySwings",
+            "visual": "teal liquidity zone below a swing low",
+            "label_pattern": "SSL LIQ <OPEN|SWEPT> C<count> V<volume>",
+            "meaning": "Sell-side liquidity resting below a swing low. Use as a target or trap zone, not as a short signal.",
+            "structured_source": "ehukai liquidity pools[].side == sell_side",
+        },
+        {
+            "indicator": "EhukaiLiquiditySwings",
+            "visual": "dashed liquidity level",
+            "label_pattern": "SWEPT",
+            "meaning": "The pool has been crossed by a later close. Treat nearby passive entries with extra suspicion.",
+            "structured_source": "ehukai liquidity pools[].status == swept",
         },
     ],
     "agent_rules": [
@@ -156,6 +179,17 @@ def frame_context(symbol: str, timeframe: str, *, bars: int = 300, fvg_limit: in
             context["fvg"] = fvg_result["data"]
         else:
             context["fvg_error"] = _compact_error(fvg_result)
+
+        liquidity_result = ehukai.liquidity(
+            symbol,
+            timeframe,
+            bars=bars,
+            max_pools=10,
+        )
+        if isinstance(liquidity_result, dict) and liquidity_result.get("ok"):
+            context["liquidity"] = liquidity_result["data"]
+        else:
+            context["liquidity_error"] = _compact_error(liquidity_result)
     except Exception as exc:  # noqa: BLE001
         context["error"] = {
             "code": "TDA_CONTEXT_EXCEPTION",

@@ -191,8 +191,9 @@ Output shape:
         "w": 1280,
         "h": 720,
         "structured_context": {
-          "structure": {"support": 157.1, "resistance": 158.2},
-          "fvg": {"zones": [{"visual_label": "BULL FVG OPEN 4.2p"}]}
+          "market_structure": {"support": 157.1, "resistance": 158.2},
+          "fvg": {"zones": [{"visual_label": "BULL FVG OPEN 4.2p"}]},
+          "liquidity": {"pools": [{"visual_label": "BSL LIQ OPEN C2 V100"}]}
         }
       }
     ],
@@ -204,10 +205,11 @@ Output shape:
 
 The implementation is broker-agnostic. It defaults to matching the standard MT5 window class or a title containing `MT5`, uses the standard MT5 period toolbar, and writes only to `--output-dir`, `screenshot.output_dir`, legacy `screenshot_path`, or the OS temp directory (`%TEMP%\mt5-cli\screenshots` on Windows, `$TMPDIR/mt5-cli/screenshots` on POSIX). No broker-specific paths or project-specific paths are required.
 
-Visual TDA returns the best of both worlds for agents. The PNGs show the MT5 chart exactly as the operator sees it, while the JSON manifest explains the vendored Ehukai indicator contract and attaches recomputed structure/FVG data. The canonical MQ5 sources live in `metatrader5_cli/mt5/mql5/Indicators/`:
+Visual TDA returns the best of both worlds for agents. The PNGs show the MT5 chart exactly as the operator sees it, while the JSON manifest explains the vendored Ehukai indicator contract and attaches recomputed structure/FVG/liquidity data. The canonical MQ5 sources live in `metatrader5_cli/mt5/mql5/Indicators/`:
 
 - `EhukaiFVG.mq5`: stable `EFVG_` objects, `BULL/BEAR FVG OPEN/PARTIAL/FILLED <pips>p` labels, rectangle boundaries, and dashed midlines.
 - `EhukaiMarketStructure.mq5`: stable `EMS_` objects, `HH/HL/LH/LL` swing labels, `MS <TF>: ...` bias panel, BOS labels, and support/resistance levels.
+- `EhukaiLiquiditySwings.mq5`: stable `ELS_` objects, `BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>` labels, swing-high/swing-low liquidity rectangles, and dashed levels after sweep.
 
 Use `--no-context` when only screenshots are needed, and `--no-manifest` when a sibling JSON file should not be written.
 
@@ -217,11 +219,15 @@ matches the chart overlays:
 ```powershell
 mt5 --json ehukai structure USDJPY M15
 mt5 --json ehukai fvg USDJPY M15 --max-zones 4
+mt5 --json ehukai liquidity USDJPY M5 --length 14
 ```
 
 The older generic `analyze structure` and `indicator fvg` commands remain
 available for raw strategy research, but `screenshot tda` now uses the Ehukai
 context layer so agents are not choosing between duplicate interpretations.
+Use `ehukai liquidity` as a liquidity-map layer: buy-side pools above swing
+highs and sell-side pools below swing lows are targets/trap zones, not standalone
+entry signals.
 
 Use `chart current` and `chart ensure` to make the active chart explicit before any visual task:
 

@@ -1147,6 +1147,71 @@ class TestMarket:
         assert data["data"]["source"] == "EhukaiMarketStructure"
         assert data["data"]["bias"] == "BULLISH HH/HL"
 
+    def test_ehukai_liquidity_returns_buy_and_sell_side_pools(self, monkeypatch):
+        from metatrader5_cli.mt5.core import ehukai
+        from metatrader5_cli.mt5.core import rates as rates_module
+
+        rows = []
+        for i in range(40):
+            rows.append({
+                "time": f"2026-05-05T00:{i:02d}:00+00:00",
+                "open": 1.1000,
+                "high": 1.1050,
+                "low": 1.0950,
+                "close": 1.1000,
+                "tick_volume": 10,
+            })
+        rows[12].update({"open": 1.1110, "high": 1.1200, "low": 1.1100, "close": 1.1120})
+        rows[18].update({"open": 1.0890, "high": 1.0900, "low": 1.0800, "close": 1.0880})
+        rows[24].update({"open": 1.1120, "high": 1.1210, "low": 1.1110, "close": 1.1210})
+        rows[30].update({"open": 1.0910, "high": 1.0920, "low": 1.0790, "close": 1.0790})
+        rows[-1]["close"] = 1.1000
+
+        monkeypatch.setattr(rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": rows})
+
+        result = ehukai.liquidity("EURUSD", "M5", bars=40, length=2, max_pools=6)
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["source"] == "EhukaiLiquiditySwings"
+        assert data["object_prefix"] == "ELS_"
+        assert data["visual_contract"]["indicator"] == "EhukaiLiquiditySwings"
+        assert any(pool["side"] == "buy_side" for pool in data["pools"])
+        assert any(pool["side"] == "sell_side" for pool in data["pools"])
+        assert any(pool["status"] == "swept" for pool in data["pools"])
+        assert all(pool["visual_label"].startswith(("BSL LIQ", "SSL LIQ")) for pool in data["pools"])
+
+    def test_cli_ehukai_liquidity_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import ehukai as ehukai_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(
+            ehukai_module,
+            "liquidity",
+            lambda symbol, timeframe, **kw: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "source": "EhukaiLiquiditySwings",
+                    "pools": [{"visual_label": "BSL LIQ OPEN C2 V100"}],
+                },
+            },
+        )
+
+        result = CliRunner().invoke(mt5_cli.main, ["--json", "ehukai", "liquidity", "USDJPY", "M5"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["source"] == "EhukaiLiquiditySwings"
+        assert data["data"]["pools"][0]["visual_label"] == "BSL LIQ OPEN C2 V100"
+
     def test_market_search_auto_wraps_bare_pattern(self, mt5m):
         from metatrader5_cli.mt5.core import market
         mt5m.symbols_get.return_value = []

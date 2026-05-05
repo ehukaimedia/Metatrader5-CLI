@@ -331,13 +331,15 @@ Indicators are computed from fetched rate data using `pandas-ta`. No chart-windo
 
 These commands are the preferred structured data companions for screenshots
 that use the vendored Ehukai MT5 overlays. They intentionally mirror
-`EhukaiFVG.mq5` and `EhukaiMarketStructure.mq5` so visual agents do not choose
+`EhukaiFVG.mq5`, `EhukaiMarketStructure.mq5`, and
+`EhukaiLiquiditySwings.mq5` so visual agents do not choose
 between duplicate generic interpretations.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `ehukai fvg` | `SYMBOL TIMEFRAME --bars INT --min-gap-pips FLOAT --max-zones INT --max-distance-pips FLOAT` | `source`, `object_prefix`, `zones`, `visual_contract` | Visible open/partial FVG zones matching `EhukaiFVG.mq5` defaults: `EFVG_` prefix, pips-based labels, max four zones, distance filter, exact lower/upper/mid levels. |
 | `ehukai structure` | `SYMBOL TIMEFRAME --bars INT --pivot-bars INT --max-swings INT` | `source`, `bias`, `panel_label`, `support`, `resistance`, `visible_swings`, `visual_contract` | Bias, support/resistance, and swing labels matching `EhukaiMarketStructure.mq5`: adaptive pivot bars, `EMS_` prefix, `HH/HL/LH/LL`, BOS labels, and the `MS <TF>: ...` panel text. |
+| `ehukai liquidity` | `SYMBOL TIMEFRAME --bars INT --length INT --area wick\|full-range --filter-by count\|volume --filter-value FLOAT --max-pools INT` | `source`, `object_prefix`, `pools`, `open_pools`, `swept_pools`, `nearest_buy_side`, `nearest_sell_side`, `visual_contract` | Buy-side/sell-side liquidity pools matching `EhukaiLiquiditySwings.mq5`: `ELS_` prefix, `BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>` labels, exact zone top/bottom/level, interaction count, tick volume, and sweep status. Use as a target/trap map rather than a standalone entry signal. |
 
 ### 6.5 `mt5 analyze` — Top-Down Market Structure Analysis
 
@@ -383,7 +385,7 @@ OS-level screen capture using `mss`. Captures the MT5 window or full desktop. Do
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `screenshot take` | `--output PATH` `--window TEXT` `--monitor INT` | `path`, `width`, `height`, `timestamp` | Capture MT5 window. `--monitor` overrides `screenshot_monitor` config (default `0` = primary). |
-| `screenshot tda` | `SYMBOL --timeframes TEXT --output-dir PATH --final-timeframe TF --visual-manifest/--no-visual-manifest --context/--no-context --manifest/--no-manifest --context-bars INT --fvg-limit INT` | `symbol`, `captured_at`, `frames`, `visual_manifest`, `ehukai_analysis`, `manifest_path`, `final_timeframe`, `final_title` | Capture visual top-down-analysis frames. After capture, restores the active chart to `--final-timeframe` (default `M15`). Use `--final-timeframe none` to leave the last captured timeframe active. By default writes a sibling JSON manifest and attaches per-frame Ehukai structure/FVG context so agents can combine screenshots with exact data from the same visual indicator semantics. |
+| `screenshot tda` | `SYMBOL --timeframes TEXT --output-dir PATH --final-timeframe TF --visual-manifest/--no-visual-manifest --context/--no-context --manifest/--no-manifest --context-bars INT --fvg-limit INT` | `symbol`, `captured_at`, `frames`, `visual_manifest`, `ehukai_analysis`, `manifest_path`, `final_timeframe`, `final_title` | Capture visual top-down-analysis frames. After capture, restores the active chart to `--final-timeframe` (default `M15`). Use `--final-timeframe none` to leave the last captured timeframe active. By default writes a sibling JSON manifest and attaches per-frame Ehukai structure/FVG/liquidity context so agents can combine screenshots with exact data from the same visual indicator semantics. |
 | `screenshot dom` | `SYMBOL` `--output PATH` `--output-dir PATH` `--window TEXT` `--open/--no-open` `--close/--no-close` `--settle-seconds FLOAT` | `path`, `symbol`, `w`, `h`, `window_title`, `panel_opened`, `panel_closed`, `open_result`, `close_result` | Open Charts > Depth Of Market for SYMBOL, capture the MT5 window, and close/toggle the DOM panel by default so it does not block the chart. Use `--no-close` only for manual inspection. |
 | `screenshot annotate` | `--input PATH` `--output PATH` `--text TEXT` `--xy INT INT` | `path` | Add text overlay to image |
 | `screenshot list` | `--dir PATH` | `[{path, timestamp, size_kb}]` | List saved screenshots |
