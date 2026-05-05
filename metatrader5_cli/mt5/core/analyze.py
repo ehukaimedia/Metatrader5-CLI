@@ -2,7 +2,7 @@
 analyze.py — Top-down multi-timeframe analysis and price structure for the MT5 CLI.
 
 This module NEVER imports MetaTrader5 directly.  All MT5 API access goes
-through ``bridge.mt5_call()`` (indirectly, via rates and indicator modules).
+through ``bridge.mt5_call()`` indirectly via the rates module.
 """
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from metatrader5_cli.mt5.core import indicator as indicator_module
 from metatrader5_cli.mt5.core import rates as rates_module
 
 
@@ -72,37 +71,32 @@ def structure(symbol: str, timeframe: str, bars: int = 200, pivot_n: int = 5) ->
 
 
 # ---------------------------------------------------------------------------
-# _classify_tf — single-timeframe trend classification
+# _classify_tf — single-timeframe market-structure classification
 # ---------------------------------------------------------------------------
 
 def _classify_tf(symbol: str, timeframe: str, bars: int) -> dict | None:
-    """Return TF classification dict or None on any data error."""
-    ema_result = indicator_module.ema(symbol, timeframe, period=20, bars=bars)
-    if not ema_result["ok"]:
+    """Return TF market-structure classification or None on any data error."""
+    result = structure(symbol, timeframe, bars=bars)
+    if not result["ok"]:
         return None
-    rsi_result = indicator_module.rsi(symbol, timeframe, period=14, bars=bars)
-    if not rsi_result["ok"]:
-        return None
+    data = result["data"]
+    swing_highs = data["swing_highs"]
+    swing_lows = data["swing_lows"]
 
-    ema_values = ema_result["data"]["values"]
-    rsi_values = rsi_result["data"]["values"]
+    structure_state = "range"
+    if len(swing_highs) >= 2 and len(swing_lows) >= 2:
+        prev_high, last_high = swing_highs[-2]["price"], swing_highs[-1]["price"]
+        prev_low, last_low = swing_lows[-2]["price"], swing_lows[-1]["price"]
+        if last_high > prev_high and last_low > prev_low:
+            structure_state = "HH_HL"
+        elif last_high < prev_high and last_low < prev_low:
+            structure_state = "LH_LL"
+        else:
+            structure_state = "mixed"
 
-    if len(ema_values) < 2 or not rsi_values:
-        return None
-
-    rates_result = rates_module.fetch(symbol, timeframe, bars)
-    if not rates_result["ok"]:
-        return None
-    last_close = float(rates_result["data"][-1]["close"])
-
-    ema_now = ema_values[-1]["ema"]
-    ema_prev = ema_values[-2]["ema"]
-    ema_slope = ema_now - ema_prev
-    rsi_14 = rsi_values[-1]["rsi"]
-
-    if last_close > ema_now and ema_slope > 0:
+    if structure_state == "HH_HL":
         trend = "bullish"
-    elif last_close < ema_now and ema_slope < 0:
+    elif structure_state == "LH_LL":
         trend = "bearish"
     else:
         trend = "neutral"
@@ -110,11 +104,12 @@ def _classify_tf(symbol: str, timeframe: str, bars: int) -> dict | None:
     return {
         "timeframe": timeframe,
         "trend": trend,
-        "last_close": last_close,
-        "ema_20": ema_now,
-        "ema_slope": ema_slope,
-        "rsi_14": rsi_14,
-        "price_vs_ema": "above" if last_close > ema_now else "below",
+        "structure": structure_state,
+        "current_price": data["current_price"],
+        "support": data["support"],
+        "resistance": data["resistance"],
+        "swing_highs": swing_highs,
+        "swing_lows": swing_lows,
     }
 
 
@@ -123,10 +118,10 @@ def _classify_tf(symbol: str, timeframe: str, bars: int) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
-    """Multi-timeframe trend + momentum summary (spec §6.5).
+    """Multi-timeframe market-structure summary (spec §6.5).
 
-    For each TF: fetch rates, compute EMA20 + RSI14, classify trend.
-    Aggregates bias from majority across TFs.  confluence_score = fraction
+    For each TF: detect swing highs/lows and classify HH/HL or LH/LL structure.
+    Aggregates bias from majority across TFs. confluence_score = fraction
     of TFs agreeing with the majority bias.
     """
     tf_dict: dict[str, dict] = {}
@@ -136,7 +131,7 @@ def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
             tf_dict[tf] = {k: v for k, v in classified.items() if k != "timeframe"}
 
     if not tf_dict:
-        return _fail("MT5_NO_DATA", f"Could not compute indicators for any timeframe for {symbol!r}.")
+        return _fail("MT5_NO_DATA", f"Could not compute market structure for any timeframe for {symbol!r}.")
 
     counts: dict[str, int] = {"bullish": 0, "bearish": 0, "neutral": 0}
     for r in tf_dict.values():
@@ -147,9 +142,10 @@ def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
 
     notes = []
     for tf, r in tf_dict.items():
-        rsi = r["rsi_14"]
-        rsi_note = "overbought" if rsi > 70 else "oversold" if rsi < 30 else "neutral RSI"
-        notes.append(f"{tf}: {r['trend']} — price {r['price_vs_ema']} EMA20, RSI {rsi:.1f} ({rsi_note})")
+        notes.append(
+            f"{tf}: {r['trend']} structure ({r['structure']}); "
+            f"support={r['support']}, resistance={r['resistance']}"
+        )
 
     return {
         "ok": True,

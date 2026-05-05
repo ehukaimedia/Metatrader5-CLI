@@ -1178,12 +1178,16 @@ class TestIndicator:
 
 class TestAnalyze:
     _TF_BULLISH = {
-        "timeframe": "H1", "trend": "bullish", "last_close": 1.25,
-        "ema_20": 1.20, "ema_slope": 0.01, "rsi_14": 55.0, "price_vs_ema": "above",
+        "timeframe": "H1", "trend": "bullish", "structure": "HH_HL",
+        "current_price": 1.25, "support": 1.10, "resistance": 1.50,
+        "swing_highs": [{"time": "t1", "price": 1.30}, {"time": "t2", "price": 1.50}],
+        "swing_lows": [{"time": "t1", "price": 1.00}, {"time": "t2", "price": 1.10}],
     }
     _TF_BEARISH = {
-        "timeframe": "H4", "trend": "bearish", "last_close": 1.10,
-        "ema_20": 1.20, "ema_slope": -0.01, "rsi_14": 45.0, "price_vs_ema": "below",
+        "timeframe": "H4", "trend": "bearish", "structure": "LH_LL",
+        "current_price": 1.10, "support": 1.00, "resistance": 1.25,
+        "swing_highs": [{"time": "t1", "price": 1.50}, {"time": "t2", "price": 1.25}],
+        "swing_lows": [{"time": "t1", "price": 1.10}, {"time": "t2", "price": 1.00}],
     }
 
     @staticmethod
@@ -1200,12 +1204,47 @@ class TestAnalyze:
             })
         return rows
 
-    def test_topdown_classifies_trend_bullish_when_price_above_ema_with_positive_slope(self, monkeypatch):
+    @staticmethod
+    def _structure_bars(kind="bullish"):
+        rows = []
+        for i in range(30):
+            rows.append({
+                "time": f"2024-01-{i + 1:02d}T00:00:00+00:00",
+                "open": 1.2,
+                "high": 1.4,
+                "low": 1.2,
+                "close": 1.25,
+                "tick_volume": 100,
+            })
+        if kind == "bullish":
+            rows[8]["low"] = 0.90
+            rows[12]["high"] = 1.50
+            rows[18]["low"] = 1.05
+            rows[24]["high"] = 1.70
+            rows[-1]["close"] = 1.30
+        else:
+            rows[8]["low"] = 1.05
+            rows[12]["high"] = 1.70
+            rows[18]["low"] = 0.90
+            rows[24]["high"] = 1.50
+            rows[-1]["close"] = 1.00
+        return rows
+
+    def test_topdown_classifies_bullish_market_structure_from_hh_hl(self, monkeypatch):
         from metatrader5_cli.mt5.core import analyze
-        monkeypatch.setattr(analyze, "_classify_tf", lambda s, tf, bars: dict(self._TF_BULLISH, timeframe=tf))
-        result = analyze.topdown("EURUSD", ["H1"])
+        monkeypatch.setattr(
+            analyze.rates_module,
+            "fetch",
+            lambda *a, **kw: {"ok": True, "data": self._structure_bars("bullish")},
+        )
+
+        result = analyze.topdown("EURUSD", ["H1"], bars=30)
+
         assert result["ok"] is True
         assert result["data"]["timeframes"]["H1"]["trend"] == "bullish"
+        assert result["data"]["timeframes"]["H1"]["structure"] == "HH_HL"
+        assert "ema_20" not in result["data"]["timeframes"]["H1"]
+        assert "rsi_14" not in result["data"]["timeframes"]["H1"]
         assert result["data"]["bias"] == "bullish"
 
     def test_topdown_confluence_score_unanimous(self, monkeypatch):
@@ -1272,7 +1311,7 @@ class TestAnalyze:
                     "bias": "bullish",
                     "confluence_score": 1.0,
                     "timeframes": {},
-                    "notes": ["D1: bullish — price above EMA20, RSI 55.0 (neutral RSI)"],
+                    "notes": ["D1: bullish structure (HH_HL); support=1.1, resistance=1.5"],
                 },
             }
 
@@ -1288,8 +1327,10 @@ class TestAnalyze:
 
 class TestAnalyzeCLI:
     _TF_RESULT = {
-        "trend": "bullish", "last_close": 1.25, "ema_20": 1.20,
-        "ema_slope": 0.01, "rsi_14": 55.0, "price_vs_ema": "above",
+        "trend": "bullish", "structure": "HH_HL", "current_price": 1.25,
+        "support": 1.10, "resistance": 1.50,
+        "swing_highs": [{"time": "t1", "price": 1.30}, {"time": "t2", "price": 1.50}],
+        "swing_lows": [{"time": "t1", "price": 1.00}, {"time": "t2", "price": 1.10}],
     }
 
     def _runner_and_env(self, monkeypatch, tmp_path):

@@ -320,13 +320,13 @@ Indicators are computed from fetched rate data using `pandas-ta`. No chart-windo
 | `indicator atr` | `SYMBOL TIMEFRAME --period INT --bars INT` | `values: [{time, atr}]` | ATR series |
 | `indicator list` | — | `[{name, description, params}]` | Available indicators |
 
-### 6.5 `mt5 analyze` — Top-Down Multi-Timeframe Analysis
+### 6.5 `mt5 analyze` — Top-Down Market Structure Analysis
 
-The high-value workflow: fetch rates + indicators across multiple TFs, return a structured JSON summary suitable for AI decision-making.
+The high-value workflow: fetch rates across multiple TFs, read swing structure, and return a structured JSON summary suitable for AI decision-making. This workflow does not use technical indicators.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
-| `analyze topdown` | `SYMBOL` `--timeframes TF[,TF...]` `--bars INT` | See schema below | Multi-TF trend + momentum summary. `--timeframes` accepts comma-separated TFs in one value (`--timeframes D1,H4,H1`) or repeated flags (`--timeframes D1 --timeframes H4`). Space-separated in a single flag is not supported by Click. |
+| `analyze topdown` | `SYMBOL` `--timeframes TF[,TF...]` `--bars INT` | See schema below | Multi-TF market-structure summary. `--timeframes` accepts comma-separated TFs in one value (`--timeframes D1,H4,H1`) or repeated flags (`--timeframes D1 --timeframes H4`). Space-separated in a single flag is not supported by Click. |
 | `analyze structure` | `SYMBOL TIMEFRAME --bars INT` `--pivot-n INT` | `support`, `resistance`, `swing_highs`, `swing_lows` | Key S/R levels via N-bar pivot detection. A bar at index `i` is a swing high if its `high` is the highest of the `N` bars before and after it; swing low symmetrically. Default `--pivot-n 5`. `support` = highest swing low below current price; `resistance` = lowest swing high above current price. |
 | `analyze bias` | `SYMBOL` | `bias: bullish/bearish/neutral`, `confidence: float`, `reasoning: str` | One-line directional bias |
 
@@ -338,10 +338,12 @@ The high-value workflow: fetch rates + indicators across multiple TFs, return a 
   "timeframes": {
     "MN1": {
       "trend": "bullish",
-      "ema_20": 148.32,
-      "rsi_14": 62.1,
-      "price_vs_ema": "above",
-      "last_close": 155.41
+      "structure": "HH_HL",
+      "current_price": 155.41,
+      "support": 154.80,
+      "resistance": 156.20,
+      "swing_highs": [{ "time": "2026-04-20T00:00:00Z", "price": 156.20 }],
+      "swing_lows": [{ "time": "2026-04-15T00:00:00Z", "price": 154.80 }]
     },
     "W1": { "..." : "..." },
     "D1": { "..." : "..." },
@@ -351,7 +353,7 @@ The high-value workflow: fetch rates + indicators across multiple TFs, return a 
   },
   "bias": "bullish",
   "confluence_score": 0.83,
-  "notes": ["Price above EMA20 on D1, H4, H1", "RSI < 70 on all TFs"]
+  "notes": ["D1: bullish structure (HH_HL); support=154.8, resistance=156.2"]
 }
 ```
 

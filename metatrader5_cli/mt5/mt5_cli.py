@@ -562,7 +562,7 @@ def analyze_group(ctx):
 @click.option("--bars", default=200, show_default=True, type=int, help="Bars to fetch per timeframe.")
 @click.pass_context
 def analyze_topdown_cmd(ctx, symbol, timeframes, bars):
-    """Multi-TF trend + momentum summary for SYMBOL."""
+    """Multi-TF market-structure summary for SYMBOL."""
     obj = ctx.obj
     err = _ensure_connected(obj["cfg"])
     if err:
