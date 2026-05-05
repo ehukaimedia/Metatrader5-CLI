@@ -20,12 +20,15 @@ VISUAL_MANIFEST_VERSION = "2026-05-05"
 _VISUAL_MANIFEST = {
     "version": VISUAL_MANIFEST_VERSION,
     "purpose": "Map Ehukai MT5 visual indicator overlays to structured TDA concepts.",
+    "preferred_chart_indicator": "EhukaiTDAOverlay",
     "indicator_assets": {
+        "EhukaiTDAOverlay": str(INDICATOR_ROOT / "EhukaiTDAOverlay.mq5"),
         "EhukaiFVG": str(INDICATOR_ROOT / "EhukaiFVG.mq5"),
         "EhukaiMarketStructure": str(INDICATOR_ROOT / "EhukaiMarketStructure.mq5"),
         "EhukaiLiquiditySwings": str(INDICATOR_ROOT / "EhukaiLiquiditySwings.mq5"),
     },
     "object_contract": {
+        "tda_overlay_prefix": "ETDA_",
         "fvg_prefix": "EFVG_",
         "market_structure_prefix": "EMS_",
         "liquidity_swings_prefix": "ELS_",
@@ -33,6 +36,13 @@ _VISUAL_MANIFEST = {
         "tooltip_policy": "Objects should expose timeframe, side/status, and price levels when MT5 supports tooltips.",
     },
     "legend": [
+        {
+            "indicator": "EhukaiTDAOverlay",
+            "visual": "single clean chart overlay",
+            "label_pattern": "TDA <TF>: <BIAS> | H <kind> <price> | L <kind> <price>",
+            "meaning": "Preferred visual presentation layer for screenshot agents. Composes structure, FVG, and liquidity with low-noise defaults.",
+            "structured_source": "ehukai structure + ehukai fvg + ehukai liquidity",
+        },
         {
             "indicator": "EhukaiFVG",
             "visual": "lime or green rectangle/lines",
@@ -112,6 +122,8 @@ _VISUAL_MANIFEST = {
         },
     ],
     "agent_rules": [
+        "Apply only EhukaiTDAOverlay to charts for visual TDA by default.",
+        "Use primitive overlays only for debugging: EhukaiFVG, EhukaiMarketStructure, EhukaiLiquiditySwings.",
         "Use screenshots for spatial confluence and chart cleanliness.",
         "Use structured_context for exact prices, states, and distances.",
         "Treat visual and structured data as complementary; if they disagree, report the discrepancy.",

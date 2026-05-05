@@ -210,6 +210,12 @@ Visual TDA returns the best of both worlds for agents. The PNGs show the MT5 cha
 - `EhukaiFVG.mq5`: stable `EFVG_` objects, `BULL/BEAR FVG OPEN/PARTIAL/FILLED <pips>p` labels, rectangle boundaries, and dashed midlines.
 - `EhukaiMarketStructure.mq5`: stable `EMS_` objects, `HH/HL/LH/LL` swing labels, `MS <TF>: ...` bias panel, BOS labels, and support/resistance levels.
 - `EhukaiLiquiditySwings.mq5`: stable `ELS_` objects, `BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>` labels, swing-high/swing-low liquidity rectangles, and dashed levels after sweep.
+- `EhukaiTDAOverlay.mq5`: stable `ETDA_` objects and the recommended single chart overlay for screenshots. It composes structure, nearest FVGs, and nearest liquidity pools with low-noise defaults.
+
+For live charts and screenshot agents, apply only `EhukaiTDAOverlay.mq5` by
+default. Keep the primitive overlays above for debugging a single concept, but
+do not stack them on normal TDA charts because labels and rectangles will
+overlap.
 
 Use `--no-context` when only screenshots are needed, and `--no-manifest` when a sibling JSON file should not be written.
 

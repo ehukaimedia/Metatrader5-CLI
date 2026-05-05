@@ -2859,6 +2859,16 @@ class TestScreenshot:
     # Test 7 — visual TDA captures six timeframe PNGs for one symbol
     # ------------------------------------------------------------------
 
+    def test_visual_manifest_prefers_unified_tda_overlay(self):
+        from metatrader5_cli.mt5.core import tda_manifest
+
+        manifest = tda_manifest.visual_manifest()
+
+        assert manifest["preferred_chart_indicator"] == "EhukaiTDAOverlay"
+        assert manifest["object_contract"]["tda_overlay_prefix"] == "ETDA_"
+        assert "EhukaiTDAOverlay" in manifest["indicator_assets"]
+        assert any("Apply only EhukaiTDAOverlay" in rule for rule in manifest["agent_rules"])
+
     def test_screenshot_tda_captures_usdjpy_six_timeframes(self, tmp_path, monkeypatch):
         import os
         from PIL import Image

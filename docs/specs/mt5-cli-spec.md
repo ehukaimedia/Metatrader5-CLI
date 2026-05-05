@@ -331,9 +331,13 @@ Indicators are computed from fetched rate data using `pandas-ta`. No chart-windo
 
 These commands are the preferred structured data companions for screenshots
 that use the vendored Ehukai MT5 overlays. They intentionally mirror
-`EhukaiFVG.mq5`, `EhukaiMarketStructure.mq5`, and
+`EhukaiTDAOverlay.mq5`, `EhukaiFVG.mq5`, `EhukaiMarketStructure.mq5`, and
 `EhukaiLiquiditySwings.mq5` so visual agents do not choose
 between duplicate generic interpretations.
+
+`EhukaiTDAOverlay.mq5` is the preferred single chart overlay for screenshots.
+The FVG, MarketStructure, and LiquiditySwings MQ5 files are primitive/debug
+overlays and should not be stacked on normal TDA charts.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
