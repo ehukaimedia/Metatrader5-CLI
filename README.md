@@ -235,7 +235,8 @@ available for raw strategy research, but `screenshot tda` now uses the Ehukai
 context layer so agents are not choosing between duplicate interpretations.
 Use `ehukai liquidity` as a liquidity-map layer: buy-side pools above swing
 highs and sell-side pools below swing lows are targets/trap zones, not standalone
-entry signals.
+entry signals. Swept pools include both `swept_at` and `sweep_age_bars`, so
+agents can separate a fresh stop-run from an old pivot.
 
 For M1 sniper planning, use the non-mutating POC command after TDA/DOM context:
 
@@ -251,8 +252,10 @@ limit; only place the second command if dryrun returns `ok:true` and the setup
 is still current. By default, sniper POC only accepts OPEN FVGs within
 `--max-entry-distance-pips`, requires the enabling sweep within
 `--max-sweep-age-bars`, rejects FX rollover (`21:00-22:59 UTC`), and resolves
-auto-direction ties to `no_trade`. Use `--summary` for agent loops that do not
-need the full per-timeframe `frames` payload.
+auto-direction ties to `no_trade`. It uses faster Ehukai liquidity pivots on
+M1/M5 (`length=5`) for sniper sweeps and the broader context default
+(`length=14`) on M15+. Use `--summary` for agent loops that do not need the
+full per-timeframe `frames` payload.
 
 Use `chart current` and `chart ensure` to make the active chart explicit before any visual task:
 

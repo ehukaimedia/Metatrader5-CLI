@@ -44,13 +44,13 @@ def _liquidity_id(symbol: str, timeframe: str, side: str, pivot_time: str, price
     return f"{symbol.upper()}-{_tf_label(timeframe)}-{side}-{pivot_time}-{price:.10g}"
 
 
-def _pool_status(side: str, top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[bool, str | None]:
-    for row in rows[start_idx + 1:]:
+def _pool_status(side: str, top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[bool, str | None, int | None]:
+    for idx, row in enumerate(rows[start_idx + 1:], start=start_idx + 1):
         if side == "buy_side" and float(row["close"]) > top:
-            return True, row["time"]
+            return True, row["time"], idx
         if side == "sell_side" and float(row["close"]) < bottom:
-            return True, row["time"]
-    return False, None
+            return True, row["time"], idx
+    return False, None, None
 
 
 def _pool_counts(top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[int, float]:
@@ -315,7 +315,7 @@ def liquidity(
             target = count if filter_by == "count" else volume
             if target <= filter_value:
                 continue
-            swept, swept_at = _pool_status(side, top, bottom, rows, i)
+            swept, swept_at, sweep_idx = _pool_status(side, top, bottom, rows, i)
             status = "swept" if swept else "open"
             distance_pips = 0.0
             if current_price > top:
@@ -334,6 +334,7 @@ def liquidity(
                 "status": status,
                 "pivot_time": rows[i]["time"],
                 "swept_at": swept_at,
+                "sweep_age_bars": len(rows) - 1 - sweep_idx if sweep_idx is not None else None,
                 "level": level,
                 "top": top,
                 "bottom": bottom,

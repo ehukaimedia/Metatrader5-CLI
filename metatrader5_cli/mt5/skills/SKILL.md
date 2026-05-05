@@ -90,6 +90,11 @@ terminal accepts for pending placement even when market orders advertise FOK.
 the broker `comment`; Trading.com can truncate comments before the local
 31-character strategy-id limit.
 
+For sniper POC workflows, liquidity freshness is based on `sweep_age_bars`, not
+pivot age. `ehukai liquidity` exposes `swept_at` plus `sweep_age_bars`, and
+`analyze sniper-poc` uses tighter liquidity pivots on M1/M5 (`length=5`) while
+keeping M15+ at the broader context default (`length=14`).
+
 ---
 
 ## Risk Envelope (what gates exist)

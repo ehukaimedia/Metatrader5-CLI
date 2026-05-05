@@ -42,6 +42,7 @@ mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --m
 - Leave TDA workflows on `M15` by default after capture.
 - Reject sniper POC plans when the current bid/ask spread is wider than the configured gate or the proposed limit is not safely beyond the correct trigger quote side.
 - Reject sniper POC plans when the enabling liquidity sweep is stale, the FVG is stale/partial by default, the entry midpoint is too far from the trigger quote, or the symbol is in the FX 21:00-22:59 UTC rollover window unless explicitly allowed.
+- Gate sniper liquidity freshness with true `sweep_age_bars`; use faster M1/M5 liquidity pivots (`length=5`) so fresh stop-runs visible on the chart are represented in structured data.
 - Treat a sniper POC candidate as analysis only: agents must run the returned `order dryrun --order-type limit` command and then re-check quote/order freshness before sending the returned `order limit`.
 - Widen the suggested SL to at least the configured minimum stop distance before computing R:R so the plan is closer to what broker dry-run checks will accept.
 - Keep `EhukaiTDAOverlay` visually low-noise: in agent screenshot mode, hide oversized FVGs and distant liquidity pools while preserving full structured context in JSON.

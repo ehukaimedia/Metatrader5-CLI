@@ -248,11 +248,21 @@ def _gate(name: str, ok: bool, detail: str, severity: str = "blocker") -> dict:
     return {"name": name, "ok": bool(ok), "severity": severity, "detail": detail}
 
 
+def _sniper_liquidity_length(timeframe: str) -> int:
+    return 5 if timeframe.upper() in {"M1", "M5"} else 14
+
+
 def _frame(symbol: str, timeframe: str, bars: int) -> dict:
     frame = {"timeframe": timeframe}
     structure = ehukai.market_structure(symbol, timeframe, bars=bars)
     fvg = ehukai.fvg(symbol, timeframe, bars=min(bars, 100), max_zones=4)
-    liquidity = ehukai.liquidity(symbol, timeframe, bars=bars, max_pools=10)
+    liquidity = ehukai.liquidity(
+        symbol,
+        timeframe,
+        bars=bars,
+        length=_sniper_liquidity_length(timeframe),
+        max_pools=10,
+    )
     frame["market_structure"] = structure["data"] if structure.get("ok") else None
     frame["fvg"] = fvg["data"] if fvg.get("ok") else None
     frame["liquidity"] = liquidity["data"] if liquidity.get("ok") else None

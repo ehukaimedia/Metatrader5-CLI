@@ -1179,6 +1179,9 @@ class TestMarket:
         assert any(pool["side"] == "buy_side" for pool in data["pools"])
         assert any(pool["side"] == "sell_side" for pool in data["pools"])
         assert any(pool["status"] == "swept" for pool in data["pools"])
+        swept = next(pool for pool in data["pools"] if pool["status"] == "swept")
+        assert isinstance(swept["sweep_age_bars"], int)
+        assert swept["sweep_age_bars"] < swept["age_bars"]
         assert all(pool["visual_label"].startswith(("BSL LIQ", "SSL LIQ")) for pool in data["pools"])
 
     def test_cli_ehukai_liquidity_json(self, monkeypatch, tmp_path):
@@ -2016,6 +2019,42 @@ class TestAnalyze:
         assert result["ok"] is True
         assert result["data"]["status"] == "no_trade"
         assert any(g["name"] == "rollover_window" and g["ok"] is False for g in result["data"]["gates"])
+
+    def test_sniper_poc_uses_fast_liquidity_pivots_on_m1_m5(self, monkeypatch):
+        from datetime import datetime, timezone
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze.market, "info", lambda symbol: {
+            "ok": True,
+            "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840, "digits": 3, "point": 0.001, "pip_size": 0.01},
+        })
+        monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
+        monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "bias": "BULLISH HH/HL", "support": 157.760, "resistance": 157.900},
+        })
+        monkeypatch.setattr(analyze.ehukai, "fvg", lambda *a, **kw: {"ok": True, "data": {"zones": []}})
+
+        lengths = {}
+
+        def mock_liquidity(symbol, timeframe, **kwargs):
+            lengths[timeframe] = kwargs["length"]
+            return {"ok": True, "data": {"timeframe": timeframe, "pools": []}}
+
+        monkeypatch.setattr(analyze.ehukai, "liquidity", mock_liquidity)
+
+        analyze.sniper_poc(
+            "USDJPY",
+            direction="buy",
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
+
+        assert lengths["M1"] == 5
+        assert lengths["M5"] == 5
+        assert lengths["M15"] == 14
+        assert lengths["H1"] == 14
+        assert lengths["H4"] == 14
 
 
 # ===========================================================================
