@@ -313,11 +313,8 @@ Indicators are computed from fetched rate data using `pandas-ta`. No chart-windo
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `indicator ema` | `SYMBOL TIMEFRAME --period INT --bars INT` | `symbol`, `timeframe`, `period`, `values: [{time, ema}]` | EMA series |
-| `indicator sma` | `SYMBOL TIMEFRAME --period INT --bars INT` | same schema | SMA series |
-| `indicator rsi` | `SYMBOL TIMEFRAME --period INT --bars INT` | `values: [{time, rsi}]` | RSI series |
-| `indicator macd` | `SYMBOL TIMEFRAME --fast INT --slow INT --signal INT` | `values: [{time, macd, signal, histogram}]` | MACD series |
-| `indicator bb` | `SYMBOL TIMEFRAME --period INT --std FLOAT` | `values: [{time, upper, mid, lower}]` | Bollinger Bands |
 | `indicator atr` | `SYMBOL TIMEFRAME --period INT --bars INT` | `values: [{time, atr}]` | ATR series |
+| `indicator fvg` | `SYMBOL TIMEFRAME --bars INT --min-points FLOAT --state STATE` | `zones`, `values` | Fair Value Gap zones |
 | `indicator list` | — | `[{name, description, params}]` | Available indicators |
 
 ### 6.5 `mt5 analyze` — Top-Down Market Structure Analysis

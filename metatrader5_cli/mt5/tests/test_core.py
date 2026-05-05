@@ -1029,48 +1029,6 @@ class TestIndicator:
         assert "value" not in last
         assert last["ema"] == pytest.approx(1.3967078189, rel=1e-5)
 
-    def test_sma_known_input_produces_known_output(self, monkeypatch):
-        import pytest
-        ind = self._mock_fetch(monkeypatch)
-        result = ind.sma("EURUSD", "H1", period=5, bars=10)
-        assert result["ok"] is True
-        last = result["data"]["values"][-1]
-        assert "sma" in last, "values rows must use 'sma' key per spec §6.4"
-        assert "value" not in last
-        assert last["sma"] == pytest.approx(1.39, rel=1e-6)
-
-    def test_rsi_known_input_produces_known_output(self, monkeypatch):
-        import pytest
-        ind = self._mock_fetch(monkeypatch)
-        result = ind.rsi("EURUSD", "H1", period=5, bars=10)
-        assert result["ok"] is True
-        last = result["data"]["values"][-1]
-        assert "rsi" in last, "values rows must use 'rsi' key per spec §6.4"
-        assert "value" not in last
-        assert last["rsi"] == pytest.approx(90.690827, rel=1e-4)
-
-    def test_macd_known_input_produces_known_output(self, monkeypatch):
-        import pytest
-        ind = self._mock_fetch(monkeypatch)
-        result = ind.macd("EURUSD", "H1", fast=3, slow=5, signal=2, bars=10)
-        assert result["ok"] is True
-        assert len(result["data"]["values"]) > 0
-        last = result["data"]["values"][-1]
-        assert "macd" in last and "signal" in last
-        assert "histogram" in last, "MACD rows must use 'histogram' key per spec §6.4"
-        assert "hist" not in last
-        assert last["macd"] == pytest.approx(0.0521203061, rel=1e-4)
-
-    def test_bb_known_input_produces_known_output(self, monkeypatch):
-        import pytest
-        ind = self._mock_fetch(monkeypatch)
-        result = ind.bb("EURUSD", "H1", period=5, std=2.0, bars=10)
-        assert result["ok"] is True
-        assert len(result["data"]["values"]) > 0
-        last = result["data"]["values"][-1]
-        assert "lower" in last and "mid" in last and "upper" in last
-        assert last["lower"] == pytest.approx(1.1976461594, rel=1e-4)
-
     def test_atr_known_input_produces_known_output(self, monkeypatch):
         import pytest
         ind = self._mock_fetch(monkeypatch)
@@ -1163,13 +1121,13 @@ class TestIndicator:
         assert len(result["data"]["zones"]) == 1
         assert result["data"]["zones"][0]["formed_at"] == "2024-01-01T01:00:00+00:00"
 
-    def test_indicator_list_returns_seven_entries(self):
+    def test_indicator_list_returns_three_entries(self):
         from metatrader5_cli.mt5.core import indicator
         result = indicator.list_available()
         assert result["ok"] is True
-        assert len(result["data"]) == 7
+        assert len(result["data"]) == 3
         names = {e["name"] for e in result["data"]}
-        assert names == {"ema", "sma", "rsi", "macd", "bb", "atr", "fvg"}
+        assert names == {"ema", "atr", "fvg"}
 
 
 # ===========================================================================
@@ -1243,8 +1201,9 @@ class TestAnalyze:
         assert result["ok"] is True
         assert result["data"]["timeframes"]["H1"]["trend"] == "bullish"
         assert result["data"]["timeframes"]["H1"]["structure"] == "HH_HL"
-        assert "ema_20" not in result["data"]["timeframes"]["H1"]
-        assert "rsi_14" not in result["data"]["timeframes"]["H1"]
+        assert set(result["data"]["timeframes"]["H1"]) == {
+            "trend", "structure", "current_price", "support", "resistance", "swing_highs", "swing_lows",
+        }
         assert result["data"]["bias"] == "bullish"
 
     def test_topdown_confluence_score_unanimous(self, monkeypatch):
