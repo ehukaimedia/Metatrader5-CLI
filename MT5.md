@@ -181,10 +181,10 @@ All retcodes surface in `error.mt5_retcode` in the JSON error envelope.
   "live":     false,
 
   "max_positions":          5,
-  "max_daily_loss":         50.0,
-  "max_lot_per_order":      1.0,
+  "max_daily_loss":         2000.0,
+  "max_lot_per_order":      2.5,
   "min_sl_distance_points": 50,
-  "max_spread_points":      30,
+  "max_spread_points":      80,
   "min_free_margin_pct":    20,
   "max_orders_per_minute":  10,
   "symbol_allowlist":       [],

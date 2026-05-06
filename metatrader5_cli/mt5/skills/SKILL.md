@@ -107,12 +107,12 @@ Every mutating command (`order market`, `order limit`, `order stop`,
 |---|---|---|---|
 | Live-account gate | `--live` flag + `MT5_LIVE=1` env + `cfg.live` | blocked on real accounts | `RISK_LIVE_GATE_BLOCKED` |
 | Max open positions | `max_positions` | 5 | `RISK_MAX_POSITIONS` |
-| Max daily loss | `max_daily_loss` | 50.0 (account currency) | `RISK_MAX_DAILY_LOSS` |
+| Max daily loss | `max_daily_loss` | 2000.0 (account currency) | `RISK_MAX_DAILY_LOSS` |
 | Symbol allowlist | `symbol_allowlist` | `[]` (allow all) | `RISK_SYMBOL_NOT_ALLOWED` |
 | Min free margin | `min_free_margin_pct` | 20 % | `RISK_INSUFFICIENT_MARGIN` |
 | No-stop-loss | `min_sl_distance_points` | 50 pts | `RISK_NO_STOP_LOSS` |
-| Max lot per order | `max_lot_per_order` | 1.0 | `RISK_MAX_LOT_EXCEEDED` |
-| Max spread | `max_spread_points` | 30 pts | `RISK_SPREAD_TOO_WIDE` |
+| Max lot per order | `max_lot_per_order` | 2.5 | `RISK_MAX_LOT_EXCEEDED` |
+| Max spread | `max_spread_points` | 80 pts | `RISK_SPREAD_TOO_WIDE` |
 | Rate limit | `max_orders_per_minute` | 10 | `RISK_RATE_LIMIT` |
 | Hedge guard | `allow_hedging` | false | `RISK_HEDGE_BLOCKED` |
 | Strategy-ID length | hardcoded | 31 chars | `RISK_STRATEGY_ID_TOO_LONG` |

@@ -201,11 +201,11 @@ Metatrader5-CLI/
   "deviation": 20,
   "filling": "auto",
   "max_positions": 5,
-  "max_daily_loss": 50.0,
-  "max_lot_per_order": 1.0,
+  "max_daily_loss": 2000.0,
+  "max_lot_per_order": 2.5,
   "min_sl_distance_points": 50,
   "max_orders_per_minute": 10,
-  "max_spread_points": 30,
+  "max_spread_points": 80,
   "symbol_allowlist": [],
   "min_free_margin_pct": 20,
   "screenshot_path": "~/mt5-screenshots",
@@ -471,7 +471,7 @@ Autonomous trading commands carry significant financial risk. The following guar
 | Guard | Config key | Default | Behavior on breach |
 |-------|-----------|---------|-------------------|
 | Max open positions | `max_positions` | 5 | Reject, `RISK_MAX_POSITIONS` |
-| Max daily loss | `max_daily_loss` | 50.0 (account currency) | Reject, `RISK_MAX_DAILY_LOSS`. **Daily loss = realized P&L from deals closed today + floating P&L of all open positions at check time.** Both components are included so a large open loser cannot evade the cap. Realized component: sum of `deal.profit + deal.commission + deal.swap` for all deals since `00:00 UTC` today. Floating component: sum of `position.profit` across all open positions. |
+| Max daily loss | `max_daily_loss` | 2000.0 (account currency) | Reject, `RISK_MAX_DAILY_LOSS`. **Daily loss = realized P&L from deals closed today + floating P&L of all open positions at check time.** Both components are included so a large open loser cannot evade the cap. Realized component: sum of `deal.profit + deal.commission + deal.swap` for all deals since `00:00 UTC` today. Floating component: sum of `position.profit` across all open positions. |
 | Symbol allowlist | `symbol_allowlist` | `[]` (= allow all) | Reject, `RISK_SYMBOL_NOT_ALLOWED` |
 | Min free margin | `min_free_margin_pct` | 20 (%) | Reject, `RISK_INSUFFICIENT_MARGIN` |
 
@@ -479,9 +479,9 @@ Autonomous trading commands carry significant financial risk. The following guar
 
 | Guard | Config key | Default | Behavior on breach |
 |-------|-----------|---------|-------------------|
-| Max lot per order | `max_lot_per_order` | 1.0 | Reject, `RISK_MAX_LOT_EXCEEDED` |
+| Max lot per order | `max_lot_per_order` | 2.5 | Reject, `RISK_MAX_LOT_EXCEEDED` |
 | Min SL distance | `min_sl_distance_points` | 50 | Reject orders with no SL or SL too close, `RISK_NO_STOP_LOSS` |
-| Max spread at order time | `max_spread_points` | 30 | Reject, `RISK_SPREAD_TOO_WIDE` |
+| Max spread at order time | `max_spread_points` | 80 | Reject, `RISK_SPREAD_TOO_WIDE` |
 | Max orders per minute | `max_orders_per_minute` | 10 | Reject (`core/risk.py` maintains a sliding 60-second window counter), `RISK_RATE_LIMIT` |
 
 All guards are checked in sequence in `core/risk.py` before the `order_send()` call.

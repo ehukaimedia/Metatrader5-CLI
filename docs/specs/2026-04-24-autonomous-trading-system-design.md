@@ -359,8 +359,8 @@ The MT5-CLI's `core/risk.py` is the **per-order floor**: stateless, enforces `ma
 This layer is the **session-level ceiling**: stateful checks the CLI cannot make (consecutive losses, session-start equity, daily loss cap, dead zone window, news blackout). These run **before** the CLI call.
 
 **Layering invariant**: session gates never relax the CLI floor — only tighten it (for rejection thresholds, "tighten" = reject at a stricter value). For every overlap:
-- `AURUM_MAX_LOT` (default 0.50) ≤ CLI `max_lot_per_order` (default 1.0)
-- `AURUM_MAX_SPREAD_PIPS × 10` (default 30 points, converted from 3.0 pips on 3-digit broker) ≤ CLI `max_spread_points` (default 30) — session rejects at or below CLI threshold
+- `AURUM_MAX_LOT` (default 1.5) ≤ CLI `max_lot_per_order` (default 2.5)
+- `AURUM_MAX_SPREAD_PIPS × 10` (default 30 points, converted from 3.0 pips on 3-digit broker) ≤ CLI `max_spread_points` (default 80) — session rejects at or below CLI threshold
 - Session min SL distance ≥ CLI `min_sl_distance_points` (session demands a wider-or-equal SL)
 
 Runtime **asserts these invariants at start** by reading the CLI config (`metatrader5_cli.mt5.core.project.config()`) and comparing. Any violation is a hard startup error.
@@ -374,13 +374,13 @@ If the CLI rejects with a `RISK_*` error, log it to the journal as `BLOCKED_BY_C
 | Dead zone | 22:00–00:00 UTC | `AURUM_DEAD_ZONE_START` / `AURUM_DEAD_ZONE_END` | Block new entries; existing positions managed normally |
 | Max spread | 3.0 pips (= 30 points on 3-digit broker) | `AURUM_MAX_SPREAD_PIPS` | Block entry; log spread value. Must be ≤ CLI `max_spread_points` / 10 |
 | News blackout | ±15 min around high-impact events | `AURUM_NEWS_BLACKOUT_MINS` | Block entry; events loaded from `${AURUM_DATA_DIR}/news_calendar.json`. **If file is missing on startup**: runtime logs `critical` alert via `alert_transport` ("news calendar missing — news-blackout gate is INACTIVE") and continues with the gate disabled. Operator must create the file; runtime never silently skips without emitting the alert. |
-| Daily loss cap | -$100 | `AURUM_DAILY_LOSS_CAP` | Block new entries until midnight UTC auto-reset; does NOT close open positions |
+| Daily loss cap | -$1500 | `AURUM_DAILY_LOSS_CAP_USD` | Block new entries until midnight UTC auto-reset; does NOT close open positions |
 | Consecutive loss breaker | 3 sequential losses | `AURUM_MAX_CONSECUTIVE_LOSSES` | Block new entries; requires RESUME + manual HALT.flag deletion (does NOT auto-reset) |
 | Equity floor — soft | 95% of session-start equity | `AURUM_EQUITY_FLOOR_PCT` | Block new entries only; current position managed to completion |
 | Equity floor — hard | 90% of session-start equity | `AURUM_EQUITY_HARD_FLOOR_PCT` | Close all positions immediately + HALT; write HALT.flag; requires RESUME |
 | Max concurrent positions | 1 | `AURUM_MAX_POSITIONS` | Block new entry while any position open |
 | Max trades per session | 5 | `AURUM_MAX_TRADES_SESSION` | Block new entries for remainder of session; resets midnight UTC |
-| Max lot size | 0.50 | `AURUM_MAX_LOT` | Cap volume; scale down, never reject outright |
+| Max lot size | 1.5 | `AURUM_MAX_LOT` | Cap volume; scale down, never reject outright |
 | Algo trading enabled | — | — | CLI retcode 10027: HALT, write HALT.flag, `alert_transport(..., "critical")` |
 | Margin level | > 200% | `AURUM_MIN_MARGIN_PCT` | Block new entries if margin level below threshold |
 | Kill switch — command | Operator sends `HALT` via control transport | — | Close all positions + HALT immediately |
@@ -614,7 +614,7 @@ Append-only JSONL at `${AURUM_DATA_DIR}/journal.jsonl`.
 
 ### Phase 2 — Standard size
 
-1. `AURUM_MAX_LOT=0.50`, `AURUM_RISK_PCT=0.01` (1% risk)
+1. `AURUM_MAX_LOT=1.5`, `AURUM_RISK_PCT=0.01` (1% risk)
 2. Full autonomous operation; operator reviews journal each session
 
 ---
@@ -660,12 +660,12 @@ autotrader/                    # host-agnostic package; drop into any repo
 |---|---|---|
 | `AURUM_SYMBOL` | `USDJPY` | Trading symbol |
 | `AURUM_RISK_PCT` | `0.01` | Risk per trade as fraction of current equity |
-| `AURUM_MAX_LOT` | `0.50` | Hard lot size cap (must be ≤ CLI `max_lot_per_order`) |
+| `AURUM_MAX_LOT` | `1.5` | Hard lot size cap (must be ≤ CLI `max_lot_per_order`) |
 | `AURUM_MIN_RR` | `3.0` | Minimum risk:reward ratio |
-| `AURUM_MAX_SPREAD_PIPS` | `3.0` | Max spread before blocking entry. Equals 30 points on a 3-digit broker (USDJPY) — matches CLI `max_spread_points` floor |
+| `AURUM_MAX_SPREAD_PIPS` | `3.0` | Max spread before blocking entry. Equals 30 points on a 3-digit broker (USDJPY), below the CLI `max_spread_points` floor |
 | `AURUM_MAX_POSITIONS` | `1` | Max concurrent positions |
 | `AURUM_MAX_TRADES_SESSION` | `5` | Max trades per session; resets midnight UTC |
-| `AURUM_DAILY_LOSS_CAP` | `100.0` | Max daily loss ($) before blocking new entries |
+| `AURUM_DAILY_LOSS_CAP_USD` | `1500.0` | Max daily loss ($) before blocking new entries |
 | `AURUM_MAX_CONSECUTIVE_LOSSES` | `3` | Loss streak before halt (no auto-reset) |
 | `AURUM_EQUITY_FLOOR_PCT` | `0.95` | Soft equity floor — block new entries only |
 | `AURUM_EQUITY_HARD_FLOOR_PCT` | `0.90` | Hard equity floor — close all + HALT |

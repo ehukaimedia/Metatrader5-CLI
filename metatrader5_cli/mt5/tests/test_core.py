@@ -324,7 +324,7 @@ class TestRisk:
     def test_check_order_rejects_max_lot_exceeded(self, mt5m, cfg):
         from metatrader5_cli.mt5.core import risk
         self._happy_path_setup(mt5m, cfg)
-        result = risk.check_order("USDJPY", "buy", 2.0, 154.50, None, cfg, is_live_intent=False)
+        result = risk.check_order("USDJPY", "buy", 3.0, 154.50, None, cfg, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_MAX_LOT_EXCEEDED"
 
@@ -401,10 +401,10 @@ class TestRisk:
         from metatrader5_cli.mt5.core import risk
         from unittest.mock import MagicMock as MM
         mt5m.account_info.return_value = MM(trade_mode=0, equity=10000.0, margin_free=8000.0)
-        mt5m.positions_get.return_value = [MM(profit=-30.0)]  # floating -30
-        # Realized deals: profit=-20, comm=-1, swap=-0.5 → realized = -21.5
-        # Total = -30 + (-21.5) = -51.5 <= -50 → fires
-        deal = MM(profit=-20.0, commission=-1.0, swap=-0.5)
+        mt5m.positions_get.return_value = [MM(profit=-1500.0)]  # floating -1500
+        # Realized deals: profit=-500, comm=-1, swap=-0.5 -> realized = -501.5
+        # Total = -1500 + (-501.5) = -2001.5 <= -2000 -> fires
+        deal = MM(profit=-500.0, commission=-1.0, swap=-0.5)
         mt5m.history_deals_get.return_value = [deal]
         mt5m.symbol_info_tick.return_value = MM(ask=155.00, bid=154.99)
         mt5m.symbol_info.return_value = MM(point=0.001)
