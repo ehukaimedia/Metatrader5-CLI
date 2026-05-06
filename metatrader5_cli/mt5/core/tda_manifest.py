@@ -14,7 +14,7 @@ from pathlib import Path
 INDICATOR_ROOT = Path(__file__).resolve().parents[1] / "mql5" / "Indicators"
 
 
-VISUAL_MANIFEST_VERSION = "2026-05-05"
+VISUAL_MANIFEST_VERSION = "2026-05-06"
 
 
 _VISUAL_MANIFEST = {
@@ -42,6 +42,13 @@ _VISUAL_MANIFEST = {
             "label_pattern": "TDA <TF>: <BIAS> | H <kind> <price> | L <kind> <price>",
             "meaning": "Preferred visual presentation layer for screenshot agents. Composes structure, FVG, and liquidity with low-noise defaults.",
             "structured_source": "ehukai structure + ehukai fvg + ehukai liquidity",
+        },
+        {
+            "indicator": "EhukaiTDAOverlay",
+            "visual": "sniper state label",
+            "label_pattern": "SNIPER <TF> | <NO_TRADE|WATCH_BUY|WATCH_SELL|ARMED_BUY|ARMED_SELL|TRIGGER_BUY|TRIGGER_SELL> | <score> | <reason>",
+            "meaning": "Sniper-mode summary. Wicks can arm liquidity context, but BOS/CHOCH requires a closed candle beyond the swing level.",
+            "structured_source": "EhukaiTDAOverlay TDA_SNIPER mode",
         },
         {
             "indicator": "EhukaiFVG",
@@ -87,9 +94,9 @@ _VISUAL_MANIFEST = {
         },
         {
             "indicator": "EhukaiMarketStructure",
-            "visual": "BULLISH BOS / BEARISH BOS text near latest candle",
-            "label_pattern": "<BULLISH|BEARISH> BOS",
-            "meaning": "Current close has broken the latest swing high or low.",
+            "visual": "BULLISH/BEARISH BOS or CHOCH text near latest candle",
+            "label_pattern": "<BULLISH|BEARISH> <BOS|CHOCH>",
+            "meaning": "BOS is continuation through the latest swing level. CHOCH is a close-confirmed break against the prior HH/HL or LH/LL structure.",
             "structured_source": "analyze structure current_price vs support/resistance",
         },
         {
@@ -117,7 +124,7 @@ _VISUAL_MANIFEST = {
             "indicator": "EhukaiLiquiditySwings",
             "visual": "dashed liquidity level",
             "label_pattern": "SWEPT",
-            "meaning": "The pool has been crossed by a later close. Treat nearby passive entries with extra suspicion.",
+            "meaning": "The pool has been pierced by a wick and price closed back through the pool, marking sweep context rather than directional confirmation.",
             "structured_source": "ehukai liquidity pools[].status == swept",
         },
     ],
@@ -127,6 +134,7 @@ _VISUAL_MANIFEST = {
         "Use screenshots for spatial confluence and chart cleanliness.",
         "Use structured_context for exact prices, states, and distances.",
         "Treat visual and structured data as complementary; if they disagree, report the discrepancy.",
+        "In TDA_SNIPER mode, treat wick-through/close-back as sweep context and closed-body breaks as BOS/CHOCH confirmation.",
         "Do not use FVG, BOS, or DOM alone as a trade trigger without TDA context and dry-run validation.",
     ],
 }

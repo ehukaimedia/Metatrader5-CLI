@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                             EhukaiTDAOverlay.mq5  |
 //|                  Ehukai Trading - Unified TDA Visual Overlay      |
-//|                  v1.01 - Clean screenshot presentation layer      |
+//|                  v1.10 - Sniper state presentation layer          |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.01"
+#property version   "1.10"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -28,7 +28,8 @@
 enum ENUM_TDA_MODE
   {
    TDA_AGENT_SCREENSHOT = 0, // Agent Screenshot
-   TDA_MANUAL_ANALYSIS  = 1  // Manual Analysis
+   TDA_MANUAL_ANALYSIS  = 1, // Manual Analysis
+   TDA_SNIPER           = 2  // Sniper
   };
 
 input ENUM_TDA_MODE InpMode               = TDA_AGENT_SCREENSHOT; // Visual mode
@@ -49,6 +50,14 @@ input bool          InpShowSweptLiquidity = true;                 // Include swe
 input double        InpMaxLiquidityDistancePips = 120.0;          // Max liquidity distance
 input bool          InpFillSmallZones     = false;                // Fill small zones
 input double        InpMaxFillPips        = 25.0;                 // Max filled-zone size
+input bool          InpShowSniperState    = true;                 // Show sniper state
+input bool          InpShowOnlyActionableZones = true;            // Sniper: only actionable zones
+input int           InpMinTDAScore        = 70;                   // Minimum actionable score
+input bool          InpUseClosedBarSignals = true;                // Confirm signals on closed bar
+input double        InpBreakBufferPips    = 0.2;                  // BOS close buffer
+input bool          InpAlertOnWatch       = false;                // Alert on watch state
+input bool          InpAlertOnArmed       = false;                // Alert on armed state
+input bool          InpAlertOnTrigger     = true;                 // Alert on trigger state
 input int           InpLabelFontSize      = 8;                    // Label size
 input double        InpLabelOffsetPips    = 3.0;                  // Label offset
 input color         InpBullColor          = clrLimeGreen;         // Bullish color
@@ -61,6 +70,8 @@ input color         InpLiquiditySellColor = clrTeal;              // Sell-side l
 string g_prefix = "ETDA_";
 double g_point;
 int    g_digits;
+string g_last_alert_key = "";
+datetime g_last_alert_bar_time = 0;
 
 struct SwingPoint
   {
@@ -84,6 +95,43 @@ struct FVGZone
    bool     is_filled;
    bool     is_partial;
    int      index;
+  };
+
+struct LiquidityCandidate
+  {
+   bool     valid;
+   bool     buy_side;
+   datetime pivot_time;
+   datetime right_time;
+   double   top;
+   double   bottom;
+   double   level;
+   bool     swept;
+   int      count;
+   double   volume;
+   double   distance_pips;
+  };
+
+struct SetupContext
+  {
+   string bias;
+   int    bias_dir;
+   bool   bull_bos;
+   bool   bear_bos;
+   bool   bull_choch;
+   bool   bear_choch;
+   bool   bull_poi_near;
+   bool   bear_poi_near;
+   bool   bull_poi_touched;
+   bool   bear_poi_touched;
+   bool   buy_liquidity_swept;
+   bool   sell_liquidity_swept;
+   double nearest_bull_poi_pips;
+   double nearest_bear_poi_pips;
+   string state;
+   string direction;
+   string reason;
+   int    score;
   };
 
 //+------------------------------------------------------------------+
@@ -140,14 +188,118 @@ int EffectivePivotBars()
 
 int ModeMaxFVG()
   {
+   if(InpMode == TDA_SNIPER && InpShowOnlyActionableZones)
+      return 2;
    int cap = (InpMode == TDA_AGENT_SCREENSHOT ? 3 : 5);
    return MathMax(1, MathMin(InpMaxFVGZones, cap));
   }
 
 int ModeMaxLiquidity()
   {
+   if(InpMode == TDA_SNIPER && InpShowOnlyActionableZones)
+      return 2;
    int cap = (InpMode == TDA_AGENT_SCREENSHOT ? 4 : 8);
    return MathMax(1, MathMin(InpMaxLiquidityPools, cap));
+  }
+
+bool IsSniperMode()
+  {
+   return InpMode == TDA_SNIPER;
+  }
+
+void InitSetupContext(SetupContext &ctx)
+  {
+   ctx.bias = "NEUTRAL / RANGE";
+   ctx.bias_dir = 0;
+   ctx.bull_bos = false;
+   ctx.bear_bos = false;
+   ctx.bull_choch = false;
+   ctx.bear_choch = false;
+   ctx.bull_poi_near = false;
+   ctx.bear_poi_near = false;
+   ctx.bull_poi_touched = false;
+   ctx.bear_poi_touched = false;
+   ctx.buy_liquidity_swept = false;
+   ctx.sell_liquidity_swept = false;
+   ctx.nearest_bull_poi_pips = DBL_MAX;
+   ctx.nearest_bear_poi_pips = DBL_MAX;
+   ctx.state = "NO_TRADE";
+   ctx.direction = "-";
+   ctx.reason = "No actionable alignment";
+   ctx.score = 0;
+  }
+
+bool PriceInZone(const double price, const double top, const double bottom)
+  {
+   return price <= top && price >= bottom;
+  }
+
+void TrackFVGContext(SetupContext &ctx, const FVGZone &zone, const double current_price)
+  {
+   double distance = FVGDistancePips(zone, current_price);
+   bool touched = PriceInZone(current_price, zone.upper, zone.lower);
+
+   if(zone.is_bullish)
+     {
+      if(distance < ctx.nearest_bull_poi_pips)
+         ctx.nearest_bull_poi_pips = distance;
+      ctx.bull_poi_near = true;
+      if(touched)
+         ctx.bull_poi_touched = true;
+     }
+   else
+     {
+      if(distance < ctx.nearest_bear_poi_pips)
+         ctx.nearest_bear_poi_pips = distance;
+      ctx.bear_poi_near = true;
+      if(touched)
+         ctx.bear_poi_touched = true;
+     }
+  }
+
+void TrackLiquidityContext(SetupContext &ctx, const bool buy_side, const bool swept)
+  {
+   if(!swept)
+      return;
+
+   if(buy_side)
+      ctx.buy_liquidity_swept = true;
+   else
+      ctx.sell_liquidity_swept = true;
+  }
+
+void InitLiquidityCandidate(LiquidityCandidate &candidate)
+  {
+   candidate.valid = false;
+   candidate.buy_side = false;
+   candidate.pivot_time = 0;
+   candidate.right_time = 0;
+   candidate.top = 0.0;
+   candidate.bottom = 0.0;
+   candidate.level = 0.0;
+   candidate.swept = false;
+   candidate.count = 0;
+   candidate.volume = 0.0;
+   candidate.distance_pips = DBL_MAX;
+  }
+
+void SetLiquidityCandidate(LiquidityCandidate &candidate, const bool buy_side,
+                           const datetime pivot_time, const datetime right_time,
+                           const double top, const double bottom, const double level,
+                           const bool swept, const int count, const double volume,
+                           const double distance_pips)
+  {
+   candidate.valid = true;
+   candidate.buy_side = buy_side;
+   candidate.pivot_time = pivot_time;
+   candidate.right_time = right_time;
+   candidate.top = top;
+   candidate.bottom = bottom;
+   candidate.level = level;
+   candidate.swept = swept;
+   candidate.count = count;
+   candidate.volume = volume;
+   candidate.distance_pips = distance_pips;
   }
 
 void SetObjectDefaults(const string name, const bool back, const int zorder)
@@ -165,6 +317,13 @@ datetime FutureTime(const datetime &time[], const int rates_total)
    if(seconds <= 0)
       seconds = 60;
    return time[rates_total - 1] + (datetime)(seconds * InpExtendBars);
+  }
+
+int SignalBarIndex(const int rates_total)
+  {
+   if(rates_total < 2)
+      return 0;
+   return InpUseClosedBarSignals ? rates_total - 2 : rates_total - 1;
   }
 
 //+------------------------------------------------------------------+
@@ -254,12 +413,19 @@ bool LatestSwing(const SwingPoint &swings[], const int swing_count,
 
 string StructureBias(const SwingPoint &last_high, const bool have_high,
                      const SwingPoint &last_low, const bool have_low,
-                     const double last_close)
+                     const double signal_close)
   {
-   if(have_high && last_close > last_high.price)
-      return "BULLISH BOS";
-   if(have_low && last_close < last_low.price)
-      return "BEARISH BOS";
+   double buffer = PipsToPrice(InpBreakBufferPips);
+   if(have_high && signal_close > last_high.price + buffer)
+     {
+      bool prior_bearish = have_low && last_high.kind == "LH" && last_low.kind == "LL";
+      return prior_bearish ? "BULLISH CHOCH" : "BULLISH BOS";
+     }
+   if(have_low && signal_close < last_low.price - buffer)
+     {
+      bool prior_bullish = have_high && last_high.kind == "HH" && last_low.kind == "HL";
+      return prior_bullish ? "BEARISH CHOCH" : "BEARISH BOS";
+     }
    if(have_high && have_low && last_high.kind == "HH" && last_low.kind == "HL")
       return "BULLISH HH/HL";
    if(have_high && have_low && last_high.kind == "LH" && last_low.kind == "LL")
@@ -348,7 +514,7 @@ void DrawBiasPanel(const string bias, const SwingPoint &last_high, const bool ha
 
 void RenderStructure(const double &high[], const double &low[],
                      const datetime &time[], const double &close[],
-                     const int rates_total)
+                     const int rates_total, SetupContext &ctx)
   {
    if(!InpShowStructure)
       return;
@@ -362,11 +528,20 @@ void RenderStructure(const double &high[], const double &low[],
    SwingPoint last_low;
    bool have_high = LatestSwing(swings, swing_count, true, last_high);
    bool have_low = LatestSwing(swings, swing_count, false, last_low);
-   string bias = StructureBias(last_high, have_high, last_low, have_low, close[rates_total - 1]);
+   int signal_index = SignalBarIndex(rates_total);
+   string bias = StructureBias(last_high, have_high, last_low, have_low, close[signal_index]);
+   ctx.bias = bias;
+   ctx.bias_dir = StringFind(bias, "BULLISH") >= 0 ? 1 : StringFind(bias, "BEARISH") >= 0 ? -1 : 0;
+   ctx.bull_bos = StringFind(bias, "BULLISH BOS") >= 0;
+   ctx.bear_bos = StringFind(bias, "BEARISH BOS") >= 0;
+   ctx.bull_choch = StringFind(bias, "BULLISH CHOCH") >= 0;
+   ctx.bear_choch = StringFind(bias, "BEARISH CHOCH") >= 0;
 
    int max_labels = MathMax(1, InpMaxSwingLabels);
    if(InpMode == TDA_AGENT_SCREENSHOT)
       max_labels = MathMin(max_labels, 6);
+   if(IsSniperMode())
+      max_labels = MathMin(max_labels, 4);
    int shown = 0;
    for(int i = swing_count - 1; i >= 0 && shown < max_labels; i--)
      {
@@ -505,7 +680,8 @@ void DrawFVG(const FVGZone &zone, const int ordinal,
   }
 
 void RenderFVGs(const double &open[], const double &high[], const double &low[],
-                const double &close[], const datetime &time[], const int rates_total)
+                const double &close[], const datetime &time[], const int rates_total,
+                SetupContext &ctx)
   {
    if(!InpShowFVG)
       return;
@@ -563,6 +739,45 @@ void RenderFVGs(const double &open[], const double &high[], const double &low[],
 
    datetime chart_end = FutureTime(time, rates_total);
    datetime label_time = time[rates_total - 1] + (datetime)(MathMax(2, InpExtendBars / 6) * PeriodSeconds(_Period));
+
+   for(int i = 0; i < count; i++)
+      TrackFVGContext(ctx, zones[i], current_price);
+
+   if(IsSniperMode() && InpShowOnlyActionableZones)
+     {
+      int best_bull = -1;
+      int best_bear = -1;
+      double best_bull_distance = DBL_MAX;
+      double best_bear_distance = DBL_MAX;
+
+      for(int i = 0; i < count; i++)
+        {
+         double distance = FVGDistancePips(zones[i], current_price);
+         if(zones[i].is_bullish && distance < best_bull_distance)
+           {
+            best_bull_distance = distance;
+            best_bull = i;
+           }
+         if(!zones[i].is_bullish && distance < best_bear_distance)
+           {
+            best_bear_distance = distance;
+            best_bear = i;
+           }
+        }
+
+      bool show_bull = ctx.bias_dir >= 0;
+      bool show_bear = ctx.bias_dir <= 0;
+      int shown_sniper = 0;
+      if(show_bull && best_bull >= 0)
+        {
+         DrawFVG(zones[best_bull], shown_sniper, chart_end, label_time);
+         shown_sniper++;
+        }
+      if(show_bear && best_bear >= 0)
+         DrawFVG(zones[best_bear], shown_sniper, chart_end, label_time);
+      return;
+     }
+
    int shown = 0;
    for(int i = count - 1; i >= 0 && shown < ModeMaxFVG(); i--)
      {
@@ -607,18 +822,19 @@ void PoolStats(const int start_index, const double top, const double bottom,
   }
 
 bool FindSweep(const bool buy_side, const int start_index, const double top,
-               const double bottom, const double &close[], const datetime &time[],
-               const int rates_total, datetime &swept_time)
+               const double bottom, const double &high[], const double &low[],
+               const double &close[], const datetime &time[],
+               const int last_index, datetime &swept_time)
   {
    swept_time = 0;
-   for(int j = start_index + 1; j < rates_total; j++)
+   for(int j = start_index + 1; j <= last_index; j++)
      {
-      if(buy_side && close[j] > top)
+      if(buy_side && high[j] > top && close[j] <= top)
         {
          swept_time = time[j];
          return true;
         }
-      if(!buy_side && close[j] < bottom)
+      if(!buy_side && low[j] < bottom && close[j] >= bottom)
         {
          swept_time = time[j];
          return true;
@@ -686,7 +902,7 @@ void DrawLiquidity(const int ordinal, const bool buy_side, const datetime pivot_
 
 void RenderLiquidity(const double &open[], const double &high[], const double &low[],
                      const double &close[], const datetime &time[], const long &tick_volume[],
-                     const int rates_total)
+                     const int rates_total, SetupContext &ctx)
   {
    if(!InpShowLiquidity)
       return;
@@ -699,9 +915,14 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
    int stop = rates_total - length;
    datetime future_time = FutureTime(time, rates_total);
    double current_price = close[rates_total - 1];
+   int signal_index = SignalBarIndex(rates_total);
    int drawn = 0;
+   LiquidityCandidate best_buy;
+   LiquidityCandidate best_sell;
+   InitLiquidityCandidate(best_buy);
+   InitLiquidityCandidate(best_sell);
 
-   for(int i = stop - 1; i >= start && drawn < ModeMaxLiquidity(); i--)
+   for(int i = stop - 1; i >= start; i--)
      {
       if(PivotHighAt(i, length, high))
         {
@@ -711,16 +932,27 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          double vol = 0.0;
          PoolStats(i, top, bottom, high, low, tick_volume, rates_total, count, vol);
          datetime swept_time = 0;
-         bool swept = FindSweep(true, i, top, bottom, close, time, rates_total, swept_time);
+         bool swept = FindSweep(true, i, top, bottom, high, low, close, time, signal_index, swept_time);
+         double distance = LiquidityDistancePips(top, bottom, current_price);
+         TrackLiquidityContext(ctx, true, swept);
          if(count > 0 && (!swept || InpShowSweptLiquidity)
-            && (InpMaxLiquidityDistancePips <= 0 || LiquidityDistancePips(top, bottom, current_price) <= InpMaxLiquidityDistancePips))
+            && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
            {
-            DrawLiquidity(drawn, true, time[i], swept ? swept_time : future_time,
-                          top, bottom, top, swept, count, vol);
-            drawn++;
+            if(IsSniperMode() && InpShowOnlyActionableZones)
+              {
+               if(distance < best_buy.distance_pips)
+                  SetLiquidityCandidate(best_buy, true, time[i], swept ? swept_time : future_time,
+                                        top, bottom, top, swept, count, vol, distance);
+              }
+            else
+              {
+               DrawLiquidity(drawn, true, time[i], swept ? swept_time : future_time,
+                             top, bottom, top, swept, count, vol);
+               drawn++;
+              }
            }
         }
-      if(drawn >= ModeMaxLiquidity())
+      if(!IsSniperMode() && drawn >= ModeMaxLiquidity())
          break;
       if(PivotLowAt(i, length, low))
         {
@@ -730,16 +962,217 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          double vol = 0.0;
          PoolStats(i, top, bottom, high, low, tick_volume, rates_total, count, vol);
          datetime swept_time = 0;
-         bool swept = FindSweep(false, i, top, bottom, close, time, rates_total, swept_time);
+         bool swept = FindSweep(false, i, top, bottom, high, low, close, time, signal_index, swept_time);
+         double distance = LiquidityDistancePips(top, bottom, current_price);
+         TrackLiquidityContext(ctx, false, swept);
          if(count > 0 && (!swept || InpShowSweptLiquidity)
-            && (InpMaxLiquidityDistancePips <= 0 || LiquidityDistancePips(top, bottom, current_price) <= InpMaxLiquidityDistancePips))
+            && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
            {
-            DrawLiquidity(drawn, false, time[i], swept ? swept_time : future_time,
-                          top, bottom, bottom, swept, count, vol);
-            drawn++;
+            if(IsSniperMode() && InpShowOnlyActionableZones)
+              {
+               if(distance < best_sell.distance_pips)
+                  SetLiquidityCandidate(best_sell, false, time[i], swept ? swept_time : future_time,
+                                        top, bottom, bottom, swept, count, vol, distance);
+              }
+            else
+              {
+               DrawLiquidity(drawn, false, time[i], swept ? swept_time : future_time,
+                             top, bottom, bottom, swept, count, vol);
+               drawn++;
+              }
            }
         }
+      if(!IsSniperMode() && drawn >= ModeMaxLiquidity())
+         break;
      }
+
+   if(IsSniperMode() && InpShowOnlyActionableZones)
+     {
+      bool draw_buy_side = ctx.bias_dir <= 0;
+      bool draw_sell_side = ctx.bias_dir >= 0;
+      if(draw_buy_side && best_buy.valid)
+        {
+         DrawLiquidity(drawn, best_buy.buy_side, best_buy.pivot_time, best_buy.right_time,
+                       best_buy.top, best_buy.bottom, best_buy.level, best_buy.swept,
+                       best_buy.count, best_buy.volume);
+         drawn++;
+        }
+      if(draw_sell_side && best_sell.valid)
+         DrawLiquidity(drawn, best_sell.buy_side, best_sell.pivot_time, best_sell.right_time,
+                       best_sell.top, best_sell.bottom, best_sell.level, best_sell.swept,
+                       best_sell.count, best_sell.volume);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Sniper state and alerts                                           |
+//+------------------------------------------------------------------+
+int ClampScore(const int score)
+  {
+   return MathMax(0, MathMin(100, score));
+  }
+
+void EvaluateSetupState(SetupContext &ctx)
+  {
+   int buy_score = 0;
+   int sell_score = 0;
+
+   if(ctx.bias_dir > 0)
+      buy_score += 25;
+   else if(ctx.bias_dir == 0)
+      buy_score += 8;
+
+   if(ctx.bias_dir < 0)
+      sell_score += 25;
+   else if(ctx.bias_dir == 0)
+      sell_score += 8;
+
+   if(ctx.bull_poi_near)
+      buy_score += 20;
+   if(ctx.bear_poi_near)
+      sell_score += 20;
+
+   if(ctx.bull_poi_touched)
+      buy_score += 10;
+   if(ctx.bear_poi_touched)
+      sell_score += 10;
+
+   if(ctx.sell_liquidity_swept)
+      buy_score += 20;
+   if(ctx.buy_liquidity_swept)
+      sell_score += 20;
+
+   if(ctx.bull_bos || ctx.bull_choch)
+      buy_score += 20;
+   if(ctx.bear_bos || ctx.bear_choch)
+      sell_score += 20;
+
+   if(ctx.nearest_bull_poi_pips != DBL_MAX && ctx.nearest_bull_poi_pips <= 20.0)
+      buy_score += 5;
+   if(ctx.nearest_bear_poi_pips != DBL_MAX && ctx.nearest_bear_poi_pips <= 20.0)
+      sell_score += 5;
+
+   buy_score = ClampScore(buy_score);
+   sell_score = ClampScore(sell_score);
+
+   bool buy_has_poi = ctx.bull_poi_near;
+   bool sell_has_poi = ctx.bear_poi_near;
+   bool buy_armed = ctx.bull_poi_touched || ctx.sell_liquidity_swept;
+   bool sell_armed = ctx.bear_poi_touched || ctx.buy_liquidity_swept;
+   bool buy_trigger = buy_armed && (ctx.bull_bos || ctx.bull_choch);
+   bool sell_trigger = sell_armed && (ctx.bear_bos || ctx.bear_choch);
+
+   if(buy_score >= sell_score)
+     {
+      ctx.score = buy_score;
+      ctx.direction = "BUY";
+      if(buy_trigger && buy_score >= InpMinTDAScore)
+        {
+         ctx.state = "TRIGGER_BUY";
+         ctx.reason = ctx.bull_choch ? "Bullish close-confirmed CHOCH after POI/sweep"
+                                     : "Bullish close-confirmed BOS after POI/sweep";
+        }
+      else if(buy_armed && buy_score >= InpMinTDAScore)
+        {
+         ctx.state = "ARMED_BUY";
+         ctx.reason = "Bullish POI/sell-side sweep active";
+        }
+      else if(buy_has_poi && buy_score >= 50)
+        {
+         ctx.state = "WATCH_BUY";
+         ctx.reason = "Bullish POI nearby";
+        }
+      else
+        {
+         ctx.state = "NO_TRADE";
+         ctx.direction = "-";
+         ctx.reason = "Buy score below threshold";
+        }
+     }
+   else
+     {
+      ctx.score = sell_score;
+      ctx.direction = "SELL";
+      if(sell_trigger && sell_score >= InpMinTDAScore)
+        {
+         ctx.state = "TRIGGER_SELL";
+         ctx.reason = ctx.bear_choch ? "Bearish close-confirmed CHOCH after POI/sweep"
+                                     : "Bearish close-confirmed BOS after POI/sweep";
+        }
+      else if(sell_armed && sell_score >= InpMinTDAScore)
+        {
+         ctx.state = "ARMED_SELL";
+         ctx.reason = "Bearish POI/buy-side sweep active";
+        }
+      else if(sell_has_poi && sell_score >= 50)
+        {
+         ctx.state = "WATCH_SELL";
+         ctx.reason = "Bearish POI nearby";
+        }
+      else
+        {
+         ctx.state = "NO_TRADE";
+         ctx.direction = "-";
+         ctx.reason = "Sell score below threshold";
+        }
+     }
+  }
+
+color StateColor(const SetupContext &ctx)
+  {
+   if(StringFind(ctx.state, "BUY") >= 0)
+      return InpBullColor;
+   if(StringFind(ctx.state, "SELL") >= 0)
+      return InpBearColor;
+   return InpNeutralColor;
+  }
+
+void DrawSniperState(const SetupContext &ctx)
+  {
+   if(!InpShowSniperState || !IsSniperMode())
+      return;
+
+   string name = g_prefix + _Symbol + "_" + TimeframeLabel() + "_SNIPER_STATE";
+   if(ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT,
+                      StringFormat("SNIPER %s | %s | %d | %s",
+                                   TimeframeLabel(), ctx.state, ctx.score, ctx.reason));
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 48);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, StateColor(ctx));
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      SetObjectDefaults(name, false, 7);
+     }
+  }
+
+void MaybeAlertSniperState(const SetupContext &ctx, const datetime signal_time)
+  {
+   if(!IsSniperMode() || ctx.state == "NO_TRADE")
+      return;
+
+   bool enabled = false;
+   if(StringFind(ctx.state, "WATCH") >= 0)
+      enabled = InpAlertOnWatch;
+   else if(StringFind(ctx.state, "ARMED") >= 0)
+      enabled = InpAlertOnArmed;
+   else if(StringFind(ctx.state, "TRIGGER") >= 0)
+      enabled = InpAlertOnTrigger;
+
+   if(!enabled)
+      return;
+
+   string key = _Symbol + "|" + TimeframeLabel() + "|" + ctx.state;
+   if(key == g_last_alert_key && signal_time == g_last_alert_bar_time)
+      return;
+
+   g_last_alert_key = key;
+   g_last_alert_bar_time = signal_time;
+   Alert(StringFormat("Ehukai TDA %s %s %s score %d: %s",
+                      _Symbol, TimeframeLabel(), ctx.state, ctx.score, ctx.reason));
   }
 
 //+------------------------------------------------------------------+
@@ -760,9 +1193,16 @@ int OnCalculate(const int rates_total,
    if(rates_total < 20)
       return rates_total;
 
-   RenderFVGs(open, high, low, close, time, rates_total);
-   RenderLiquidity(open, high, low, close, time, tick_volume, rates_total);
-   RenderStructure(high, low, time, close, rates_total);
+   SetupContext ctx;
+   InitSetupContext(ctx);
+
+   RenderStructure(high, low, time, close, rates_total, ctx);
+   RenderFVGs(open, high, low, close, time, rates_total, ctx);
+   RenderLiquidity(open, high, low, close, time, tick_volume, rates_total, ctx);
+   EvaluateSetupState(ctx);
+   DrawSniperState(ctx);
+   MaybeAlertSniperState(ctx, time[SignalBarIndex(rates_total)]);
+
    ChartRedraw(0);
    return rates_total;
   }
