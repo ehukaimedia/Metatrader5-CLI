@@ -8,6 +8,7 @@ timeframe toolbar HWNDs.
 from __future__ import annotations
 
 import ctypes
+import re
 import time
 from dataclasses import dataclass
 from ctypes import wintypes
@@ -47,8 +48,11 @@ WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
 WM_CLOSE = 0x0010
+WM_MDIACTIVATE = 0x0222
+WM_MDIGETACTIVE = 0x0229
 VK_RETURN = 0x0D
 VK_END = 0x23
+SW_RESTORE = 9
 TB_BUTTONCOUNT = 0x0418
 TB_GETBUTTON = 0x0417
 TB_PRESSBUTTON = 0x0403
@@ -66,6 +70,16 @@ PAGE_READWRITE = 0x04
 class WindowMatch:
     hwnd: int
     title: str
+
+
+@dataclass(frozen=True)
+class ChartWindow:
+    hwnd: int
+    title: str
+    symbol: str | None = None
+    timeframe: str | None = None
+    class_name: str = ""
+    active: bool = False
 
 
 def _fail(code: str, message: str, *, mt5_retcode: int | None = None) -> dict:
@@ -89,6 +103,35 @@ def normalize_timeframe(tf: str) -> str:
     if value not in TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe: {tf}")
     return value
+
+
+_BRACKET_CHART_RE = re.compile(r"\[([A-Z0-9._/#-]+)(?:,([A-Z0-9]+|Daily|Weekly|Monthly))?\]", re.IGNORECASE)
+_PLAIN_CHART_RE = re.compile(r"^\s*([A-Z0-9._/#-]+)\s*,\s*([A-Z0-9]+|Daily|Weekly|Monthly)\s*$", re.IGNORECASE)
+
+
+def _normalize_title_timeframe(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = value.strip().upper()
+    for normalized, aliases in TF_TITLE_ALIASES.items():
+        if raw in {alias.upper() for alias in aliases}:
+            return normalized
+    return None
+
+
+def parse_chart_title(title: str) -> tuple[str | None, str | None]:
+    """Extract ``(symbol, timeframe)`` from MT5 child or title-bar text."""
+    bracket = _BRACKET_CHART_RE.search(title or "")
+    if bracket:
+        return bracket.group(1).upper(), _normalize_title_timeframe(bracket.group(2))
+
+    plain = _PLAIN_CHART_RE.match(title or "")
+    if plain:
+        timeframe = _normalize_title_timeframe(plain.group(2))
+        if timeframe:
+            return plain.group(1).upper(), timeframe
+
+    return None, None
 
 
 def _title_matches(title: str, window_substring: str) -> bool:
@@ -134,21 +177,280 @@ def find_window(window_substring: str = "MT5") -> WindowMatch | None:
     return matches[0] if matches else None
 
 
-def current_title(window_substring: str = "MT5") -> dict:
+def _is_chart_child_class(class_name: str) -> bool:
+    lowered = (class_name or "").lower()
+    return (
+        lowered.startswith("afxframeorview")
+        or lowered.startswith("afx:")
+        or lowered in {"mdichild", "metatrader::chart"}
+    )
+
+
+def _find_mdi_client(parent_hwnd: int) -> int | None:
+    win32gui, _, _ = _win32()
+    clients: list[int] = []
+
+    def enum_child(hwnd, _extra):
+        if win32gui.GetClassName(hwnd) == "MDIClient":
+            clients.append(hwnd)
+            return False
+        return True
+
+    win32gui.EnumChildWindows(parent_hwnd, enum_child, None)
+    return clients[0] if clients else None
+
+
+def _is_descendant(parent_hwnd: int, child_hwnd: int) -> bool:
+    if not parent_hwnd or not child_hwnd:
+        return False
+    win32gui, _, _ = _win32()
+    hwnd = child_hwnd
+    while hwnd:
+        if hwnd == parent_hwnd:
+            return True
+        hwnd = win32gui.GetParent(hwnd)
+    return False
+
+
+def _active_chart_hwnd(parent_hwnd: int) -> int | None:
+    win32gui, _, _ = _win32()
+    mdi_client = _find_mdi_client(parent_hwnd)
+    if mdi_client:
+        try:
+            active = int(win32gui.SendMessage(mdi_client, WM_MDIGETACTIVE, 0, 0))
+            if active:
+                return active
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        focus = win32gui.GetFocus()
+    except Exception:  # noqa: BLE001
+        focus = 0
+    if focus and _is_descendant(parent_hwnd, focus):
+        return focus
+
+    try:
+        foreground = win32gui.GetForegroundWindow()
+        if foreground and _is_descendant(parent_hwnd, foreground):
+            return foreground
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def enumerate_chart_children(parent_hwnd: int) -> list[ChartWindow]:
+    """Return visible MT5 child chart windows under a terminal HWND."""
+    win32gui, _, _ = _win32()
+    active_hwnd = _active_chart_hwnd(parent_hwnd)
+    charts: list[ChartWindow] = []
+    seen: set[int] = set()
+
+    def enum_child(hwnd, _extra):
+        if hwnd in seen or not win32gui.IsWindowVisible(hwnd):
+            return
+        title = win32gui.GetWindowText(hwnd) or ""
+        class_name = win32gui.GetClassName(hwnd) or ""
+        symbol_name, timeframe = parse_chart_title(title)
+        if title and symbol_name and _is_chart_child_class(class_name):
+            seen.add(hwnd)
+            charts.append(
+                ChartWindow(
+                    hwnd=hwnd,
+                    title=title,
+                    symbol=symbol_name,
+                    timeframe=timeframe,
+                    class_name=class_name,
+                    active=bool(active_hwnd and (hwnd == active_hwnd or _is_descendant(hwnd, active_hwnd))),
+                )
+            )
+
+    win32gui.EnumChildWindows(parent_hwnd, enum_child, None)
+    if active_hwnd and all(not chart.active for chart in charts):
+        for index, chart_window in enumerate(charts):
+            if _is_descendant(chart_window.hwnd, active_hwnd):
+                charts[index] = ChartWindow(**{**chart_window.__dict__, "active": True})
+                break
+    return charts
+
+
+def _chart_payload(chart_window: ChartWindow) -> dict:
+    return {
+        "hwnd": chart_window.hwnd,
+        "chart_id": chart_window.hwnd,
+        "title": chart_window.title,
+        "symbol": chart_window.symbol,
+        "timeframe": chart_window.timeframe,
+        "class_name": chart_window.class_name,
+        "active": chart_window.active,
+    }
+
+
+def _charts_snapshot(parent_hwnd: int) -> list[dict]:
+    return [_chart_payload(chart_window) for chart_window in enumerate_chart_children(parent_hwnd)]
+
+
+def _format_detected_charts(charts: list[ChartWindow] | list[dict]) -> str:
+    if not charts:
+        return "none"
+    parts = []
+    for chart_window in charts:
+        if isinstance(chart_window, dict):
+            hwnd = chart_window.get("hwnd")
+            symbol_name = chart_window.get("symbol")
+            timeframe = chart_window.get("timeframe")
+            title = chart_window.get("title")
+        else:
+            hwnd = chart_window.hwnd
+            symbol_name = chart_window.symbol
+            timeframe = chart_window.timeframe
+            title = chart_window.title
+        label = symbol_name or "unknown"
+        if timeframe:
+            label = f"{label},{timeframe}"
+        parts.append(f"{hwnd}:{label} ({title})")
+    return "; ".join(parts)
+
+
+def _active_or_first_chart(parent_hwnd: int, *, chart_id: int | None = None) -> ChartWindow | None:
+    charts = enumerate_chart_children(parent_hwnd)
+    if chart_id is not None:
+        return next((chart_window for chart_window in charts if chart_window.hwnd == chart_id), None)
+    return next((chart_window for chart_window in charts if chart_window.active), charts[0] if charts else None)
+
+
+def _child_chart_id_from_result(result: dict, requested_chart_id: int | None) -> int | None:
+    if requested_chart_id is not None:
+        return requested_chart_id
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    hwnd = data.get("hwnd")
+    parent_hwnd = data.get("parent_hwnd")
+    if hwnd and hwnd != parent_hwnd:
+        return hwnd
+    return None
+
+
+def _find_chart_for_symbol(parent_hwnd: int, symbol_name: str) -> ChartWindow | None:
+    symbol_upper = symbol_name.upper()
+    for chart_window in enumerate_chart_children(parent_hwnd):
+        if chart_window.symbol and chart_window.symbol.upper() == symbol_upper:
+            return chart_window
+    return None
+
+
+def activate_chart(hwnd: int, parent_hwnd: int | None = None, settle_seconds: float = 0.1) -> bool:
+    """Activate a chart without disturbing an MT5 MDI tile layout."""
+    win32gui, _, _ = _win32()
+    if parent_hwnd:
+        mdi_client = _find_mdi_client(parent_hwnd)
+        if mdi_client:
+            try:
+                win32gui.SetForegroundWindow(parent_hwnd)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                win32gui.SendMessage(mdi_client, WM_MDIACTIVATE, hwnd, 0)
+                if settle_seconds > 0:
+                    time.sleep(settle_seconds)
+                return True
+            except Exception:  # noqa: BLE001
+                return False
+
+    target_hwnd = parent_hwnd or hwnd
+    try:
+        win32gui.ShowWindow(target_hwnd, SW_RESTORE)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        win32gui.BringWindowToTop(target_hwnd)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        win32gui.SetForegroundWindow(target_hwnd)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if target_hwnd != hwnd:
+            win32gui.SetForegroundWindow(hwnd)
+    except Exception:  # noqa: BLE001
+        pass
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+    return True
+
+
+def list_charts(window_substring: str = "MT5") -> dict:
     match = find_window(window_substring)
     if not match:
         return _fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
-    return {"ok": True, "data": {"hwnd": match.hwnd, "title": match.title}}
+    charts = _charts_snapshot(match.hwnd)
+    for chart_window in charts:
+        chart_window["parent_hwnd"] = match.hwnd
+        chart_window["parent_title"] = match.title
+    return {"ok": True, "data": charts}
+
+
+def current_title(window_substring: str = "MT5", chart_id: int | None = None) -> dict:
+    match = find_window(window_substring)
+    if not match:
+        return _fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
+    try:
+        chart_window = _active_or_first_chart(match.hwnd, chart_id=chart_id)
+        detected_charts = enumerate_chart_children(match.hwnd) if chart_id is not None and chart_window is None else []
+    except Exception:  # noqa: BLE001
+        chart_window = None
+        detected_charts = []
+    if chart_id is not None and chart_window is None:
+        return _fail(
+            "CHART_ID_NOT_FOUND",
+            f"No MT5 child chart matched hwnd {chart_id}. Detected charts: "
+            f"{_format_detected_charts(detected_charts)}",
+        )
+    if chart_window:
+        return {
+            "ok": True,
+            "data": {
+                "hwnd": chart_window.hwnd,
+                "title": chart_window.title,
+                "symbol": chart_window.symbol,
+                "timeframe": chart_window.timeframe,
+                "parent_hwnd": match.hwnd,
+                "parent_title": match.title,
+            },
+        }
+    symbol_name, timeframe = parse_chart_title(match.title)
+    return {
+        "ok": True,
+        "data": {
+            "hwnd": match.hwnd,
+            "title": match.title,
+            "symbol": symbol_name,
+            "timeframe": timeframe,
+            "parent_hwnd": match.hwnd,
+            "parent_title": match.title,
+        },
+    }
 
 
 def title_has_symbol_tf(title: str, symbol: str, tf: str | None = None) -> bool:
     title_upper = title.upper()
-    if symbol.upper() not in title_upper:
-        return False
+    symbol_name, timeframe = parse_chart_title(title)
+    symbol_upper = symbol.upper()
+    if symbol_upper:
+        if symbol_name:
+            if symbol_name.upper() != symbol_upper:
+                return False
+        elif symbol_upper not in title_upper:
+            return False
     if tf is None:
         return True
     normalized = normalize_timeframe(tf)
-    return any(alias.upper() in title_upper for alias in TF_TITLE_ALIASES[normalized])
+    if timeframe:
+        return timeframe == normalized
+    return any(
+        re.search(rf"(?<![A-Z0-9]){re.escape(alias.upper())}(?![A-Z0-9])", title_upper)
+        for alias in TF_TITLE_ALIASES[normalized]
+    )
 
 
 def is_depth_of_market_child_title(title: str, symbol_name: str) -> bool:
@@ -166,16 +468,17 @@ def _wait_for_timeframe_title(
     fallback_title: str,
     tf: str,
     *,
+    chart_id: int | None = None,
     attempts: int = TIMEFRAME_VERIFY_POLLS,
     poll_seconds: float = TIMEFRAME_VERIFY_POLL_SECONDS,
 ) -> tuple[bool, str]:
-    """Poll the MT5 title until it reflects the requested timeframe."""
+    """Poll the active child chart title until it reflects the requested timeframe."""
     title = fallback_title
     for attempt in range(max(1, attempts)):
         if poll_seconds > 0 and attempt > 0:
             time.sleep(poll_seconds)
-        refreshed = find_window(window_substring)
-        title = refreshed.title if refreshed else title
+        refreshed = current_title(window_substring, chart_id=chart_id)
+        title = refreshed.get("data", {}).get("title", title) if refreshed.get("ok") else title
         if title_has_symbol_tf(title, "", tf):
             return True, title
     return False, title
@@ -389,6 +692,7 @@ def ensure_chart(
     timeframe: str | None = "M15",
     window_substring: str = "MT5",
     settle_seconds: float = 0.5,
+    chart_id: int | None = None,
 ) -> dict:
     """Ensure the active MT5 chart is on *symbol_name* and optional timeframe."""
     normalized_timeframe = None
@@ -398,24 +702,37 @@ def ensure_chart(
         except ValueError as exc:
             return _fail("CHART_INVALID_TIMEFRAME", str(exc))
 
-    symbol_result = symbol(symbol_name, window_substring=window_substring, settle_seconds=settle_seconds)
+    symbol_result = symbol(
+        symbol_name,
+        window_substring=window_substring,
+        settle_seconds=settle_seconds,
+        chart_id=chart_id,
+    )
     if not symbol_result.get("ok"):
         return symbol_result
+    target_chart_id = _child_chart_id_from_result(symbol_result, chart_id)
 
     tf_result = None
     if normalized_timeframe:
-        tf_result = switch_tf(normalized_timeframe, window_substring=window_substring, settle_seconds=settle_seconds)
+        tf_result = switch_tf(
+            normalized_timeframe,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+            chart_id=target_chart_id,
+        )
         if not tf_result.get("ok"):
             return tf_result
 
-    title_result = current_title(window_substring)
+    title_result = current_title(window_substring, chart_id=target_chart_id)
     title = title_result.get("data", {}).get("title", symbol_result.get("data", {}).get("title"))
     if not title_has_symbol_tf(title or "", symbol_name, normalized_timeframe):
+        chart_list = list_charts(window_substring)
+        detected_charts = chart_list.get("data", []) if chart_list.get("ok") else []
         return _fail(
             "CHART_VERIFY_FAILED",
             f"MT5 title did not show {symbol_name.upper()}"
             + (f",{normalized_timeframe}" if normalized_timeframe else "")
-            + f": {title}",
+            + f": {title}. Detected charts: {_format_detected_charts(detected_charts)}",
         )
 
     return {
@@ -425,6 +742,8 @@ def ensure_chart(
             "timeframe": normalized_timeframe,
             "title": title,
             "hwnd": title_result.get("data", {}).get("hwnd", symbol_result.get("data", {}).get("hwnd")),
+            "parent_hwnd": title_result.get("data", {}).get("parent_hwnd"),
+            "activated_existing": bool(symbol_result.get("data", {}).get("activated_existing")),
         },
     }
 
@@ -476,7 +795,12 @@ def close_depth_of_market(symbol_name: str, window_substring: str = "MT5") -> di
     }
 
 
-def switch_tf(tf: str, window_substring: str = "MT5", settle_seconds: float = 0.5) -> dict:
+def switch_tf(
+    tf: str,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+    chart_id: int | None = None,
+) -> dict:
     """Switch the active chart timeframe through MT5's period toolbar."""
     try:
         normalized = normalize_timeframe(tf)
@@ -486,6 +810,24 @@ def switch_tf(tf: str, window_substring: str = "MT5", settle_seconds: float = 0.
     match = find_window(window_substring)
     if not match:
         return _fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
+
+    target_chart = None
+    try:
+        target_chart = _active_or_first_chart(match.hwnd, chart_id=chart_id)
+    except Exception:  # noqa: BLE001
+        target_chart = None
+    if chart_id is not None and target_chart is None:
+        try:
+            detected_charts = enumerate_chart_children(match.hwnd)
+        except Exception:  # noqa: BLE001
+            detected_charts = []
+        return _fail(
+            "CHART_ID_NOT_FOUND",
+            f"No MT5 child chart matched hwnd {chart_id}. Detected charts: "
+            f"{_format_detected_charts(detected_charts)}",
+        )
+    if target_chart:
+        activate_chart(target_chart.hwnd, match.hwnd, settle_seconds=0)
 
     toolbar = _find_period_toolbar(match.hwnd)
     if not toolbar:
@@ -498,36 +840,102 @@ def switch_tf(tf: str, window_substring: str = "MT5", settle_seconds: float = 0.
         time.sleep(settle_seconds)
 
     time.sleep(TIMEFRAME_VERIFY_POLL_SECONDS)
-    verified, title = _wait_for_timeframe_title(window_substring, match.title, normalized)
+    fallback_title = target_chart.title if target_chart else match.title
+    verified, title = _wait_for_timeframe_title(
+        window_substring,
+        fallback_title,
+        normalized,
+        chart_id=target_chart.hwnd if target_chart else chart_id,
+    )
     if not verified:
+        try:
+            detected_charts = enumerate_chart_children(match.hwnd)
+        except Exception:  # noqa: BLE001
+            detected_charts = []
         return _fail(
             "CHART_TIMEFRAME_VERIFY_FAILED",
-            f"MT5 title did not show timeframe {normalized}: {title}",
+            f"MT5 active child title did not show timeframe {normalized}: {title}. "
+            f"Detected charts: {_format_detected_charts(detected_charts)}",
         )
 
-    return {"ok": True, "data": {"timeframe": normalized, "title": title, "hwnd": match.hwnd}}
+    return {
+        "ok": True,
+        "data": {
+            "timeframe": normalized,
+            "title": title,
+            "hwnd": target_chart.hwnd if target_chart else match.hwnd,
+            "parent_hwnd": match.hwnd,
+        },
+    }
 
 
-def symbol(symbol_name: str, window_substring: str = "MT5", settle_seconds: float = 0.5) -> dict:
-    """Switch the active chart symbol and verify it from the MT5 title bar."""
+def symbol(
+    symbol_name: str,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+    chart_id: int | None = None,
+) -> dict:
+    """Activate or switch a chart symbol and verify it from the active child title."""
     symbol_name = symbol_name.upper()
     match = find_window(window_substring)
     if not match:
         return _fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
 
-    if not title_has_symbol_tf(match.title, symbol_name):
-        _send_text(match.hwnd, symbol_name)
-        if settle_seconds > 0:
-            time.sleep(settle_seconds)
-        refreshed = find_window(window_substring)
-        title = refreshed.title if refreshed else match.title
+    try:
+        charts = enumerate_chart_children(match.hwnd)
+    except Exception:  # noqa: BLE001
+        charts = []
+
+    target_chart = None
+    activated_existing = False
+    if chart_id is not None:
+        target_chart = next((chart_window for chart_window in charts if chart_window.hwnd == chart_id), None)
+        if target_chart is None:
+            return _fail(
+                "CHART_ID_NOT_FOUND",
+                f"No MT5 child chart matched hwnd {chart_id}. Detected charts: {_format_detected_charts(charts)}",
+            )
+    else:
+        target_chart = next(
+            (chart_window for chart_window in charts if chart_window.symbol and chart_window.symbol.upper() == symbol_name),
+            None,
+        )
+        activated_existing = target_chart is not None
+        if target_chart is None:
+            target_chart = next((chart_window for chart_window in charts if chart_window.active), charts[0] if charts else None)
+
+    if target_chart:
+        activate_chart(target_chart.hwnd, match.hwnd, settle_seconds=0)
+        title = target_chart.title
     else:
         title = match.title
 
+    if not target_chart or not target_chart.symbol or target_chart.symbol.upper() != symbol_name:
+        input_hwnd = target_chart.hwnd if target_chart else match.hwnd
+        _send_text(input_hwnd, symbol_name)
+        if settle_seconds > 0:
+            time.sleep(settle_seconds)
+        refreshed = current_title(window_substring, chart_id=input_hwnd if target_chart else chart_id)
+        title = refreshed.get("data", {}).get("title", title) if refreshed.get("ok") else title
+
     if not title_has_symbol_tf(title, symbol_name):
+        chart_list = list_charts(window_substring)
+        detected_charts = chart_list.get("data", []) if chart_list.get("ok") else charts
         return _fail(
             "CHART_SYMBOL_VERIFY_FAILED",
-            f"MT5 title did not show symbol {symbol_name}: {title}",
+            f"MT5 active child title did not show symbol {symbol_name}: {title}. "
+            f"Detected charts: {_format_detected_charts(detected_charts)}",
         )
 
-    return {"ok": True, "data": {"symbol": symbol_name, "title": title, "hwnd": match.hwnd}}
+    current = current_title(window_substring, chart_id=target_chart.hwnd if target_chart else chart_id)
+    current_data = current.get("data", {}) if current.get("ok") else {}
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol_name,
+            "title": current_data.get("title", title),
+            "hwnd": current_data.get("hwnd", target_chart.hwnd if target_chart else match.hwnd),
+            "parent_hwnd": match.hwnd,
+            "activated_existing": activated_existing,
+        },
+    }

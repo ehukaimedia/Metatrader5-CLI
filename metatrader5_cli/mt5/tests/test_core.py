@@ -1009,6 +1009,36 @@ class TestMarket:
         assert data["ok"] is True
         assert "[USDJPY,M15]" in data["data"]["title"]
 
+    def test_cli_chart_list_reports_child_charts(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        monkeypatch.setattr(
+            chart_module,
+            "list_charts",
+            lambda **kwargs: {
+                "ok": True,
+                "data": [
+                    {"hwnd": 101, "symbol": "USDJPY", "timeframe": "M15", "title": "[USDJPY,M15]"},
+                    {"hwnd": 202, "chart_id": 202, "symbol": "EURUSD", "timeframe": "H1", "title": "[EURUSD,H1]"},
+                ],
+            },
+        )
+
+        result = CliRunner().invoke(mt5_cli.main, ["--json", "chart", "list"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert {chart["symbol"] for chart in data["data"]} == {"USDJPY", "EURUSD"}
+        assert data["data"][1]["chart_id"] == 202
+
     def test_cli_chart_ensure_sets_symbol_and_timeframe(self, monkeypatch, tmp_path):
         import json
         from click.testing import CliRunner
@@ -1046,6 +1076,38 @@ class TestMarket:
         assert data["data"]["symbol"] == "USDJPY"
         assert captured["symbol"] == "USDJPY"
         assert captured["timeframe"] == "M15"
+
+    def test_cli_chart_ensure_forwards_chart_id(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import chart as chart_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        captured = {}
+
+        def fake_ensure_chart(symbol, **kwargs):
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "data": {"symbol": symbol, "timeframe": kwargs["timeframe"], "hwnd": kwargs["chart_id"]},
+            }
+
+        monkeypatch.setattr(chart_module, "ensure_chart", fake_ensure_chart)
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "chart", "ensure", "EURUSD", "--timeframe", "M15", "--chart-id", "202"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert captured["chart_id"] == 202
+        assert data["data"]["hwnd"] == 202
 
     def test_cli_chart_ensure_timeframe_none(self, monkeypatch, tmp_path):
         import json
@@ -3039,11 +3101,59 @@ class TestChart:
             "ok": False,
             "error": {
                 "code": "CHART_TIMEFRAME_VERIFY_FAILED",
-                "message": f"MT5 title did not show timeframe H1: {stale_title}",
+                "message": f"MT5 active child title did not show timeframe H1: {stale_title}. Detected charts: none",
                 "mt5_retcode": None,
             },
         }
         assert sleep_calls == [0.05] * 10
+
+    def test_title_has_symbol_tf_does_not_match_m1_inside_m15(self):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        assert not chart_module.title_has_symbol_tf("[EURUSD,M15]", "EURUSD", "M1")
+        assert chart_module.title_has_symbol_tf("[EURUSD,M1]", "EURUSD", "M1")
+
+    def test_activate_chart_uses_mdi_activate_without_child_zorder_calls(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        calls = []
+
+        class FakeWin32Gui:
+            @staticmethod
+            def EnumChildWindows(parent_hwnd, callback, extra):
+                assert parent_hwnd == 10
+                callback(55, extra)
+
+            @staticmethod
+            def GetClassName(hwnd):
+                return "MDIClient" if hwnd == 55 else "AfxFrameOrView140"
+
+            @staticmethod
+            def SetForegroundWindow(hwnd):
+                calls.append(("SetForegroundWindow", hwnd))
+
+            @staticmethod
+            def SendMessage(hwnd, msg, wparam, lparam):
+                calls.append(("SendMessage", hwnd, msg, wparam, lparam))
+                return 1
+
+            @staticmethod
+            def ShowWindow(hwnd, cmd):
+                calls.append(("ShowWindow", hwnd, cmd))
+
+            @staticmethod
+            def BringWindowToTop(hwnd):
+                calls.append(("BringWindowToTop", hwnd))
+
+        monkeypatch.setattr(chart_module, "_win32", lambda: (FakeWin32Gui, None, None))
+
+        result = chart_module.activate_chart(202, parent_hwnd=10, settle_seconds=0)
+
+        assert result is True
+        assert ("SendMessage", 55, chart_module.WM_MDIACTIVATE, 202, 0) in calls
+        assert ("SetForegroundWindow", 10) in calls
+        assert not any(call[0] in {"ShowWindow", "BringWindowToTop"} for call in calls)
+        assert ("SetForegroundWindow", 202) not in calls
 
     def test_ensure_chart_sets_symbol_and_default_m15(self, monkeypatch):
         from metatrader5_cli.mt5.core import chart as chart_module
@@ -3066,7 +3176,7 @@ class TestChart:
         monkeypatch.setattr(
             chart_module,
             "current_title",
-            lambda _window: {
+            lambda _window, **_kw: {
                 "ok": True,
                 "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
             },
@@ -3096,7 +3206,7 @@ class TestChart:
         monkeypatch.setattr(
             chart_module,
             "current_title",
-            lambda _window: {
+            lambda _window, **_kw: {
                 "ok": True,
                 "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,H1]"},
             },
@@ -3109,6 +3219,40 @@ class TestChart:
         assert result["data"]["timeframe"] is None
         assert switch_calls == []
 
+    def test_ensure_chart_does_not_reuse_parent_hwnd_as_child_chart_id(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        switch_kwargs = []
+        monkeypatch.setattr(
+            chart_module,
+            "symbol",
+            lambda symbol, **kw: {
+                "ok": True,
+                "data": {"symbol": symbol, "title": f"[{symbol},M1]", "hwnd": 10, "parent_hwnd": 10},
+            },
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "switch_tf",
+            lambda tf, **kw: switch_kwargs.append(kw) or {
+                "ok": True,
+                "data": {"timeframe": tf, "title": f"[USDJPY,{tf}]"},
+            },
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "current_title",
+            lambda _window, **_kw: {
+                "ok": True,
+                "data": {"hwnd": 10, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
+            },
+        )
+
+        result = chart_module.ensure_chart("USDJPY")
+
+        assert result["ok"] is True
+        assert switch_kwargs[0]["chart_id"] is None
+
     def test_ensure_chart_rejects_invalid_timeframe_before_gui_calls(self, monkeypatch):
         from metatrader5_cli.mt5.core import chart as chart_module
 
@@ -3120,6 +3264,73 @@ class TestChart:
         assert result["ok"] is False
         assert result["error"]["code"] == "CHART_INVALID_TIMEFRAME"
         assert symbol_calls == []
+
+    def test_symbol_activates_existing_child_chart_without_text_input(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        sent_text = []
+        activated = []
+        match = chart_module.WindowMatch(10, "105112007 - Trading.comMarkets-MT5 - [GBPUSD,M15]")
+        children = [
+            chart_module.ChartWindow(101, "[GBPUSD,M15]", "GBPUSD", "M15", "AfxFrameOrView140", True),
+            chart_module.ChartWindow(202, "[EURUSD,H1]", "EURUSD", "H1", "AfxFrameOrView140", False),
+        ]
+
+        monkeypatch.setattr(chart_module, "find_window", lambda _window: match)
+        monkeypatch.setattr(chart_module, "enumerate_chart_children", lambda _parent: children)
+        monkeypatch.setattr(chart_module, "activate_chart", lambda hwnd, parent_hwnd=None, settle_seconds=0.1: activated.append((hwnd, parent_hwnd)) or True)
+        monkeypatch.setattr(chart_module, "_send_text", lambda hwnd, text: sent_text.append((hwnd, text)))
+        monkeypatch.setattr(
+            chart_module,
+            "current_title",
+            lambda _window, chart_id=None: {
+                "ok": True,
+                "data": {"hwnd": chart_id, "title": "[EURUSD,H1]", "parent_hwnd": 10},
+            },
+        )
+
+        result = chart_module.symbol("EURUSD", settle_seconds=0)
+
+        assert result["ok"] is True
+        assert result["data"]["hwnd"] == 202
+        assert result["data"]["activated_existing"] is True
+        assert activated == [(202, 10)]
+        assert sent_text == []
+
+    def test_symbol_verify_failure_lists_detected_child_charts(self, monkeypatch):
+        from metatrader5_cli.mt5.core import chart as chart_module
+
+        match = chart_module.WindowMatch(10, "105112007 - Trading.comMarkets-MT5 - [GBPUSD,M15]")
+        children = [
+            chart_module.ChartWindow(101, "[GBPUSD,M15]", "GBPUSD", "M15", "AfxFrameOrView140", True),
+        ]
+
+        monkeypatch.setattr(chart_module, "find_window", lambda _window: match)
+        monkeypatch.setattr(chart_module, "enumerate_chart_children", lambda _parent: children)
+        monkeypatch.setattr(chart_module, "activate_chart", lambda *_args, **_kw: True)
+        monkeypatch.setattr(chart_module, "_send_text", lambda _hwnd, _text: None)
+        monkeypatch.setattr(
+            chart_module,
+            "current_title",
+            lambda _window, chart_id=None: {
+                "ok": True,
+                "data": {"hwnd": chart_id, "title": "[GBPUSD,M15]", "parent_hwnd": 10},
+            },
+        )
+        monkeypatch.setattr(
+            chart_module,
+            "list_charts",
+            lambda _window: {
+                "ok": True,
+                "data": [chart_module._chart_payload(children[0])],
+            },
+        )
+
+        result = chart_module.symbol("EURUSD", settle_seconds=0)
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "CHART_SYMBOL_VERIFY_FAILED"
+        assert "Detected charts: 101:GBPUSD,M15" in result["error"]["message"]
 
 
 class TestScreenshot:

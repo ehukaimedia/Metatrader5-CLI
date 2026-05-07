@@ -223,6 +223,7 @@ def tda(
     write_manifest: bool = True,
     context_bars: int = 300,
     fvg_limit: int = 8,
+    chart_id: int | None = None,
 ) -> dict:
     """Capture a visual top-down-analysis screenshot set for one symbol."""
     from metatrader5_cli.mt5.core import chart  # noqa: PLC0415
@@ -234,12 +235,26 @@ def tda(
     captured_at = datetime.now(timezone.utc).isoformat()
     safe_symbol = "".join(ch for ch in symbol.upper() if ch.isalnum() or ch in ("_", "-"))
 
-    symbol_result = chart.symbol(symbol, window_substring=window_substring, settle_seconds=settle_seconds)
+    symbol_result = chart.symbol(
+        symbol,
+        window_substring=window_substring,
+        settle_seconds=settle_seconds,
+        chart_id=chart_id,
+    )
     if not symbol_result.get("ok"):
         return symbol_result
+    symbol_data = symbol_result.get("data", {})
+    result_hwnd = symbol_data.get("hwnd")
+    parent_hwnd = symbol_data.get("parent_hwnd")
+    target_chart_id = chart_id if chart_id is not None else (result_hwnd if result_hwnd != parent_hwnd else None)
 
     for tf in _parse_timeframes(timeframes):
-        switch_result = chart.switch_tf(tf, window_substring=window_substring, settle_seconds=settle_seconds)
+        switch_result = chart.switch_tf(
+            tf,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+            chart_id=target_chart_id,
+        )
         if not switch_result.get("ok"):
             return switch_result
 
@@ -280,6 +295,7 @@ def tda(
             final_timeframe,
             window_substring=window_substring,
             settle_seconds=settle_seconds,
+            chart_id=target_chart_id,
         )
 
     data = {

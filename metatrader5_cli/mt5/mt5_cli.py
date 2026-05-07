@@ -1101,42 +1101,58 @@ def chart_group(ctx):
 @click.argument("timeframe", type=click.Choice(list(chart.TIMEFRAMES), case_sensitive=False))
 @click.option("--window", "window_substring", default="MT5", show_default=True,
               help="Window title substring to target.")
+@click.option("--chart-id", type=int, default=None,
+              help="Target child chart HWND returned by 'chart list'.")
 @click.option("--settle-seconds", type=float, default=0.5, show_default=True,
               help="Delay after toolbar click before title verification.")
 @click.pass_context
-def chart_switch_tf_cmd(ctx, timeframe, window_substring, settle_seconds):
+def chart_switch_tf_cmd(ctx, timeframe, window_substring, chart_id, settle_seconds):
     """Switch the active MT5 chart timeframe."""
     obj = ctx.obj
     output(
         chart.switch_tf(timeframe, window_substring=window_substring,
-                        settle_seconds=settle_seconds),
+                        settle_seconds=settle_seconds, chart_id=chart_id),
         obj["as_json"],
     )
+
+
+@chart_group.command("list")
+@click.option("--window", "window_substring", default="MT5", show_default=True,
+              help="Window title substring to target.")
+@click.pass_context
+def chart_list_cmd(ctx, window_substring):
+    """List open MT5 child chart windows."""
+    obj = ctx.obj
+    output(chart.list_charts(window_substring=window_substring), obj["as_json"])
 
 
 @chart_group.command("current")
 @click.option("--window", "window_substring", default="MT5", show_default=True,
               help="Window title substring to target.")
+@click.option("--chart-id", type=int, default=None,
+              help="Target child chart HWND returned by 'chart list'.")
 @click.pass_context
-def chart_current_cmd(ctx, window_substring):
+def chart_current_cmd(ctx, window_substring, chart_id):
     """Show the currently matched MT5 chart window title."""
     obj = ctx.obj
-    output(chart.current_title(window_substring=window_substring), obj["as_json"])
+    output(chart.current_title(window_substring=window_substring, chart_id=chart_id), obj["as_json"])
 
 
 @chart_group.command("symbol")
 @click.argument("symbol")
 @click.option("--window", "window_substring", default="MT5", show_default=True,
               help="Window title substring to target.")
+@click.option("--chart-id", type=int, default=None,
+              help="Target child chart HWND returned by 'chart list'.")
 @click.option("--settle-seconds", type=float, default=0.5, show_default=True,
               help="Delay after symbol change before title verification.")
 @click.pass_context
-def chart_symbol_cmd(ctx, symbol, window_substring, settle_seconds):
-    """Switch the active MT5 chart symbol and verify it in the title bar."""
+def chart_symbol_cmd(ctx, symbol, window_substring, chart_id, settle_seconds):
+    """Activate or switch an MT5 chart symbol and verify it in the child title."""
     obj = ctx.obj
     output(
         chart.symbol(symbol, window_substring=window_substring,
-                     settle_seconds=settle_seconds),
+                     settle_seconds=settle_seconds, chart_id=chart_id),
         obj["as_json"],
     )
 
@@ -1147,10 +1163,12 @@ def chart_symbol_cmd(ctx, symbol, window_substring, settle_seconds):
               help="Timeframe to leave active. Use 'none' to only ensure symbol.")
 @click.option("--window", "window_substring", default="MT5", show_default=True,
               help="Window title substring to target.")
+@click.option("--chart-id", type=int, default=None,
+              help="Target child chart HWND returned by 'chart list'.")
 @click.option("--settle-seconds", type=float, default=0.5, show_default=True,
               help="Delay after symbol/timeframe changes before title verification.")
 @click.pass_context
-def chart_ensure_cmd(ctx, symbol, timeframe, window_substring, settle_seconds):
+def chart_ensure_cmd(ctx, symbol, timeframe, window_substring, chart_id, settle_seconds):
     """Ensure the active MT5 chart is on SYMBOL and optional timeframe."""
     obj = ctx.obj
     output(
@@ -1159,6 +1177,7 @@ def chart_ensure_cmd(ctx, symbol, timeframe, window_substring, settle_seconds):
             timeframe=timeframe,
             window_substring=window_substring,
             settle_seconds=settle_seconds,
+            chart_id=chart_id,
         ),
         obj["as_json"],
     )
@@ -1267,6 +1286,8 @@ def screenshot_list_cmd(ctx, directory):
               help="Resize captures wider than this value. Use 0 to disable.")
 @click.option("--window", "window_substring", default="MT5", show_default=True,
               help="Window title substring to target.")
+@click.option("--chart-id", type=int, default=None,
+              help="Target child chart HWND returned by 'chart list'.")
 @click.option("--monitor", type=int, default=None,
               help="Monitor index (0=primary). Overrides screenshot_monitor config.")
 @click.option("--settle-seconds", type=float, default=0.5, show_default=True,
@@ -1285,7 +1306,7 @@ def screenshot_list_cmd(ctx, directory):
               help="Maximum open/partial FVG zones per frame in structured context.")
 @click.pass_context
 def screenshot_tda_cmd(ctx, symbol, timeframes, output_dir, crop, max_width,
-                       window_substring, monitor, settle_seconds, final_timeframe,
+                       window_substring, chart_id, monitor, settle_seconds, final_timeframe,
                        visual_manifest, structured_context, write_manifest,
                        context_bars, fvg_limit):
     """Capture visual top-down-analysis frames for SYMBOL."""
@@ -1312,6 +1333,7 @@ def screenshot_tda_cmd(ctx, symbol, timeframes, output_dir, crop, max_width,
             write_manifest=write_manifest,
             context_bars=context_bars,
             fvg_limit=fvg_limit,
+            chart_id=chart_id,
         ),
         obj["as_json"],
     )
