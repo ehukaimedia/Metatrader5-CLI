@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-24
 **Status**: DRAFT — awaiting operator review
-**Scope**: Self-contained, host-agnostic Python runtime for fully autonomous trading via the MT5-CLI core library. Drops into any repo or daemon host.
+**Scope**: Self-contained, host-agnostic Python runtime for fully autonomous trading via the MT5-CLI core library. Drops into any repo, service, scheduler, or daemon host.
 
 **Depends on**: `Metatrader5-CLI/docs/specs/mt5-cli-spec.md` (v0.4+). All MT5 interaction — orders, positions, rates, ticks, account state — flows through `metatrader5_cli.mt5.core.*`. This spec never references the `MetaTrader5` package directly.
 
@@ -11,7 +11,7 @@
 **Reference strategy**: USDJPY "Gopher Gate" (4-gate trend-following with ATR trail). Strategy logic is isolated in one module (`strategy.py`) and swappable. This spec documents Gopher Gate as the reference implementation; the runtime itself is strategy-agnostic.
 
 **Revision history**:
-- v1 (2026-04-24): Initial spec, tied to one host (ehukai daemon) and @opus's `ehukai/trading/` module
+- v1 (2026-04-24): Initial autonomous-runtime sketch before the host-agnostic rewrite
 - v2 (2026-04-24): Post-review fixes — pip value math, VLM provider, equity floor behavior, dry-run simulation, missing gate rules, threading model, trail formula, retcode handling, disconnect state, circular dep prevention, historical backtest phase
 - v3 (2026-04-24): Execution substrate swapped to MT5-CLI core layer
 - v4 (2026-04-24): **Host-agnostic rewrite.** Runtime is now a standalone package that any agentic team can embed. All host-specific touchpoints (alert transport, control transport, data directory, operator identity) are defined as integration interfaces in §3.5.
@@ -648,7 +648,7 @@ autotrader/                    # host-agnostic package; drop into any repo
     └── test_runtime_e2e.py    # Full state machine, dry-run mode, mocked CLI core
 ```
 
-**Dependencies**: `metatrader5_cli` (the MT5-CLI package) is the only required runtime dependency. No dependency on any specific host daemon, message bus, or chat platform.
+**Dependencies**: `metatrader5_cli` (the MT5-CLI package) is the only required runtime dependency. No dependency on EhukaiConnect or any specific host daemon, message bus, router, service port, or chat platform.
 
 **VLM + screenshot capture**: bundled as `autotrader/tools/capture_6tf.py` (subprocess-invoked). Users can replace with their own capture tool by pointing `AURUM_CAPTURE_CMD` at a different executable.
 

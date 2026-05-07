@@ -1800,7 +1800,7 @@ class TestAnalyze:
     @staticmethod
     def _structure_bars(kind="bullish"):
         rows = []
-        for i in range(30):
+        for i in range(50):
             rows.append({
                 "time": f"2024-01-{i + 1:02d}T00:00:00+00:00",
                 "open": 1.2,
@@ -1810,16 +1810,16 @@ class TestAnalyze:
                 "tick_volume": 100,
             })
         if kind == "bullish":
-            rows[8]["low"] = 0.90
-            rows[12]["high"] = 1.50
-            rows[18]["low"] = 1.05
-            rows[24]["high"] = 1.70
+            rows[10]["low"] = 0.90
+            rows[18]["high"] = 1.50
+            rows[28]["low"] = 1.05
+            rows[38]["high"] = 1.70
             rows[-1]["close"] = 1.30
         else:
-            rows[8]["low"] = 1.05
-            rows[12]["high"] = 1.70
-            rows[18]["low"] = 0.90
-            rows[24]["high"] = 1.50
+            rows[10]["low"] = 1.05
+            rows[18]["high"] = 1.70
+            rows[28]["low"] = 0.90
+            rows[38]["high"] = 1.50
             rows[-1]["close"] = 1.00
         return rows
 
@@ -1831,14 +1831,16 @@ class TestAnalyze:
             lambda *a, **kw: {"ok": True, "data": self._structure_bars("bullish")},
         )
 
-        result = analyze.topdown("EURUSD", ["H1"], bars=30)
+        result = analyze.topdown("EURUSD", ["H1"], bars=50)
 
         assert result["ok"] is True
         assert result["data"]["timeframes"]["H1"]["trend"] == "bullish"
         assert result["data"]["timeframes"]["H1"]["structure"] == "HH_HL"
-        assert set(result["data"]["timeframes"]["H1"]) == {
+        assert set(result["data"]["timeframes"]["H1"]) >= {
             "trend", "structure", "current_price", "support", "resistance", "swing_highs", "swing_lows",
+            "bias", "signal_bar", "internal", "trade_read", "structure_engine_version",
         }
+        assert result["data"]["timeframes"]["H1"]["structure_engine_version"] == "elite-v1"
         assert result["data"]["bias"] == "bullish"
 
     def test_topdown_confluence_score_unanimous(self, monkeypatch):

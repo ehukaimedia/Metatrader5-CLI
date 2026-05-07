@@ -1,0 +1,788 @@
+//@version=6
+indicator("Ehukai Structure v1.0 elite-v1", "Ehukai v1.0", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 100)
+buildTag = "v1.0 elite-v1"
+
+// --- Groups ---
+group_structure = "Structure"
+group_internal  = "Internal Structure"
+group_dash      = "Dashboard"
+group_sessions  = "Sessions"
+group_visuals   = "Visuals"
+
+// --- Inputs ---
+swingLen = input.int(8, "Swing Pivot Length", minval = 2, maxval = 50, group = group_structure)
+showSwing = input.bool(true, "Show Swing Structure", group = group_structure)
+showBreaks = input.bool(true, "Show BOS / CHOCH", group = group_structure)
+showSweeps = input.bool(false, "Show Wick Sweeps", group = group_structure)
+showActiveLevels = input.bool(true, "Show Active Swing Levels", group = group_structure)
+showH4Overlay = input.bool(false, "Overlay H4 High / Low", group = group_structure)
+
+internalLen = input.int(3, "Internal Pivot Length", minval = 1, maxval = 20, group = group_internal)
+fractalLen = input.int(1, "Fractal Pivot Length", minval = 1, maxval = 10, group = group_internal)
+showInternal = input.bool(true, "Show Internal Structure", group = group_internal)
+showInternalLabels = input.bool(false, "Show Internal H/L Labels", group = group_internal)
+showFractalSignals = input.bool(false, "Show Fractal CHOCH", group = group_internal)
+showStrongWeakInternal = input.bool(false, "Show Strong / Weak Internal Levels", group = group_internal)
+showFailureSignals = input.bool(false, "Show Strong Level Failures", group = group_internal)
+showPremiumDiscount = input.bool(false, "Show Range EQ / Premium / Discount", group = group_internal)
+showStructureState = input.bool(true, "Show Structure State Label", group = group_internal)
+
+showDash = input.bool(true, "Show Dashboard", group = group_dash)
+dashPos = input.string("Top Right", "Dashboard Position", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = group_dash)
+
+showSessions = input.bool(false, "Show Sessions", group = group_sessions)
+thisWeekOnly = input.bool(true, "Current Week Only", group = group_sessions)
+asiaTime = input.session("0000-0900", "Asia Session", group = group_sessions)
+londonTime = input.session("0800-1700", "London Session", group = group_sessions)
+nyTime = input.session("1300-2200", "NY Session", group = group_sessions)
+
+colorBars = input.bool(false, "Color Bars by Swing Bias", group = group_visuals)
+visualMode = input.string("Clean", "Visual Mode", options = ["Clean", "Full Debug"], group = group_visuals)
+cleanSwingLabels = input.int(8, "Clean Swing Label Count", minval = 2, maxval = 50, group = group_visuals)
+cleanBreakLabels = input.int(6, "Clean BOS / CHOCH Count", minval = 2, maxval = 50, group = group_visuals)
+showCurrentBiasLabel = input.bool(false, "Show Current Bias Label", group = group_visuals)
+
+swingBullColor = input.color(#089981, "Bullish Color", group = group_visuals)
+swingBearColor = input.color(#f23645, "Bearish Color", group = group_visuals)
+neutralColor = input.color(color.silver, "Neutral Color", group = group_visuals)
+internalBullColor = input.color(color.new(#089981, 35), "Internal Bullish Color", group = group_visuals)
+internalBearColor = input.color(color.new(#f23645, 35), "Internal Bearish Color", group = group_visuals)
+sweepColor = input.color(color.new(#f59e0b, 0), "Sweep Color", group = group_visuals)
+eqColor = input.color(color.new(#64748b, 10), "Range EQ Color", group = group_visuals)
+strongColor = input.color(color.new(#eab308, 0), "Strong Internal Color", group = group_visuals)
+weakColor = input.color(color.new(#94a3b8, 0), "Weak Internal Color", group = group_visuals)
+failureColor = input.color(color.new(#f59e0b, 0), "Strong Failure Color", group = group_visuals)
+stateLabelTextColor = input.color(color.white, "State Label Text Color", group = group_visuals)
+
+asiaColor = input.color(color.new(#5b9cf6, 92), "Asia Color", group = group_visuals)
+londonColor = input.color(color.new(#e2aa05, 92), "London Color", group = group_visuals)
+nyColor = input.color(color.new(#ff5d00, 92), "NY Color", group = group_visuals)
+
+transparent = color.new(color.black, 100)
+dashBg = color.rgb(24, 28, 36)
+dashHeadBg = color.rgb(8, 10, 14)
+dashText = color.white
+cleanMode = visualMode == "Clean"
+debugMode = visualMode == "Full Debug"
+
+// --- Helpers ---
+dash_position() =>
+    dashPos == "Top Right" ? position.top_right :
+     dashPos == "Bottom Right" ? position.bottom_right :
+     dashPos == "Top Left" ? position.top_left :
+     position.bottom_left
+
+bias_color(int dir) =>
+    dir > 0 ? swingBullColor : dir < 0 ? swingBearColor : neutralColor
+
+bias_text(int dir) =>
+    dir > 0 ? "Bullish" : dir < 0 ? "Bearish" : "Neutral"
+
+internal_text(int dir) =>
+    dir > 0 ? "Bullish iBOS" : dir < 0 ? "Bearish iBOS" : "Unconfirmed"
+
+internal_state_text(int dir, bool seeded) =>
+    seeded and dir > 0 ? "Bull Seeded" : seeded and dir < 0 ? "Bear Seeded" : internal_text(dir)
+
+event_text(string value, int dir) =>
+    value == "None" ? bias_text(dir) : value
+
+zone_text(float price, float eq) =>
+    na(price) or na(eq) ? "No Range" : price > eq ? "Premium" : price < eq ? "Discount" : "EQ"
+
+signal_text(string value) =>
+    value == "None" ? "Waiting for fCHOCH / iBOS" : value
+
+cap_label_array(label[] ids, int limit) =>
+    if cleanMode and array.size(ids) > limit
+        label.delete(array.shift(ids))
+
+cap_line_array(line[] ids, int limit) =>
+    if cleanMode and array.size(ids) > limit
+        line.delete(array.shift(ids))
+
+// --- Swing State ---
+var float lastSwingHigh = na
+var int lastSwingHighBar = na
+var float lastSwingLow = na
+var int lastSwingLowBar = na
+var float prevSwingHigh = na
+var float prevSwingLow = na
+
+var bool highArmed = false
+var bool lowArmed = false
+var bool highSwept = false
+var bool lowSwept = false
+var line activeHighLine = na
+var line activeLowLine = na
+var float dealingHigh = na
+var int dealingHighBar = na
+var float dealingLow = na
+var int dealingLowBar = na
+var int dealingStartBar = na
+var int lastSwingBreakBar = na
+var label[] swingLabelIds = array.new<label>()
+var label[] breakLabelIds = array.new<label>()
+var line[] breakLineIds = array.new<line>()
+var label[] internalLabelIds = array.new<label>()
+var label[] fractalLabelIds = array.new<label>()
+var line[] internalLineIds = array.new<line>()
+var label currentBiasLabel = na
+
+// -1 bearish, 0 neutral, 1 bullish
+var int swingDir = 0
+var string lastEvent = "None"
+
+// --- Internal State ---
+var float lastInternalHigh = na
+var int lastInternalHighBar = na
+var float lastInternalLow = na
+var int lastInternalLowBar = na
+var bool internalHighArmed = false
+var bool internalLowArmed = false
+var int internalDir = 0
+var bool internalSeeded = false
+var int lastIBOSDir = 0
+var float lastIBOSLevel = na
+var int lastIBOSBar = na
+var float strongInternalHigh = na
+var int strongInternalHighBar = na
+var float strongInternalLow = na
+var int strongInternalLowBar = na
+var float weakInternalHigh = na
+var int weakInternalHighBar = na
+var float weakInternalLow = na
+var int weakInternalLowBar = na
+var line strongInternalLine = na
+var line weakInternalLine = na
+var line rangeEqLine = na
+var label strongInternalLabel = na
+var label weakInternalLabel = na
+var label structureStateLabel = na
+
+// --- Fractal State ---
+var float lastFractalHigh = na
+var int lastFractalHighBar = na
+var float lastFractalLow = na
+var int lastFractalLowBar = na
+var bool fractalHighArmed = false
+var bool fractalLowArmed = false
+var int fractalDir = 0
+var int earlySignalDir = 0
+var string earlySignalText = "None"
+
+// --- Confirmed Swing Pivots ---
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+if not na(ph)
+    pivotBar = bar_index - swingLen
+    kind = na(prevSwingHigh) ? "SH" : ph > prevSwingHigh ? "HH" : "LH"
+    col = kind == "HH" ? swingBullColor : kind == "LH" ? swingBearColor : neutralColor
+    if showSwing
+        swingLabel = label.new(pivotBar, ph, kind, color = transparent, textcolor = col, style = label.style_label_down, size = size.small)
+        array.push(swingLabelIds, swingLabel)
+        if cleanMode and array.size(swingLabelIds) > cleanSwingLabels
+            label.delete(array.shift(swingLabelIds))
+
+    prevSwingHigh := ph
+    lastSwingHigh := ph
+    lastSwingHighBar := pivotBar
+    highArmed := true
+    highSwept := false
+
+if not na(pl)
+    pivotBar = bar_index - swingLen
+    kind = na(prevSwingLow) ? "SL" : pl > prevSwingLow ? "HL" : "LL"
+    col = kind == "HL" ? swingBullColor : kind == "LL" ? swingBearColor : neutralColor
+    if showSwing
+        swingLabel = label.new(pivotBar, pl, kind, color = transparent, textcolor = col, style = label.style_label_up, size = size.small)
+        array.push(swingLabelIds, swingLabel)
+        if cleanMode and array.size(swingLabelIds) > cleanSwingLabels
+            label.delete(array.shift(swingLabelIds))
+
+    prevSwingLow := pl
+    lastSwingLow := pl
+    lastSwingLowBar := pivotBar
+    lowArmed := true
+    lowSwept := false
+
+// --- Wick Sweeps: visible, but never flip bias ---
+sweepHigh = (showSweeps or debugMode) and highArmed and not highSwept and not na(lastSwingHigh) and high > lastSwingHigh and close <= lastSwingHigh
+sweepLow = (showSweeps or debugMode) and lowArmed and not lowSwept and not na(lastSwingLow) and low < lastSwingLow and close >= lastSwingLow
+
+if sweepHigh
+    label.new(bar_index, high, "Sweep", color = transparent, textcolor = sweepColor, style = label.style_label_down, size = size.tiny)
+    highSwept := true
+
+if sweepLow
+    label.new(bar_index, low, "Sweep", color = transparent, textcolor = sweepColor, style = label.style_label_up, size = size.tiny)
+    lowSwept := true
+
+// --- Close-Confirmed Swing BOS / CHOCH ---
+rawBullBreak = barstate.isconfirmed and highArmed and not na(lastSwingHigh) and close > lastSwingHigh
+rawBearBreak = barstate.isconfirmed and lowArmed and not na(lastSwingLow) and close < lastSwingLow
+bullBreak = rawBullBreak and not rawBearBreak
+bearBreak = rawBearBreak and not rawBullBreak
+
+if bullBreak
+    eventText = swingDir < 0 ? "CHOCH" : "BOS"
+    if showBreaks and not na(lastSwingHighBar)
+        midBar = int(math.round((lastSwingHighBar + bar_index) / 2.0))
+        breakLine = line.new(lastSwingHighBar, lastSwingHigh, bar_index, lastSwingHigh, color = swingBullColor, width = 1)
+        breakLabel = label.new(midBar, lastSwingHigh, eventText, color = transparent, textcolor = swingBullColor, style = label.style_label_down, size = size.small)
+        array.push(breakLineIds, breakLine)
+        array.push(breakLabelIds, breakLabel)
+        if cleanMode and array.size(breakLineIds) > cleanBreakLabels
+            line.delete(array.shift(breakLineIds))
+        if cleanMode and array.size(breakLabelIds) > cleanBreakLabels
+            label.delete(array.shift(breakLabelIds))
+    swingDir := 1
+    lastEvent := "Bull " + eventText
+    highArmed := false
+    lastSwingBreakBar := bar_index
+    dealingHigh := lastSwingHigh
+    dealingHighBar := lastSwingHighBar
+    dealingLow := lastSwingLow
+    dealingLowBar := lastSwingLowBar
+    dealingStartBar := math.min(nz(lastSwingHighBar, bar_index), nz(lastSwingLowBar, bar_index))
+
+    lastInternalHigh := na
+    lastInternalLow := low
+    lastInternalHighBar := na
+    lastInternalLowBar := bar_index
+    internalHighArmed := false
+    internalLowArmed := false
+    internalDir := 1
+    internalSeeded := true
+    lastIBOSDir := 0
+    lastIBOSLevel := na
+    lastIBOSBar := na
+    strongInternalHigh := na
+    strongInternalLow := low
+    strongInternalHighBar := na
+    strongInternalLowBar := bar_index
+    weakInternalHigh := dealingHigh
+    weakInternalLow := na
+    weakInternalHighBar := dealingHighBar
+    weakInternalLowBar := na
+    fractalHighArmed := false
+    fractalLowArmed := false
+    fractalDir := 0
+    earlySignalDir := 0
+    earlySignalText := "None"
+
+if bearBreak
+    eventText = swingDir > 0 ? "CHOCH" : "BOS"
+    if showBreaks and not na(lastSwingLowBar)
+        midBar = int(math.round((lastSwingLowBar + bar_index) / 2.0))
+        breakLine = line.new(lastSwingLowBar, lastSwingLow, bar_index, lastSwingLow, color = swingBearColor, width = 1)
+        breakLabel = label.new(midBar, lastSwingLow, eventText, color = transparent, textcolor = swingBearColor, style = label.style_label_up, size = size.small)
+        array.push(breakLineIds, breakLine)
+        array.push(breakLabelIds, breakLabel)
+        if cleanMode and array.size(breakLineIds) > cleanBreakLabels
+            line.delete(array.shift(breakLineIds))
+        if cleanMode and array.size(breakLabelIds) > cleanBreakLabels
+            label.delete(array.shift(breakLabelIds))
+    swingDir := -1
+    lastEvent := "Bear " + eventText
+    lowArmed := false
+    lastSwingBreakBar := bar_index
+    dealingHigh := lastSwingHigh
+    dealingHighBar := lastSwingHighBar
+    dealingLow := lastSwingLow
+    dealingLowBar := lastSwingLowBar
+    dealingStartBar := math.min(nz(lastSwingHighBar, bar_index), nz(lastSwingLowBar, bar_index))
+
+    lastInternalHigh := high
+    lastInternalLow := na
+    lastInternalHighBar := bar_index
+    lastInternalLowBar := na
+    internalHighArmed := false
+    internalLowArmed := false
+    internalDir := -1
+    internalSeeded := true
+    lastIBOSDir := 0
+    lastIBOSLevel := na
+    lastIBOSBar := na
+    strongInternalHigh := high
+    strongInternalLow := na
+    strongInternalHighBar := bar_index
+    strongInternalLowBar := na
+    weakInternalHigh := na
+    weakInternalLow := dealingLow
+    weakInternalHighBar := na
+    weakInternalLowBar := dealingLowBar
+    fractalHighArmed := false
+    fractalLowArmed := false
+    fractalDir := 0
+    earlySignalDir := 0
+    earlySignalText := "None"
+
+if not bullBreak and not bearBreak and not na(dealingHigh) and not na(dealingLow)
+    if swingDir > 0 and high > dealingHigh
+        dealingHigh := high
+        dealingHighBar := bar_index
+    if swingDir < 0 and low < dealingLow
+        dealingLow := low
+        dealingLowBar := bar_index
+
+// --- Internal Structure ---
+hasRange = not na(dealingHigh) and not na(dealingLow) and not na(dealingStartBar)
+rangeTop = hasRange ? math.max(dealingHigh, dealingLow) : na
+rangeBot = hasRange ? math.min(dealingHigh, dealingLow) : na
+rangeEq = hasRange ? (rangeTop + rangeBot) / 2.0 : na
+rangeZone = zone_text(close, rangeEq)
+rangeStart = hasRange ? dealingStartBar : na
+
+inside_range(float price) =>
+    hasRange and price < rangeTop and price > rangeBot
+
+inside_active_range(float price, int pivotBar) =>
+    inside_range(price) and not na(rangeStart) and pivotBar > rangeStart and (na(lastSwingBreakBar) or pivotBar > lastSwingBreakBar)
+
+ih = ta.pivothigh(high, internalLen, internalLen)
+il = ta.pivotlow(low, internalLen, internalLen)
+fh = ta.pivothigh(high, fractalLen, fractalLen)
+fl = ta.pivotlow(low, fractalLen, fractalLen)
+
+if not na(ih)
+    pivotBar = bar_index - internalLen
+    if inside_active_range(ih, pivotBar)
+        if showInternal and (showInternalLabels or debugMode)
+            internalLabel = label.new(pivotBar, ih, "iH", color = transparent, textcolor = internalBullColor, style = label.style_label_down, size = size.tiny)
+            array.push(internalLabelIds, internalLabel)
+            cap_label_array(internalLabelIds, cleanSwingLabels)
+        lastInternalHigh := ih
+        lastInternalHighBar := pivotBar
+        internalHighArmed := true
+
+if not na(il)
+    pivotBar = bar_index - internalLen
+    if inside_active_range(il, pivotBar)
+        if showInternal and (showInternalLabels or debugMode)
+            internalLabel = label.new(pivotBar, il, "iL", color = transparent, textcolor = internalBearColor, style = label.style_label_up, size = size.tiny)
+            array.push(internalLabelIds, internalLabel)
+            cap_label_array(internalLabelIds, cleanSwingLabels)
+        lastInternalLow := il
+        lastInternalLowBar := pivotBar
+        internalLowArmed := true
+
+if not na(fh)
+    pivotBar = bar_index - fractalLen
+    if inside_active_range(fh, pivotBar)
+        lastFractalHigh := fh
+        lastFractalHighBar := pivotBar
+        fractalHighArmed := true
+
+if not na(fl)
+    pivotBar = bar_index - fractalLen
+    if inside_active_range(fl, pivotBar)
+        lastFractalLow := fl
+        lastFractalLowBar := pivotBar
+        fractalLowArmed := true
+
+bullIBOS = barstate.isconfirmed and internalHighArmed and hasRange and not na(lastInternalHigh) and close > lastInternalHigh and close < rangeTop
+bearIBOS = barstate.isconfirmed and internalLowArmed and hasRange and not na(lastInternalLow) and close < lastInternalLow and close > rangeBot
+seededBullIBOS = not bullIBOS and barstate.isconfirmed and internalSeeded and internalDir > 0 and hasRange and not na(weakInternalHigh) and close > weakInternalHigh and not na(lastSwingBreakBar) and bar_index > lastSwingBreakBar
+seededBearIBOS = not bearIBOS and barstate.isconfirmed and internalSeeded and internalDir < 0 and hasRange and not na(weakInternalLow) and close < weakInternalLow and not na(lastSwingBreakBar) and bar_index > lastSwingBreakBar
+bullFractalBreak = barstate.isconfirmed and fractalHighArmed and hasRange and not na(lastFractalHigh) and close > lastFractalHigh and close < rangeTop
+bearFractalBreak = barstate.isconfirmed and fractalLowArmed and hasRange and not na(lastFractalLow) and close < lastFractalLow and close > rangeBot
+
+if bullFractalBreak
+    changed = fractalDir <= 0
+    if changed
+        earlySignalDir := 1
+        earlySignalText := internalDir < 0 ? "Bull fCHOCH: internal pullback may start" : "Bull fCHOCH: internal pullback may end"
+        if showInternal and (showFractalSignals or debugMode)
+            fractalLabel = label.new(bar_index, lastFractalHigh, "fCHOCH", color = transparent, textcolor = internalBullColor, style = label.style_label_down, size = size.tiny)
+            array.push(fractalLabelIds, fractalLabel)
+            cap_label_array(fractalLabelIds, cleanBreakLabels)
+    fractalDir := 1
+    fractalHighArmed := false
+
+if bearFractalBreak
+    changed = fractalDir >= 0
+    if changed
+        earlySignalDir := -1
+        earlySignalText := internalDir > 0 ? "Bear fCHOCH: internal pullback may start" : "Bear fCHOCH: internal pullback may end"
+        if showInternal and (showFractalSignals or debugMode)
+            fractalLabel = label.new(bar_index, lastFractalLow, "fCHOCH", color = transparent, textcolor = internalBearColor, style = label.style_label_up, size = size.tiny)
+            array.push(fractalLabelIds, fractalLabel)
+            cap_label_array(fractalLabelIds, cleanBreakLabels)
+    fractalDir := -1
+    fractalLowArmed := false
+
+if bullIBOS
+    if showInternal
+        ibosLine = line.new(lastInternalHighBar, lastInternalHigh, bar_index, lastInternalHigh, color = internalBullColor, style = line.style_dashed)
+        ibosLabel = label.new(bar_index, lastInternalHigh, "iBOS", color = transparent, textcolor = internalBullColor, style = label.style_label_down, size = size.tiny)
+        array.push(internalLineIds, ibosLine)
+        array.push(internalLabelIds, ibosLabel)
+        cap_line_array(internalLineIds, cleanBreakLabels)
+        cap_label_array(internalLabelIds, cleanBreakLabels + cleanSwingLabels)
+    internalDir := 1
+    internalSeeded := false
+    lastIBOSDir := 1
+    lastIBOSLevel := lastInternalHigh
+    lastIBOSBar := bar_index
+    strongInternalLow := lastInternalLow
+    strongInternalLowBar := lastInternalLowBar
+    weakInternalHigh := rangeTop
+    weakInternalHighBar := dealingHighBar
+    internalHighArmed := false
+
+if seededBullIBOS
+    if showInternal
+        ibosLine = line.new(weakInternalHighBar, weakInternalHigh, bar_index, weakInternalHigh, color = internalBullColor, style = line.style_dashed)
+        ibosLabel = label.new(bar_index, weakInternalHigh, "iBOS", color = transparent, textcolor = internalBullColor, style = label.style_label_down, size = size.tiny)
+        array.push(internalLineIds, ibosLine)
+        array.push(internalLabelIds, ibosLabel)
+        cap_line_array(internalLineIds, cleanBreakLabels)
+        cap_label_array(internalLabelIds, cleanBreakLabels + cleanSwingLabels)
+    internalSeeded := false
+    lastIBOSDir := 1
+    lastIBOSLevel := weakInternalHigh
+    lastIBOSBar := bar_index
+    weakInternalHigh := rangeTop
+    weakInternalHighBar := dealingHighBar
+
+if bearIBOS
+    if showInternal
+        ibosLine = line.new(lastInternalLowBar, lastInternalLow, bar_index, lastInternalLow, color = internalBearColor, style = line.style_dashed)
+        ibosLabel = label.new(bar_index, lastInternalLow, "iBOS", color = transparent, textcolor = internalBearColor, style = label.style_label_up, size = size.tiny)
+        array.push(internalLineIds, ibosLine)
+        array.push(internalLabelIds, ibosLabel)
+        cap_line_array(internalLineIds, cleanBreakLabels)
+        cap_label_array(internalLabelIds, cleanBreakLabels + cleanSwingLabels)
+    internalDir := -1
+    internalSeeded := false
+    lastIBOSDir := -1
+    lastIBOSLevel := lastInternalLow
+    lastIBOSBar := bar_index
+    strongInternalHigh := lastInternalHigh
+    strongInternalHighBar := lastInternalHighBar
+    weakInternalLow := rangeBot
+    weakInternalLowBar := dealingLowBar
+    internalLowArmed := false
+
+if seededBearIBOS
+    if showInternal
+        ibosLine = line.new(weakInternalLowBar, weakInternalLow, bar_index, weakInternalLow, color = internalBearColor, style = line.style_dashed)
+        ibosLabel = label.new(bar_index, weakInternalLow, "iBOS", color = transparent, textcolor = internalBearColor, style = label.style_label_up, size = size.tiny)
+        array.push(internalLineIds, ibosLine)
+        array.push(internalLabelIds, ibosLabel)
+        cap_line_array(internalLineIds, cleanBreakLabels)
+        cap_label_array(internalLabelIds, cleanBreakLabels + cleanSwingLabels)
+    internalSeeded := false
+    lastIBOSDir := -1
+    lastIBOSLevel := weakInternalLow
+    lastIBOSBar := bar_index
+    weakInternalLow := rangeBot
+    weakInternalLowBar := dealingLowBar
+
+failedBullInternal = barstate.isconfirmed and internalDir > 0 and not na(strongInternalLow) and close < strongInternalLow
+failedBearInternal = barstate.isconfirmed and internalDir < 0 and not na(strongInternalHigh) and close > strongInternalHigh
+
+if failedBullInternal
+    failPrice = strongInternalLow
+    internalDir := -1
+    internalSeeded := false
+    lastIBOSDir := -1
+    weakInternalHigh := na(weakInternalHigh) ? lastInternalHigh : weakInternalHigh
+    weakInternalHighBar := na(weakInternalHighBar) ? lastInternalHighBar : weakInternalHighBar
+    strongInternalLow := na
+    strongInternalLowBar := na
+    earlySignalDir := -1
+    earlySignalText := "Bull strong iL failed"
+    if showInternal and showFailureSignals and not na(failPrice)
+        failLabel = label.new(bar_index, failPrice, "Strong iL Fail", color = transparent, textcolor = failureColor, style = label.style_label_up, size = size.tiny)
+        array.push(internalLabelIds, failLabel)
+        cap_label_array(internalLabelIds, cleanBreakLabels + cleanSwingLabels)
+
+if failedBearInternal
+    failPrice = strongInternalHigh
+    internalDir := 1
+    internalSeeded := false
+    lastIBOSDir := 1
+    weakInternalLow := na(weakInternalLow) ? lastInternalLow : weakInternalLow
+    weakInternalLowBar := na(weakInternalLowBar) ? lastInternalLowBar : weakInternalLowBar
+    strongInternalHigh := na
+    strongInternalHighBar := na
+    earlySignalDir := 1
+    earlySignalText := "Bear strong iH failed"
+    if showInternal and showFailureSignals and not na(failPrice)
+        failLabel = label.new(bar_index, failPrice, "Strong iH Fail", color = transparent, textcolor = failureColor, style = label.style_label_down, size = size.tiny)
+        array.push(internalLabelIds, failLabel)
+        cap_label_array(internalLabelIds, cleanBreakLabels + cleanSwingLabels)
+
+// --- Sessions ---
+update_session(sess, col) =>
+    var box b = na
+    var float h = 0.0
+    var float l = 0.0
+
+    inWeek = not thisWeekOnly or (weekofyear(time) == weekofyear(timenow) and year(time) == year(timenow))
+    inSess = inWeek and not na(time(timeframe.period, sess, "UTC"))
+    wasInSess = bar_index > 0 ? inSess[1] : false
+    isNew = inSess and not wasInSess
+
+    if isNew
+        h := high
+        l := low
+        b := box.new(bar_index, h, bar_index, l, bgcolor = col, border_color = col)
+    else if inSess and not na(b)
+        h := math.max(h, high)
+        l := math.min(l, low)
+        box.set_top(b, h)
+        box.set_bottom(b, l)
+        box.set_right(b, bar_index)
+
+    0
+
+if showSessions
+    update_session(asiaTime, asiaColor)
+    update_session(londonTime, londonColor)
+    update_session(nyTime, nyColor)
+
+// --- Dashboard HTF Logic ---
+get_htf(res) =>
+    request.security(syminfo.tickerid, res, [high[1], low[1], close[1], close], barmerge.gaps_off, barmerge.lookahead_off)
+
+calc_bias(float h, float l, float c) =>
+    string dir = "Neutral"
+    string ctx = "No Clear Read"
+    color col = neutralColor
+
+    if not na(h) and not na(l) and not na(c)
+        if c > h
+            dir := "Bullish"
+            ctx := "Close > Prev High"
+            col := swingBullColor
+        else if c < l
+            dir := "Bearish"
+            ctx := "Close < Prev Low"
+            col := swingBearColor
+        else if high > h and c < h
+            dir := "Bearish"
+            ctx := "Buy Sweep"
+            col := swingBearColor
+        else if low < l and c > l
+            dir := "Bullish"
+            ctx := "Sell Sweep"
+            col := swingBullColor
+
+    [dir, col, ctx]
+
+get_state(float h, float l, float pc, float c) =>
+    string dir = "Neutral"
+    string stage = "No Data"
+    color col = neutralColor
+
+    if not na(h) and not na(l) and not na(pc) and not na(c)
+        dir := c > pc ? "Bullish" : c < pc ? "Bearish" : "Neutral"
+        stage := c > h ? "Expansion" : c < l ? "Confirmed Shift" : "Continuation"
+        col := dir == "Bullish" ? swingBullColor : dir == "Bearish" ? swingBearColor : neutralColor
+
+    [dir, col, stage]
+
+[wH, wL, wPC, wC] = get_htf("W")
+[dH, dL, dPC, dC] = get_htf("D")
+[h4H, h4L, h4PC, h4C] = get_htf("240")
+[m15H, m15L, m15PC, m15C] = get_htf("15")
+[m1H, m1L, m1PC, m1C] = get_htf("1")
+
+[wDir, wCol, wCtx] = calc_bias(wH, wL, wC)
+[dDir, dCol, dCtx] = calc_bias(dH, dL, dC)
+[h4Dir, h4Col, h4Stage] = get_state(h4H, h4L, h4PC, h4C)
+[m15Dir, m15Col, m15Stage] = get_state(m15H, m15L, m15PC, m15C)
+[m1Dir, m1Col, m1Stage] = get_state(m1H, m1L, m1PC, m1C)
+
+var table dash = table.new(dash_position(), 3, 9, border_width = 1, frame_color = dashHeadBg)
+
+if barstate.islast and showDash
+    for r = 0 to 8
+        table.cell(dash, 0, r, "", bgcolor = color.new(color.white, 100))
+        table.cell(dash, 1, r, "", bgcolor = color.new(color.white, 100))
+        table.cell(dash, 2, r, "", bgcolor = color.new(color.white, 100))
+
+    table.cell(dash, 0, 0, "DIRECTIONAL", bgcolor = dashHeadBg, text_color = dashText)
+    table.cell(dash, 1, 0, "BIAS", bgcolor = dashHeadBg, text_color = dashText)
+    table.cell(dash, 2, 0, "CONTEXT", bgcolor = dashHeadBg, text_color = dashText)
+
+    table.cell(dash, 0, 1, "W", bgcolor = dashBg, text_color = dashText)
+    table.cell(dash, 1, 1, wDir, bgcolor = dashBg, text_color = wCol)
+    table.cell(dash, 2, 1, wCtx, bgcolor = dashBg, text_color = dashText)
+
+    table.cell(dash, 0, 2, "D", bgcolor = dashBg, text_color = dashText)
+    table.cell(dash, 1, 2, dDir, bgcolor = dashBg, text_color = dCol)
+    table.cell(dash, 2, 2, dCtx, bgcolor = dashBg, text_color = dashText)
+
+    table.cell(dash, 0, 3, "MARKET", bgcolor = dashHeadBg, text_color = dashText)
+    table.cell(dash, 1, 3, "STRUCTURE", bgcolor = dashHeadBg, text_color = dashText)
+    table.cell(dash, 2, 3, "STAGE", bgcolor = dashHeadBg, text_color = dashText)
+
+    chartSec = timeframe.in_seconds()
+
+    int row = 4
+
+    if chartSec <= timeframe.in_seconds("240")
+        table.cell(dash, 0, row, "H4", bgcolor = dashBg, text_color = dashText)
+        table.cell(dash, 1, row, h4Dir, bgcolor = dashBg, text_color = h4Col)
+        table.cell(dash, 2, row, h4Stage, bgcolor = dashBg, text_color = dashText)
+        row += 1
+
+    if chartSec <= timeframe.in_seconds("15")
+        table.cell(dash, 0, row, "M15", bgcolor = dashBg, text_color = dashText)
+        table.cell(dash, 1, row, m15Dir, bgcolor = dashBg, text_color = m15Col)
+        table.cell(dash, 2, row, m15Stage, bgcolor = dashBg, text_color = dashText)
+        row += 1
+
+    if chartSec <= timeframe.in_seconds("1")
+        table.cell(dash, 0, row, "M1", bgcolor = dashBg, text_color = dashText)
+        table.cell(dash, 1, row, m1Dir, bgcolor = dashBg, text_color = m1Col)
+        table.cell(dash, 2, row, m1Stage, bgcolor = dashBg, text_color = dashText)
+
+if barstate.islast and not showDash
+    table.clear(dash, 0, 0, 2, 8)
+
+// --- H4 Overlay ---
+h4_h = request.security(syminfo.tickerid, "240", high, barmerge.gaps_off, barmerge.lookahead_off)
+h4_l = request.security(syminfo.tickerid, "240", low, barmerge.gaps_off, barmerge.lookahead_off)
+
+atr14 = ta.atr(14)
+
+plot(showH4Overlay ? h4_h : na, "H4 High", color = color.new(swingBullColor, 70), style = plot.style_linebr)
+plot(showH4Overlay ? h4_l : na, "H4 Low", color = color.new(swingBearColor, 70), style = plot.style_linebr)
+
+if showSwing and showActiveLevels and not na(lastSwingHigh) and not na(lastSwingHighBar)
+    if na(activeHighLine)
+        activeHighLine := line.new(lastSwingHighBar, lastSwingHigh, bar_index, lastSwingHigh, color = color.new(swingBullColor, 35), width = 1)
+    else
+        line.set_xy1(activeHighLine, lastSwingHighBar, lastSwingHigh)
+        line.set_xy2(activeHighLine, bar_index, lastSwingHigh)
+        line.set_color(activeHighLine, color.new(swingBullColor, 35))
+else if not na(activeHighLine)
+    line.delete(activeHighLine)
+    activeHighLine := na
+
+if showSwing and showActiveLevels and not na(lastSwingLow) and not na(lastSwingLowBar)
+    if na(activeLowLine)
+        activeLowLine := line.new(lastSwingLowBar, lastSwingLow, bar_index, lastSwingLow, color = color.new(swingBearColor, 35), width = 1)
+    else
+        line.set_xy1(activeLowLine, lastSwingLowBar, lastSwingLow)
+        line.set_xy2(activeLowLine, bar_index, lastSwingLow)
+        line.set_color(activeLowLine, color.new(swingBearColor, 35))
+else if not na(activeLowLine)
+    line.delete(activeLowLine)
+    activeLowLine := na
+
+if showPremiumDiscount and hasRange and not na(rangeStart)
+    if na(rangeEqLine)
+        rangeEqLine := line.new(rangeStart, rangeEq, bar_index, rangeEq, color = eqColor, width = 1, style = line.style_dotted)
+    else
+        line.set_xy1(rangeEqLine, rangeStart, rangeEq)
+        line.set_xy2(rangeEqLine, bar_index, rangeEq)
+        line.set_color(rangeEqLine, eqColor)
+else if not na(rangeEqLine)
+    line.delete(rangeEqLine)
+    rangeEqLine := na
+
+activeStrongPrice = internalDir > 0 ? strongInternalLow : internalDir < 0 ? strongInternalHigh : na
+activeStrongBar = internalDir > 0 ? strongInternalLowBar : internalDir < 0 ? strongInternalHighBar : na
+activeWeakPrice = internalDir > 0 ? weakInternalHigh : internalDir < 0 ? weakInternalLow : na
+activeWeakBar = internalDir > 0 ? weakInternalHighBar : internalDir < 0 ? weakInternalLowBar : na
+activeStrongText = internalDir > 0 ? "Strong iL" : internalDir < 0 ? "Strong iH" : ""
+activeWeakText = internalDir > 0 ? "Weak iH" : internalDir < 0 ? "Weak iL" : ""
+
+if showInternal and showStrongWeakInternal and not na(activeStrongPrice) and not na(activeStrongBar)
+    if na(strongInternalLine)
+        strongInternalLine := line.new(activeStrongBar, activeStrongPrice, bar_index, activeStrongPrice, color = strongColor, width = 2)
+    else
+        line.set_xy1(strongInternalLine, activeStrongBar, activeStrongPrice)
+        line.set_xy2(strongInternalLine, bar_index, activeStrongPrice)
+        line.set_color(strongInternalLine, strongColor)
+    if barstate.islast
+        if na(strongInternalLabel)
+            strongInternalLabel := label.new(bar_index + 1, activeStrongPrice, activeStrongText, color = transparent, textcolor = strongColor, style = label.style_label_left, size = size.tiny)
+        else
+            label.set_x(strongInternalLabel, bar_index + 1)
+            label.set_y(strongInternalLabel, activeStrongPrice)
+            label.set_text(strongInternalLabel, activeStrongText)
+            label.set_textcolor(strongInternalLabel, strongColor)
+else
+    if not na(strongInternalLine)
+        line.delete(strongInternalLine)
+        strongInternalLine := na
+    if not na(strongInternalLabel)
+        label.delete(strongInternalLabel)
+        strongInternalLabel := na
+
+if showInternal and showStrongWeakInternal and not na(activeWeakPrice) and not na(activeWeakBar)
+    if na(weakInternalLine)
+        weakInternalLine := line.new(activeWeakBar, activeWeakPrice, bar_index, activeWeakPrice, color = weakColor, width = 1, style = line.style_dashed)
+    else
+        line.set_xy1(weakInternalLine, activeWeakBar, activeWeakPrice)
+        line.set_xy2(weakInternalLine, bar_index, activeWeakPrice)
+        line.set_color(weakInternalLine, weakColor)
+    if barstate.islast
+        if na(weakInternalLabel)
+            weakInternalLabel := label.new(bar_index + 1, activeWeakPrice, activeWeakText, color = transparent, textcolor = weakColor, style = label.style_label_left, size = size.tiny)
+        else
+            label.set_x(weakInternalLabel, bar_index + 1)
+            label.set_y(weakInternalLabel, activeWeakPrice)
+            label.set_text(weakInternalLabel, activeWeakText)
+            label.set_textcolor(weakInternalLabel, weakColor)
+else
+    if not na(weakInternalLine)
+        line.delete(weakInternalLine)
+        weakInternalLine := na
+    if not na(weakInternalLabel)
+        label.delete(weakInternalLabel)
+        weakInternalLabel := na
+
+displayInternalDir = internalDir != 0 ? internalDir : hasRange ? swingDir : 0
+displayInternalSeeded = internalSeeded or (internalDir == 0 and displayInternalDir != 0 and hasRange)
+
+if barstate.islast and showStructureState
+    stateText = buildTag + " | " + timeframe.period + " | Swing " + event_text(lastEvent, swingDir) + "\nInternal " + internal_state_text(displayInternalDir, displayInternalSeeded) + " | " + rangeZone + "\n" + signal_text(earlySignalText)
+    stateY = close + atr14
+    if na(structureStateLabel)
+        structureStateLabel := label.new(bar_index + 1, stateY, stateText, color = color.new(dashHeadBg, 0), textcolor = stateLabelTextColor, style = label.style_label_right, size = size.small)
+    else
+        label.set_x(structureStateLabel, bar_index + 1)
+        label.set_y(structureStateLabel, stateY)
+        label.set_text(structureStateLabel, stateText)
+        label.set_textcolor(structureStateLabel, stateLabelTextColor)
+        label.set_color(structureStateLabel, color.new(dashHeadBg, 0))
+        label.set_style(structureStateLabel, label.style_label_right)
+else if not showStructureState and not na(structureStateLabel)
+    label.delete(structureStateLabel)
+    structureStateLabel := na
+
+if barstate.islast and showCurrentBiasLabel
+    biasLabelText = timeframe.period + ": " + bias_text(swingDir) + " | " + lastEvent
+    biasLabelColor = bias_color(swingDir)
+    biasY = close + atr14 * 0.5
+    if na(currentBiasLabel)
+        currentBiasLabel := label.new(bar_index + 1, biasY, biasLabelText, color = color.new(dashHeadBg, 0), textcolor = biasLabelColor, style = label.style_label_left, size = size.small)
+    else
+        label.set_x(currentBiasLabel, bar_index + 1)
+        label.set_y(currentBiasLabel, biasY)
+        label.set_text(currentBiasLabel, biasLabelText)
+        label.set_textcolor(currentBiasLabel, biasLabelColor)
+        label.set_color(currentBiasLabel, color.new(dashHeadBg, 0))
+else if not showCurrentBiasLabel and not na(currentBiasLabel)
+    label.delete(currentBiasLabel)
+    currentBiasLabel := na
+
+barcolor(colorBars ? bias_color(swingDir) : na)
+
+alertcondition(bullBreak, "Ehukai Bull Swing Break", "Ehukai: bullish swing BOS or CHOCH confirmed.")
+alertcondition(bearBreak, "Ehukai Bear Swing Break", "Ehukai: bearish swing BOS or CHOCH confirmed.")
+alertcondition(bullIBOS or seededBullIBOS, "Ehukai Bullish iBOS", "Ehukai: bullish internal BOS confirmed.")
+alertcondition(bearIBOS or seededBearIBOS, "Ehukai Bearish iBOS", "Ehukai: bearish internal BOS confirmed.")
+alertcondition(bullFractalBreak, "Ehukai Bull fCHOCH", "Ehukai: bullish fractal CHOCH early signal.")
+alertcondition(bearFractalBreak, "Ehukai Bear fCHOCH", "Ehukai: bearish fractal CHOCH early signal.")
+alertcondition(failedBullInternal, "Ehukai Bull Strong iL Failed", "Ehukai: bullish strong internal low failed.")
+alertcondition(failedBearInternal, "Ehukai Bear Strong iH Failed", "Ehukai: bearish strong internal high failed.")

@@ -128,9 +128,14 @@ bars = rates.fetch("USDJPY", "M5", bars=100)
 | Backtest harness | Replay historical bars through strategy code via `rates.range()` and `rates.ticks_range()` | runtime-specific |
 | Multi-strategy orchestrator | Runs multiple `--strategy-id`-tagged strategies in one process; filters performance via `history.stats(strategy_id=...)` | runtime-specific |
 
+MT5-CLI must remain host-agnostic: no EhukaiConnect imports, SDK calls, service
+ports, router/daemon assumptions, or machine-specific launcher paths are part of
+the package contract. The only external trading runtime dependency is a local
+MetaTrader 5 terminal reachable through the `MetaTrader5` Python package.
+
 **When to shell out to the CLI vs import the library:**
 - **Import** for all in-process hot paths: analysis loop, position monitor, order placement, rate/tick fetches. Subprocess overhead (~500 ms per `mt5.initialize()`) is unacceptable for a 5-second monitor loop.
-- **Subprocess** only for operator-facing stdout output where human-readable formatting matters (e.g. `@sonnet` shelling out to post a formatted `STATUS` message to the ehukai bus). In practice, even that should prefer the library + local formatting.
+- **Subprocess** only for operator-facing stdout output where human-readable formatting matters (for example, a host posting a formatted `STATUS` message to its own control channel). In practice, even that should prefer the library + local formatting.
 
 ### Patterns cherry-picked from CLI-Anything
 
@@ -338,21 +343,29 @@ that use the vendored Ehukai MT5 overlays. They intentionally mirror
 `EhukaiLiquiditySwings.mq5` so visual agents do not choose
 between duplicate generic interpretations.
 
-`EhukaiTDAOverlay.mq5` is the preferred single chart overlay for screenshots.
-In agent screenshot mode it filters oversized FVGs and distant liquidity pools
-so old zones do not visually overpower near-price context. The FVG,
+`EhukaiTDAOverlay.mq5` is the preferred single chart overlay for screenshots
+and manual TDA. Manual mode shows top-down structure, current-timeframe swing
+labels, the latest close-confirmed BOS/CHOCH/iBOS rail with a compact marker,
+active historical FVG zones, subtle recent sweep hints, and a left-side
+`GUIDE:` panel with bias, nearest FVG POI, sweep context, and invalidation.
+M1/M5 use a smaller adaptive FVG threshold for entry work. Filled FVGs
+disappear; open or partially filled historical FVGs remain eligible and are
+selected by proximity to current price. Top-right status headers, dense FVG
+text labels, historical BOS/CHOCH text labels, and full liquidity rails are
+hidden by default so candles, structure, and FVGs remain readable. In agent
+screenshot mode it can still filter oversized FVGs and hide full liquidity rails. The FVG,
 MarketStructure, and LiquiditySwings MQ5 files are primitive/debug overlays and
 should not be stacked on normal TDA charts.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
 | `ehukai fvg` | `SYMBOL TIMEFRAME --bars INT --min-gap-pips FLOAT --max-zones INT --max-distance-pips FLOAT` | `source`, `object_prefix`, `zones`, `visual_contract` | Visible open/partial FVG zones matching `EhukaiFVG.mq5` defaults: `EFVG_` prefix, pips-based labels, max four zones, distance filter, exact lower/upper/mid levels. |
-| `ehukai structure` | `SYMBOL TIMEFRAME --bars INT --pivot-bars INT --max-swings INT` | `source`, `bias`, `panel_label`, `support`, `resistance`, `visible_swings`, `visual_contract` | Bias, support/resistance, and swing labels matching `EhukaiMarketStructure.mq5`: adaptive pivot bars, `EMS_` prefix, `HH/HL/LH/LL`, BOS labels, and the `MS <TF>: ...` panel text. |
+| `ehukai structure` | `SYMBOL TIMEFRAME --bars INT --pivot-bars INT --max-swings INT` | `structure_engine_version`, `source`, `bias`, `direction`, `stage`, `signal_bar`, `swing`, `internal`, `trade_read`, `panel_label`, `support`, `resistance`, `visible_swings`, `visual_contract` | Canonical `elite-v1` structure read matching the TDA overlay contract: video/Pine default `8 / 3 / 1` lengths, last-closed-bar BOS/CHOCH decisions, swing HH/HL/LH/LL state, compact internal pressure, and a trade-read summary. `support`/`resistance` are the latest confirmed swing low/high. |
 | `ehukai liquidity` | `SYMBOL TIMEFRAME --bars INT --length INT --area wick\|full-range --filter-by count\|volume --filter-value FLOAT --max-pools INT` | `source`, `object_prefix`, `pools`, `open_pools`, `swept_pools`, `nearest_buy_side`, `nearest_sell_side`, `visual_contract` | Buy-side/sell-side liquidity pools matching `EhukaiLiquiditySwings.mq5`: `ELS_` prefix, `BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>` labels, exact zone top/bottom/level, interaction count, tick volume, sweep status, `swept_at`, and `sweep_age_bars`. Use as a target/trap map rather than a standalone entry signal. |
 
 ### 6.5 `mt5 analyze` — Top-Down Market Structure Analysis
 
-The high-value workflow: fetch rates across multiple TFs, read swing structure, and return a structured JSON summary suitable for AI decision-making. `topdown`, `structure`, and `bias` stay generic. `sniper-poc` is the Ehukai-specific M1 point-of-confluence planner that consumes structure, FVG, liquidity, and quote/DOM context without placing orders.
+The high-value workflow: fetch rates across multiple TFs, read canonical `elite-v1` structure, and return a structured JSON summary suitable for AI decision-making. `topdown` consumes the same `ehukai.market_structure()` engine used by visual TDA context, so screenshots and JSON use the same closed-bar BOS/CHOCH semantics. D1/H4 provide directional permission, M15 frames the setup area, and M5/M1 provide entry structure. `structure` remains the generic pivot primitive. `sniper-poc` is the Ehukai-specific M1 point-of-confluence planner that consumes structure, FVG, liquidity, and quote/DOM context without placing orders.
 
 | Command | Args | JSON output keys | Description |
 |---------|------|-----------------|-------------|
@@ -373,6 +386,12 @@ The high-value workflow: fetch rates across multiple TFs, read swing structure, 
       "current_price": 155.41,
       "support": 154.80,
       "resistance": 156.20,
+      "bias": "BULLISH HH/HL",
+      "signal_bar": { "index": 298, "time": "2026-04-24T08:45:00Z", "close": 155.41 },
+      "last_event": null,
+      "internal": { "direction": "bullish", "stage": "HH_HL", "early_signal": false },
+      "trade_read": { "direction_permission": "buy", "quality": "aligned" },
+      "structure_engine_version": "elite-v1",
       "swing_highs": [{ "time": "2026-04-20T00:00:00Z", "price": 156.20 }],
       "swing_lows": [{ "time": "2026-04-15T00:00:00Z", "price": 154.80 }]
     },

@@ -526,8 +526,8 @@ def ehukai_fvg_cmd(ctx, symbol, timeframe, bars, min_gap_pips, max_zones, max_di
 @click.argument("timeframe")
 @click.option("--bars", default=300, show_default=True, type=int,
               help="Lookback bars. Matches EhukaiMarketStructure default.")
-@click.option("--pivot-bars", default=4, show_default=True, type=int,
-              help="Base pivot bars before timeframe adaptation.")
+@click.option("--pivot-bars", default=8, show_default=True, type=int,
+              help="Swing pivot bars. Canonical elite-v1 default matches Pine 8/3/1.")
 @click.option("--max-swings", default=10, show_default=True, type=int,
               help="Maximum latest swing labels to return.")
 @click.pass_context

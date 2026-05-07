@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 
 from metatrader5_cli.mt5.core import indicator, rates as rates_module
 
+STRUCTURE_ENGINE_VERSION = "elite-v1"
+
 
 def _fail(code: str, message: str) -> dict:
     return {"ok": False, "error": {"code": code, "message": message, "mt5_retcode": None}}
@@ -25,14 +27,8 @@ def _tf_label(timeframe: str) -> str:
     return "MN1" if value == "MN" else value
 
 
-def _effective_pivot_bars(timeframe: str, pivot_bars: int = 4) -> int:
-    tf = _tf_label(timeframe)
-    pivot = max(1, int(pivot_bars))
-    if tf in {"M1", "M5"}:
-        return min(pivot, 2)
-    if tf in {"M15", "M30"}:
-        return min(pivot, 3)
-    return pivot
+def _effective_pivot_bars(timeframe: str, pivot_bars: int = 8) -> int:
+    return max(1, int(pivot_bars))
 
 
 def _pip_size(symbol: str, rows: list[dict]) -> float:
@@ -90,12 +86,123 @@ def _classify_swings(swings: list[dict]) -> list[dict]:
     return classified
 
 
+def _signal_index(rows: list[dict], pivot: int) -> int:
+    """Use the last closed bar for structure decisions.
+
+    MT5 and TradingView both draw a forming candle that can reverse before close.
+    TDA should not call a BOS/CHOCH from that candle, so the canonical engine
+    uses rows[-2] whenever possible and reserves rows[-1] for current price.
+    """
+    return max(pivot, len(rows) - 2)
+
+
+def _stage_from_bias(bias: str) -> str:
+    text = bias.upper()
+    if "CHOCH" in text:
+        return "CHOCH"
+    if "BOS" in text:
+        return "BOS"
+    if "HH/HL" in text:
+        return "HH_HL"
+    if "LH/LL" in text:
+        return "LH_LL"
+    return "RANGE"
+
+
+def _direction_from_bias(bias: str) -> str:
+    text = bias.upper()
+    if "BULLISH" in text:
+        return "bullish"
+    if "BEARISH" in text:
+        return "bearish"
+    return "neutral"
+
+
+def _structure_bias(
+    *,
+    signal_close: float,
+    last_high: dict | None,
+    last_low: dict | None,
+    buffer: float,
+) -> tuple[str, dict | None]:
+    """Return the close-confirmed swing state and latest event.
+
+    CHOCH is only emitted when a closed break violates the opposite established
+    swing sequence. BOS is continuation. HH/HL and LH/LL are directional
+    structure reads while price remains inside the dealing range.
+    """
+    have_high = last_high is not None
+    have_low = last_low is not None
+
+    if have_high and signal_close > float(last_high["price"]) + buffer:
+        prior_bearish = have_low and last_high.get("kind") == "LH" and last_low.get("kind") == "LL"
+        label = "BULLISH CHOCH" if prior_bearish else "BULLISH BOS"
+        return label, {"type": "CHOCH" if prior_bearish else "BOS", "direction": "bullish", "level": last_high}
+
+    if have_low and signal_close < float(last_low["price"]) - buffer:
+        prior_bullish = have_high and last_high.get("kind") == "HH" and last_low.get("kind") == "HL"
+        label = "BEARISH CHOCH" if prior_bullish else "BEARISH BOS"
+        return label, {"type": "CHOCH" if prior_bullish else "BOS", "direction": "bearish", "level": last_low}
+
+    if have_high and have_low and last_high.get("kind") == "HH" and last_low.get("kind") == "HL":
+        return "BULLISH HH/HL", None
+
+    if have_high and have_low and last_high.get("kind") == "LH" and last_low.get("kind") == "LL":
+        return "BEARISH LH/LL", None
+
+    return "NEUTRAL / RANGE", None
+
+
+def _internal_structure(swings: list[dict], signal_close: float, buffer: float) -> dict:
+    """Compact internal read inspired by the elite market-structure video.
+
+    The full lesson separates swing, internal, and fractal structure. This
+    engine keeps the visual contract practical by making internal structure the
+    latest close-confirmed pressure inside the swing range, while marking
+    unresolved fractal flips as early signals rather than trade permission.
+    """
+    recent = swings[-8:]
+    highs = [s for s in recent if s["is_high"]]
+    lows = [s for s in recent if not s["is_high"]]
+    last_high = highs[-1] if highs else None
+    last_low = lows[-1] if lows else None
+    bias, event = _structure_bias(
+        signal_close=signal_close,
+        last_high=last_high,
+        last_low=last_low,
+        buffer=buffer,
+    )
+    direction = _direction_from_bias(bias)
+    stage = _stage_from_bias(bias)
+
+    weak_side = None
+    strong_side = None
+    if direction == "bullish":
+        weak_side = "high"
+        strong_side = "low"
+    elif direction == "bearish":
+        weak_side = "low"
+        strong_side = "high"
+
+    return {
+        "bias": bias.replace("BULLISH", "Bullish").replace("BEARISH", "Bearish").replace("NEUTRAL", "Neutral"),
+        "direction": direction,
+        "stage": "i" + stage if stage in {"BOS", "CHOCH"} else stage,
+        "last_event": {**event, "type": "i" + event["type"]} if event else None,
+        "dealing_high": last_high,
+        "dealing_low": last_low,
+        "weak_side": weak_side,
+        "strong_side": strong_side,
+        "early_signal": stage == "CHOCH" and event is not None,
+    }
+
+
 def market_structure(
     symbol: str,
     timeframe: str,
     *,
     bars: int = 300,
-    pivot_bars: int = 4,
+    pivot_bars: int = 8,
     max_swings: int = 10,
 ) -> dict:
     """Return structure context matching EhukaiMarketStructure.mq5 defaults."""
@@ -108,7 +215,7 @@ def market_structure(
     if len(rows) < (pivot * 2 + 5):
         return _fail("MT5_NO_DATA", f"Not enough bars for Ehukai market structure on {symbol} {timeframe}.")
 
-    lookback = min(bars, len(rows) - (pivot * 2) - 1)
+    lookback = min(bars, len(rows))
     start = max(pivot, len(rows) - lookback)
     stop = len(rows) - pivot
     swings: list[dict] = []
@@ -133,20 +240,25 @@ def market_structure(
             swings.append({"time": rows[i]["time"], "price": low, "is_high": False, "side": "low", "index": i})
 
     swings = _classify_swings(swings)
-    last_high = next((s for s in reversed(swings) if s["is_high"]), None)
-    last_low = next((s for s in reversed(swings) if not s["is_high"]), None)
+    signal = _signal_index(rows, pivot)
+    signal_time = rows[signal]["time"]
+    signal_close = float(rows[signal]["close"])
+    decision_swings = [s for s in swings if int(s["index"]) <= signal - pivot]
+    last_high = next((s for s in reversed(decision_swings) if s["is_high"]), None)
+    last_low = next((s for s in reversed(decision_swings) if not s["is_high"]), None)
     current_price = float(rows[-1]["close"])
-
-    if last_high and current_price > last_high["price"]:
-        bias = "BULLISH BOS"
-    elif last_low and current_price < last_low["price"]:
-        bias = "BEARISH BOS"
-    elif last_high and last_low and last_high["kind"] == "HH" and last_low["kind"] == "HL":
-        bias = "BULLISH HH/HL"
-    elif last_high and last_low and last_high["kind"] == "LH" and last_low["kind"] == "LL":
-        bias = "BEARISH LH/LL"
-    else:
-        bias = "NEUTRAL / RANGE"
+    buffer = _pip_size(symbol, rows) * 0.2
+    bias, event = _structure_bias(
+        signal_close=signal_close,
+        last_high=last_high,
+        last_low=last_low,
+        buffer=buffer,
+    )
+    direction = _direction_from_bias(bias)
+    stage = _stage_from_bias(bias)
+    swing_highs = [s for s in swings if s["is_high"]]
+    swing_lows = [s for s in swings if not s["is_high"]]
+    internal = _internal_structure(decision_swings, signal_close, buffer)
 
     return {
         "ok": True,
@@ -154,26 +266,77 @@ def market_structure(
             "symbol": symbol.upper(),
             "timeframe": _tf_label(timeframe),
             "source": "EhukaiMarketStructure",
+            "structure_engine_version": STRUCTURE_ENGINE_VERSION,
             "object_prefix": "EMS_",
             "pivot_bars": pivot,
             "max_swings": max_swings,
             "current_price": current_price,
+            "signal_bar": {"index": signal, "time": signal_time, "close": signal_close},
             "bias": bias,
+            "direction": direction,
+            "stage": stage,
+            "last_event": event,
             "support": last_low["price"] if last_low else None,
             "resistance": last_high["price"] if last_high else None,
             "latest_swing_high": last_high,
             "latest_swing_low": last_low,
+            "swing_highs": swing_highs,
+            "swing_lows": swing_lows,
             "visible_swings": list(reversed(swings[-max_swings:])),
+            "swing": {
+                "bias": bias,
+                "direction": direction,
+                "stage": stage,
+                "last_event": event,
+                "support": last_low["price"] if last_low else None,
+                "resistance": last_high["price"] if last_high else None,
+                "dealing_high": last_high,
+                "dealing_low": last_low,
+            },
+            "internal": internal,
+            "trade_read": _trade_read(direction, stage, internal),
             "panel_label": _panel_label(_tf_label(timeframe), bias, last_high, last_low),
             "visual_contract": {
                 "indicator": "EhukaiMarketStructure",
                 "object_prefix": "EMS_",
                 "swing_labels": ["SH", "SL", "HH", "HL", "LH", "LL"],
                 "panel_pattern": "MS <TF>: <BIAS> | H <kind> <price> | L <kind> <price>",
-                "bos_labels": ["BULLISH BOS", "BEARISH BOS"],
+                "event_labels": ["BULLISH BOS", "BEARISH BOS", "BULLISH CHOCH", "BEARISH CHOCH", "iBOS"],
                 "level_suffixes": ["SUPPORT", "RESISTANCE"],
+                "decision_bar": "last_closed_bar",
+                "default_lengths": {"swing": 8, "internal": 3, "fractal": 1},
             },
         },
+    }
+
+
+def _trade_read(direction: str, stage: str, internal: dict) -> dict:
+    internal_direction = internal.get("direction")
+    if direction == "neutral":
+        return {
+            "direction_permission": "none",
+            "quality": "no_trade",
+            "summary": "No swing permission yet; wait for a close-confirmed BOS or CHOCH.",
+        }
+
+    if internal_direction == direction and internal.get("stage") in {"iBOS", "HH_HL", "LH_LL"}:
+        return {
+            "direction_permission": "buy" if direction == "bullish" else "sell",
+            "quality": "aligned",
+            "summary": "Swing and internal structure are aligned; use FVG/POI retest for entry timing.",
+        }
+
+    if stage == "CHOCH" or internal.get("early_signal"):
+        return {
+            "direction_permission": "watch",
+            "quality": "pullback_or_transition",
+            "summary": "Structure is transitioning; wait for internal BOS confirmation before treating it as a trade.",
+        }
+
+    return {
+        "direction_permission": "watch",
+        "quality": "pullback",
+        "summary": "Swing bias exists, but internal structure is not aligned yet.",
     }
 
 

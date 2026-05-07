@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                         EhukaiMarketStructure.mq5 |
 //|                         Ehukai Trading - Visual Market Structure  |
-//|                         v1.10 - TDA screenshot structure overlay  |
+//|                         v1.12 - elite-v1 8/3/1 structure          |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.10"
+#property version   "1.12"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -24,18 +24,30 @@
 //+------------------------------------------------------------------+
 
 input int      InpLookback          = 300;          // Lookback bars
-input int      InpPivotBars         = 4;            // Bars left/right for swing pivot
+input int      InpPivotBars         = 8;            // Bars left/right for swing pivot
+input int      InpInternalPivotBars = 3;            // Internal pivot bars
+input int      InpFractalPivotBars  = 1;            // Fractal CHOCH pivot bars
 input int      InpMaxSwings         = 10;           // Max swing labels to show
 input int      InpExtendBars        = 60;           // Extend structure levels right by bars
 input bool     InpShowSwingLabels   = true;         // Show HH/HL/LH/LL labels
 input bool     InpShowMarkers       = true;         // Show swing markers
 input bool     InpShowLevels        = true;         // Show latest swing high/low levels
+input bool     InpShowInternal      = true;         // Show elite internal structure
+input bool     InpShowStatePanel    = true;         // Show elite state panel
+input bool     InpShowRangeEQ       = true;         // Show active range equilibrium
+input bool     InpShowStrongWeak    = true;         // Show strong/weak internal levels
+input bool     InpShowFailureMarks  = true;         // Show strong internal failures
 input bool     InpShowBiasPanel     = true;         // Show structure bias panel
 input bool     InpShowBreakLabels   = true;         // Show BOS labels on current break
 input color    InpBullColor         = clrLimeGreen; // Bullish structure color
 input color    InpBearColor         = clrTomato;    // Bearish structure color
 input color    InpNeutralColor      = clrSilver;    // Neutral/mixed structure color
 input color    InpLevelColor        = clrDodgerBlue;// Structure level color
+input color    InpEQColor           = C'100,116,139'; // Range EQ color
+input color    InpStrongColor       = clrGold;      // Strong internal color
+input color    InpWeakColor         = C'148,163,184'; // Weak internal color
+input color    InpFailureColor      = clrOrange;    // Strong failure color
+input color    InpStateTextColor    = clrWhite;     // Elite state text color
 input int      InpLineWidth         = 2;            // Level line width
 input int      InpLabelFontSize     = 9;            // Swing label font size
 input double   InpLabelOffsetPips   = 4.0;          // Label offset in pips
@@ -51,6 +63,49 @@ struct SwingPoint
    bool     is_high;
    int      index;
    string   kind;
+  };
+
+struct PivotPoint
+  {
+   datetime time;
+   double   price;
+   bool     is_high;
+   int      index;
+  };
+
+struct StructureEvent
+  {
+   datetime start_time;
+   datetime end_time;
+   double   price;
+   string   text;
+   bool     bullish;
+   bool     label_above;
+  };
+
+struct EliteState
+  {
+   int      swing_dir;
+   int      internal_dir;
+   int      last_ibos_dir;
+   int      last_swing_break_index;
+   bool     internal_seeded;
+   bool     has_range;
+   string   last_event;
+   string   early_signal;
+   double   dealing_high;
+   double   dealing_low;
+   datetime dealing_high_time;
+   datetime dealing_low_time;
+   datetime dealing_start_time;
+   double   strong_high;
+   double   strong_low;
+   double   weak_high;
+   double   weak_low;
+   datetime strong_high_time;
+   datetime strong_low_time;
+   datetime weak_high_time;
+   datetime weak_low_time;
   };
 
 //+------------------------------------------------------------------+
@@ -142,6 +197,20 @@ void AddSwing(SwingPoint &swings[], int &count, const datetime time_value,
   }
 
 //+------------------------------------------------------------------+
+//| Add a generic pivot point                                         |
+//+------------------------------------------------------------------+
+void AddPivot(PivotPoint &pivots[], int &count, const datetime time_value,
+              const double price, const bool is_high, const int index)
+  {
+   count++;
+   ArrayResize(pivots, count);
+   pivots[count - 1].time = time_value;
+   pivots[count - 1].price = price;
+   pivots[count - 1].is_high = is_high;
+   pivots[count - 1].index = index;
+  }
+
+//+------------------------------------------------------------------+
 //| Detect pivot swings                                                |
 //+------------------------------------------------------------------+
 void DetectSwings(const double &high[], const double &low[],
@@ -175,8 +244,47 @@ void DetectSwings(const double &high[], const double &low[],
 
       if(is_high)
          AddSwing(swings, swing_count, time[i], high[i], true, i);
-      if(is_low)
+     if(is_low)
          AddSwing(swings, swing_count, time[i], low[i], false, i);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Detect generic pivots for internal/fractal structure              |
+//+------------------------------------------------------------------+
+void DetectPivots(const double &high[], const double &low[],
+                  const datetime &time[], const int rates_total,
+                  const int pivot, PivotPoint &pivots[], int &pivot_count)
+  {
+   ArrayResize(pivots, 0);
+   pivot_count = 0;
+
+   int effective_pivot = MathMax(1, pivot);
+   int lookback = MathMin(InpLookback, rates_total - (effective_pivot * 2) - 1);
+   int start = MathMax(effective_pivot, rates_total - lookback);
+   int stop = rates_total - effective_pivot;
+
+   for(int i = start; i < stop; i++)
+     {
+      bool is_high = true;
+      bool is_low = true;
+
+      for(int j = i - effective_pivot; j <= i + effective_pivot; j++)
+        {
+         if(j == i)
+            continue;
+         if(high[i] <= high[j])
+            is_high = false;
+         if(low[i] >= low[j])
+            is_low = false;
+         if(!is_high && !is_low)
+            break;
+        }
+
+      if(is_high)
+         AddPivot(pivots, pivot_count, time[i], high[i], true, i);
+      if(is_low)
+         AddPivot(pivots, pivot_count, time[i], low[i], false, i);
      }
   }
 
@@ -366,7 +474,543 @@ void DrawBreakLabel(const string bias, const datetime last_time, const double la
       ObjectSetInteger(0, name, OBJPROP_COLOR, c);
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize + 1);
       ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+     SetObjectDefaults(name, false);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Elite structure helpers                                           |
+//+------------------------------------------------------------------+
+string BiasText(const int dir)
+  {
+   if(dir > 0)
+      return "Bullish";
+   if(dir < 0)
+      return "Bearish";
+   return "Neutral";
+  }
+
+string InternalStateText(const int dir, const bool seeded)
+  {
+   if(seeded && dir > 0)
+      return "Bull Seeded";
+   if(seeded && dir < 0)
+      return "Bear Seeded";
+   if(dir > 0)
+      return "Bullish iBOS";
+   if(dir < 0)
+      return "Bearish iBOS";
+   return "Unconfirmed";
+  }
+
+string ZoneText(const double price, const EliteState &state)
+  {
+   if(!state.has_range)
+      return "No Range";
+   double top = MathMax(state.dealing_high, state.dealing_low);
+   double bot = MathMin(state.dealing_high, state.dealing_low);
+   double eq = (top + bot) / 2.0;
+   if(price > eq)
+      return "Premium";
+   if(price < eq)
+      return "Discount";
+   return "EQ";
+  }
+
+bool InsideActiveRange(const double price, const int pivot_index, const EliteState &state)
+  {
+   if(!state.has_range)
+      return false;
+   double top = MathMax(state.dealing_high, state.dealing_low);
+   double bot = MathMin(state.dealing_high, state.dealing_low);
+   return price < top && price > bot && pivot_index > state.last_swing_break_index;
+  }
+
+void AddStructureEvent(StructureEvent &events[], int &event_count,
+                       const datetime start_time, const datetime end_time,
+                       const double price, const string text,
+                       const bool bullish, const bool label_above)
+  {
+   event_count++;
+   ArrayResize(events, event_count);
+   events[event_count - 1].start_time = start_time;
+   events[event_count - 1].end_time = end_time;
+   events[event_count - 1].price = price;
+   events[event_count - 1].text = text;
+   events[event_count - 1].bullish = bullish;
+   events[event_count - 1].label_above = label_above;
+  }
+
+void DrawTrendLine(const string name, const datetime t1, const double p1,
+                   const datetime t2, const double p2, const color c,
+                   const ENUM_LINE_STYLE style, const int width)
+  {
+   if(ObjectCreate(0, name, OBJ_TREND, 0, t1, p1, t2, p2))
+     {
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+      ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
       SetObjectDefaults(name, false);
+     }
+  }
+
+void DrawTextAtPrice(const string name, const datetime t, const double price,
+                     const string text, const color c, const bool above)
+  {
+   double offset = PipsToPrice(InpLabelOffsetPips);
+   double label_price = above ? price + offset : price - offset;
+   if(ObjectCreate(0, name, OBJ_TEXT, 0, t, label_price))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      SetObjectDefaults(name, false);
+     }
+  }
+
+void DrawStatePanel(const EliteState &state, const double last_close)
+  {
+   if(!InpShowStatePanel)
+      return;
+
+   int display_dir = state.internal_dir != 0 ? state.internal_dir : (state.has_range ? state.swing_dir : 0);
+   bool display_seeded = state.internal_seeded || (state.internal_dir == 0 && display_dir != 0 && state.has_range);
+   string event_text = (state.last_event == "" ? BiasText(state.swing_dir) : state.last_event);
+   string signal_text = (state.early_signal == "" ? "Waiting for fCHOCH / iBOS" : state.early_signal);
+   string text = StringFormat("EMS v1.12 | %s | Swing %s\nInternal %s | %s\n%s",
+                              TimeframeLabel(), event_text,
+                              InternalStateText(display_dir, display_seeded),
+                              ZoneText(last_close, state), signal_text);
+
+   string name = g_prefix + _Symbol + "_" + TimeframeLabel() + "_ELITE_STATE";
+   if(ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 54);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, InpStateTextColor);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      SetObjectDefaults(name, false);
+     }
+  }
+
+void DrawEliteLevel(const string suffix, const datetime start_time,
+                    const double price, const datetime chart_end,
+                    const string text, const color c,
+                    const ENUM_LINE_STYLE style, const int width)
+  {
+   if(start_time <= 0 || price == 0.0)
+      return;
+
+   string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_" + suffix;
+   DrawTrendLine(base + "_LN", start_time, price, chart_end, price, c, style, width);
+   DrawTextAtPrice(base + "_TX", chart_end, price, text, c, true);
+  }
+
+void DrawEliteOverlays(const EliteState &state, const StructureEvent &events[],
+                       const int event_count, const datetime chart_end,
+                       const double last_close)
+  {
+   if(!InpShowInternal)
+      return;
+
+   for(int i = 0; i < event_count; i++)
+     {
+      bool is_failure = StringFind(events[i].text, "Fail") >= 0;
+      color c = is_failure ? InpFailureColor : (events[i].bullish ? InpBullColor : InpBearColor);
+      string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_EV_" + IntegerToString(i);
+      if(!is_failure)
+         DrawTrendLine(base + "_LN", events[i].start_time, events[i].price,
+                       events[i].end_time, events[i].price, c, STYLE_DASH, 1);
+      DrawTextAtPrice(base + "_TX", events[i].end_time, events[i].price,
+                      events[i].text, c, events[i].label_above);
+     }
+
+   if(InpShowRangeEQ && state.has_range)
+     {
+      double eq = (MathMax(state.dealing_high, state.dealing_low) + MathMin(state.dealing_high, state.dealing_low)) / 2.0;
+      DrawTrendLine(g_prefix + _Symbol + "_" + TimeframeLabel() + "_RANGE_EQ",
+                    state.dealing_start_time, eq, chart_end, eq, InpEQColor, STYLE_DOT, 1);
+     }
+
+   if(InpShowStrongWeak)
+     {
+      if(state.internal_dir > 0)
+        {
+         DrawEliteLevel("STRONG_IL", state.strong_low_time, state.strong_low, chart_end,
+                        "Strong iL", InpStrongColor, STYLE_SOLID, 2);
+         DrawEliteLevel("WEAK_IH", state.weak_high_time, state.weak_high, chart_end,
+                        "Weak iH", InpWeakColor, STYLE_DASH, 1);
+        }
+      else if(state.internal_dir < 0)
+        {
+         DrawEliteLevel("STRONG_IH", state.strong_high_time, state.strong_high, chart_end,
+                        "Strong iH", InpStrongColor, STYLE_SOLID, 2);
+         DrawEliteLevel("WEAK_IL", state.weak_low_time, state.weak_low, chart_end,
+                        "Weak iL", InpWeakColor, STYLE_DASH, 1);
+        }
+     }
+
+   DrawStatePanel(state, last_close);
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate elite market-structure state                            |
+//+------------------------------------------------------------------+
+void CalculateEliteState(const SwingPoint &swings[], const int swing_count,
+                         const double &high[], const double &low[],
+                         const datetime &time[], const double &close[],
+                         const int rates_total, EliteState &state,
+                         StructureEvent &events[], int &event_count)
+  {
+   state.swing_dir = 0;
+   state.internal_dir = 0;
+   state.last_ibos_dir = 0;
+   state.last_swing_break_index = -1;
+   state.internal_seeded = false;
+   state.has_range = false;
+   state.last_event = "";
+   state.early_signal = "";
+   state.dealing_high = 0.0;
+   state.dealing_low = 0.0;
+   state.dealing_high_time = 0;
+   state.dealing_low_time = 0;
+   state.dealing_start_time = 0;
+   state.strong_high = 0.0;
+   state.strong_low = 0.0;
+   state.weak_high = 0.0;
+   state.weak_low = 0.0;
+   state.strong_high_time = 0;
+   state.strong_low_time = 0;
+   state.weak_high_time = 0;
+   state.weak_low_time = 0;
+
+   ArrayResize(events, 0);
+   event_count = 0;
+
+   PivotPoint internal_pivots[];
+   PivotPoint fractal_pivots[];
+   int internal_count = 0;
+   int fractal_count = 0;
+   int swing_pivot = EffectivePivotBars();
+   int internal_pivot = MathMax(1, InpInternalPivotBars);
+   int fractal_pivot = MathMax(1, InpFractalPivotBars);
+   DetectPivots(high, low, time, rates_total, internal_pivot, internal_pivots, internal_count);
+   DetectPivots(high, low, time, rates_total, fractal_pivot, fractal_pivots, fractal_count);
+
+   double last_swing_high = 0.0;
+   double last_swing_low = 0.0;
+   datetime last_swing_high_time = 0;
+   datetime last_swing_low_time = 0;
+   int last_swing_high_index = -1;
+   int last_swing_low_index = -1;
+   bool have_swing_high = false;
+   bool have_swing_low = false;
+   bool high_armed = false;
+   bool low_armed = false;
+
+   double last_internal_high = 0.0;
+   double last_internal_low = 0.0;
+   datetime last_internal_high_time = 0;
+   datetime last_internal_low_time = 0;
+   int last_internal_high_index = -1;
+   int last_internal_low_index = -1;
+   bool internal_high_armed = false;
+   bool internal_low_armed = false;
+
+   double last_fractal_high = 0.0;
+   double last_fractal_low = 0.0;
+   bool fractal_high_armed = false;
+   bool fractal_low_armed = false;
+   int fractal_dir = 0;
+
+   int swing_ptr = 0;
+   int internal_ptr = 0;
+   int fractal_ptr = 0;
+   int start = MathMax(0, rates_total - InpLookback);
+
+   for(int i = start; i < rates_total; i++)
+     {
+      while(swing_ptr < swing_count && swings[swing_ptr].index + swing_pivot <= i)
+        {
+         if(swings[swing_ptr].is_high)
+           {
+            last_swing_high = swings[swing_ptr].price;
+            last_swing_high_time = swings[swing_ptr].time;
+            last_swing_high_index = swings[swing_ptr].index;
+            have_swing_high = true;
+            high_armed = true;
+           }
+         else
+           {
+            last_swing_low = swings[swing_ptr].price;
+            last_swing_low_time = swings[swing_ptr].time;
+            last_swing_low_index = swings[swing_ptr].index;
+            have_swing_low = true;
+            low_armed = true;
+           }
+         swing_ptr++;
+        }
+
+      bool raw_bull_break = high_armed && have_swing_high && close[i] > last_swing_high;
+      bool raw_bear_break = low_armed && have_swing_low && close[i] < last_swing_low;
+      bool bull_break = raw_bull_break && !raw_bear_break;
+      bool bear_break = raw_bear_break && !raw_bull_break;
+
+      if(bull_break)
+        {
+         string event_text = state.swing_dir < 0 ? "CHOCH" : "BOS";
+         AddStructureEvent(events, event_count, last_swing_high_time, time[i],
+                           last_swing_high, event_text, true, true);
+         state.swing_dir = 1;
+         state.last_event = "Bull " + event_text;
+         state.last_swing_break_index = i;
+         high_armed = false;
+
+         if(have_swing_high && have_swing_low)
+           {
+            state.has_range = true;
+            state.dealing_high = last_swing_high;
+            state.dealing_high_time = last_swing_high_time;
+            state.dealing_low = last_swing_low;
+            state.dealing_low_time = last_swing_low_time;
+            state.dealing_start_time = last_swing_high_index < last_swing_low_index ? last_swing_high_time : last_swing_low_time;
+           }
+
+         last_internal_high = 0.0;
+         last_internal_low = low[i];
+         last_internal_high_time = 0;
+         last_internal_low_time = time[i];
+         last_internal_high_index = -1;
+         last_internal_low_index = i;
+         internal_high_armed = false;
+         internal_low_armed = false;
+         state.internal_dir = 1;
+         state.internal_seeded = true;
+         state.last_ibos_dir = 0;
+         state.strong_high = 0.0;
+         state.strong_low = low[i];
+         state.strong_high_time = 0;
+         state.strong_low_time = time[i];
+         state.weak_high = state.dealing_high;
+         state.weak_low = 0.0;
+         state.weak_high_time = state.dealing_high_time;
+         state.weak_low_time = 0;
+         fractal_high_armed = false;
+         fractal_low_armed = false;
+         fractal_dir = 0;
+         state.early_signal = "";
+        }
+
+      if(bear_break)
+        {
+         string event_text = state.swing_dir > 0 ? "CHOCH" : "BOS";
+         AddStructureEvent(events, event_count, last_swing_low_time, time[i],
+                           last_swing_low, event_text, false, false);
+         state.swing_dir = -1;
+         state.last_event = "Bear " + event_text;
+         state.last_swing_break_index = i;
+         low_armed = false;
+
+         if(have_swing_high && have_swing_low)
+           {
+            state.has_range = true;
+            state.dealing_high = last_swing_high;
+            state.dealing_high_time = last_swing_high_time;
+            state.dealing_low = last_swing_low;
+            state.dealing_low_time = last_swing_low_time;
+            state.dealing_start_time = last_swing_high_index < last_swing_low_index ? last_swing_high_time : last_swing_low_time;
+           }
+
+         last_internal_high = high[i];
+         last_internal_low = 0.0;
+         last_internal_high_time = time[i];
+         last_internal_low_time = 0;
+         last_internal_high_index = i;
+         last_internal_low_index = -1;
+         internal_high_armed = false;
+         internal_low_armed = false;
+         state.internal_dir = -1;
+         state.internal_seeded = true;
+         state.last_ibos_dir = 0;
+         state.strong_high = high[i];
+         state.strong_low = 0.0;
+         state.strong_high_time = time[i];
+         state.strong_low_time = 0;
+         state.weak_high = 0.0;
+         state.weak_low = state.dealing_low;
+         state.weak_high_time = 0;
+         state.weak_low_time = state.dealing_low_time;
+         fractal_high_armed = false;
+         fractal_low_armed = false;
+         fractal_dir = 0;
+         state.early_signal = "";
+        }
+
+      if(!bull_break && !bear_break && state.has_range)
+        {
+         if(state.swing_dir > 0 && high[i] > state.dealing_high)
+           {
+            state.dealing_high = high[i];
+            state.dealing_high_time = time[i];
+           }
+         if(state.swing_dir < 0 && low[i] < state.dealing_low)
+           {
+            state.dealing_low = low[i];
+            state.dealing_low_time = time[i];
+           }
+        }
+
+      while(internal_ptr < internal_count && internal_pivots[internal_ptr].index + internal_pivot <= i)
+        {
+         PivotPoint pivot = internal_pivots[internal_ptr];
+         if(InsideActiveRange(pivot.price, pivot.index, state))
+           {
+            if(pivot.is_high)
+              {
+               last_internal_high = pivot.price;
+               last_internal_high_time = pivot.time;
+               last_internal_high_index = pivot.index;
+               internal_high_armed = true;
+              }
+            else
+              {
+               last_internal_low = pivot.price;
+               last_internal_low_time = pivot.time;
+               last_internal_low_index = pivot.index;
+               internal_low_armed = true;
+              }
+           }
+         internal_ptr++;
+        }
+
+      while(fractal_ptr < fractal_count && fractal_pivots[fractal_ptr].index + fractal_pivot <= i)
+        {
+         PivotPoint pivot = fractal_pivots[fractal_ptr];
+         if(InsideActiveRange(pivot.price, pivot.index, state))
+           {
+            if(pivot.is_high)
+              {
+               last_fractal_high = pivot.price;
+               fractal_high_armed = true;
+              }
+            else
+              {
+               last_fractal_low = pivot.price;
+               fractal_low_armed = true;
+              }
+           }
+         fractal_ptr++;
+        }
+
+      double range_top = state.has_range ? MathMax(state.dealing_high, state.dealing_low) : 0.0;
+      double range_bot = state.has_range ? MathMin(state.dealing_high, state.dealing_low) : 0.0;
+
+      bool bull_fractal_break = state.has_range && fractal_high_armed && last_fractal_high > 0.0 && close[i] > last_fractal_high && close[i] < range_top;
+      bool bear_fractal_break = state.has_range && fractal_low_armed && last_fractal_low > 0.0 && close[i] < last_fractal_low && close[i] > range_bot;
+      if(bull_fractal_break)
+        {
+         if(fractal_dir <= 0)
+            state.early_signal = state.internal_dir < 0 ? "Bull fCHOCH: internal pullback may start" : "Bull fCHOCH: internal pullback may end";
+         fractal_dir = 1;
+         fractal_high_armed = false;
+        }
+      if(bear_fractal_break)
+        {
+         if(fractal_dir >= 0)
+            state.early_signal = state.internal_dir > 0 ? "Bear fCHOCH: internal pullback may start" : "Bear fCHOCH: internal pullback may end";
+         fractal_dir = -1;
+         fractal_low_armed = false;
+        }
+
+      bool bull_ibos = state.has_range && internal_high_armed && last_internal_high > 0.0 && close[i] > last_internal_high && close[i] < range_top;
+      bool bear_ibos = state.has_range && internal_low_armed && last_internal_low > 0.0 && close[i] < last_internal_low && close[i] > range_bot;
+      bool seeded_bull_ibos = !bull_ibos && state.internal_seeded && state.internal_dir > 0 && state.has_range &&
+                              state.weak_high > 0.0 && close[i] > state.weak_high && i > state.last_swing_break_index;
+      bool seeded_bear_ibos = !bear_ibos && state.internal_seeded && state.internal_dir < 0 && state.has_range &&
+                              state.weak_low > 0.0 && close[i] < state.weak_low && i > state.last_swing_break_index;
+
+      if(bull_ibos)
+        {
+         AddStructureEvent(events, event_count, last_internal_high_time, time[i],
+                           last_internal_high, "iBOS", true, true);
+         state.internal_dir = 1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = 1;
+         state.strong_low = last_internal_low;
+         state.strong_low_time = last_internal_low_time;
+         state.weak_high = range_top;
+         state.weak_high_time = state.dealing_high_time;
+         internal_high_armed = false;
+        }
+
+      if(seeded_bull_ibos)
+        {
+         AddStructureEvent(events, event_count, state.weak_high_time, time[i],
+                           state.weak_high, "iBOS", true, true);
+         state.internal_seeded = false;
+         state.last_ibos_dir = 1;
+         state.weak_high = range_top;
+         state.weak_high_time = state.dealing_high_time;
+        }
+
+      if(bear_ibos)
+        {
+         AddStructureEvent(events, event_count, last_internal_low_time, time[i],
+                           last_internal_low, "iBOS", false, false);
+         state.internal_dir = -1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = -1;
+         state.strong_high = last_internal_high;
+         state.strong_high_time = last_internal_high_time;
+         state.weak_low = range_bot;
+         state.weak_low_time = state.dealing_low_time;
+         internal_low_armed = false;
+        }
+
+      if(seeded_bear_ibos)
+        {
+         AddStructureEvent(events, event_count, state.weak_low_time, time[i],
+                           state.weak_low, "iBOS", false, false);
+         state.internal_seeded = false;
+         state.last_ibos_dir = -1;
+         state.weak_low = range_bot;
+         state.weak_low_time = state.dealing_low_time;
+        }
+
+      bool failed_bull_internal = state.internal_dir > 0 && state.strong_low > 0.0 && close[i] < state.strong_low;
+      bool failed_bear_internal = state.internal_dir < 0 && state.strong_high > 0.0 && close[i] > state.strong_high;
+
+      if(failed_bull_internal)
+        {
+         if(InpShowFailureMarks)
+            AddStructureEvent(events, event_count, time[i], time[i], state.strong_low,
+                              "Strong iL Fail", false, false);
+         state.internal_dir = -1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = -1;
+         state.strong_low = 0.0;
+         state.strong_low_time = 0;
+         state.early_signal = "Bull strong iL failed";
+        }
+
+      if(failed_bear_internal)
+        {
+         if(InpShowFailureMarks)
+            AddStructureEvent(events, event_count, time[i], time[i], state.strong_high,
+                              "Strong iH Fail", true, true);
+         state.internal_dir = 1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = 1;
+         state.strong_high = 0.0;
+         state.strong_high_time = 0;
+         state.early_signal = "Bear strong iH failed";
+        }
      }
   }
 
@@ -398,6 +1042,12 @@ void RenderStructure(const double &high[], const double &low[],
      }
 
    datetime chart_end = time[rates_total - 1] + InpExtendBars * PeriodSeconds();
+   EliteState elite_state;
+   StructureEvent elite_events[];
+   int elite_event_count = 0;
+   CalculateEliteState(swings, swing_count, high, low, time, close, rates_total,
+                       elite_state, elite_events, elite_event_count);
+
    if(InpShowLevels)
      {
       if(have_high)
@@ -408,6 +1058,7 @@ void RenderStructure(const double &high[], const double &low[],
 
    DrawBiasPanel(bias, last_high, have_high, last_low, have_low);
    DrawBreakLabel(bias, time[rates_total - 1], close[rates_total - 1]);
+   DrawEliteOverlays(elite_state, elite_events, elite_event_count, chart_end, close[rates_total - 1]);
    ChartRedraw(0);
   }
 

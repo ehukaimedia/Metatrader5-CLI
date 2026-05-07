@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                             EhukaiTDAOverlay.mq5  |
 //|                  Ehukai Trading - Unified TDA Visual Overlay      |
-//|                  v1.10 - Sniper state presentation layer          |
+//|                  v1.23 - Canonical elite-v1 structure map         |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.10"
+#property version   "1.23"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -32,27 +32,52 @@ enum ENUM_TDA_MODE
    TDA_SNIPER           = 2  // Sniper
   };
 
-input ENUM_TDA_MODE InpMode               = TDA_AGENT_SCREENSHOT; // Visual mode
+input ENUM_TDA_MODE InpMode               = TDA_MANUAL_ANALYSIS;  // Visual mode
 input int           InpLookbackBars       = 300;                  // Lookback bars
 input int           InpExtendBars         = 48;                   // Extend active objects
+input bool          InpCleanAgentScreenshot = false;              // Agent mode: clean chart
+input bool          InpCleanLegacyEhukaiObjects = true;           // Agent mode: clear old Ehukai objects
 input bool          InpShowStructure      = true;                 // Show structure
-input bool          InpShowFVG            = true;                 // Show nearest FVGs
-input bool          InpShowLiquidity      = true;                 // Show liquidity pools
-input int           InpPivotBars          = 4;                    // Structure pivot bars
+input bool          InpShowEliteStructure = true;                 // Show elite structure state
+input bool          InpShowEliteEvents    = false;                // Show elite event history
+input bool          InpShowEliteLevels    = false;                // Draw strong/weak internal rails
+input bool          InpShowBreakMap       = true;                 // Show recent BOS/CHOCH rails
+input bool          InpShowBreakTextLabels = false;               // Label BOS/CHOCH rails
+input bool          InpShowLatestBreakLabel = true;               // Label latest BOS/CHOCH
+input bool          InpShowTradeGuide     = true;                 // Show manual trade guide
+input bool          InpShowTopDownPanel   = true;                 // Show W/D/H4/current bias
+input bool          InpShowStatusHeaders  = false;                // Show top-right status headers
+input bool          InpShowFVG            = true;                 // Show active FVGs
+input bool          InpShowHistoricalFVG  = true;                 // Keep active historical FVGs
+input bool          InpShowFVGTextLabels  = false;                // Label FVG zones
+input bool          InpShowLiquidity      = false;                // Draw liquidity pools
+input bool          InpUseLiquidityContext = true;                // Use liquidity in setup context
+input bool          InpShowSweepMarkers   = true;                 // Show subtle sweep markers
+input int           InpPivotBars          = 8;                    // Structure pivot bars
+input int           InpInternalPivotBars  = 3;                    // Internal pivot bars
+input int           InpFractalPivotBars   = 1;                    // Fractal CHOCH pivot bars
 input int           InpMaxSwingLabels     = 6;                    // Max swing labels
-input int           InpMaxFVGZones        = 3;                    // Max FVG zones
+input int           InpMaxEliteEvents     = 4;                    // Max elite event labels
+input int           InpMaxBreakEvents     = 1;                    // Max BOS/CHOCH rails
+input int           InpMaxFVGZones        = 12;                   // Max active FVG zones
+input bool          InpUseAdaptiveFVGMinGap = true;               // Adapt FVG min size by timeframe
 input double        InpMinFVGGapPips      = 1.0;                  // Min FVG size
+input double        InpEntryFVGMinGapPips = 0.2;                  // M1/M5 min FVG size
+input double        InpSetupFVGMinGapPips = 0.5;                  // M15/M30 min FVG size
 input double        InpMaxFVGSizePips     = 80.0;                 // Max FVG size in screenshot mode
 input double        InpMaxFVGDistancePips = 160.0;                // Max FVG distance
 input int           InpLiquidityLookback  = 14;                   // Liquidity pivot lookback
+input int           InpFastLiquidityLookback = 5;                 // M1/M5 liquidity lookback
 input int           InpMaxLiquidityPools  = 4;                    // Max liquidity pools
 input bool          InpShowSweptLiquidity = true;                 // Include swept pools
 input double        InpMaxLiquidityDistancePips = 120.0;          // Max liquidity distance
+input int           InpMaxSweepMarkerAgeBars = 40;                // Max sweep marker age
 input bool          InpFillSmallZones     = false;                // Fill small zones
 input double        InpMaxFillPips        = 25.0;                 // Max filled-zone size
 input bool          InpShowSniperState    = true;                 // Show sniper state
 input bool          InpShowOnlyActionableZones = true;            // Sniper: only actionable zones
 input int           InpMinTDAScore        = 70;                   // Minimum actionable score
+input double        InpGuideEntryProximityPips = 6.0;             // Guide: entry-zone proximity
 input bool          InpUseClosedBarSignals = true;                // Confirm signals on closed bar
 input double        InpBreakBufferPips    = 0.2;                  // BOS close buffer
 input bool          InpAlertOnWatch       = false;                // Alert on watch state
@@ -64,6 +89,13 @@ input color         InpBullColor          = clrLimeGreen;         // Bullish col
 input color         InpBearColor          = clrTomato;            // Bearish color
 input color         InpNeutralColor       = clrSilver;            // Neutral color
 input color         InpLevelColor         = clrDodgerBlue;        // Structure level color
+input color         InpEQColor            = C'100,116,139';       // Elite range EQ color
+input color         InpStrongColor        = C'245,158,11';        // Strong internal color
+input color         InpWeakColor          = C'148,163,184';       // Weak internal color
+input color         InpFailureColor       = clrOrange;            // Strong failure color
+input color         InpStateTextColor     = clrBlack;             // Elite state text color
+input color         InpGuideBgColor       = C'15,23,42';          // Guide panel background
+input color         InpGuideTextColor     = clrWhite;             // Guide panel text
 input color         InpLiquidityBuyColor  = clrDeepPink;          // Buy-side liquidity
 input color         InpLiquiditySellColor = clrTeal;              // Sell-side liquidity
 
@@ -80,6 +112,49 @@ struct SwingPoint
    bool     is_high;
    int      index;
    string   kind;
+  };
+
+struct PivotPoint
+  {
+   datetime time;
+   double   price;
+   bool     is_high;
+   int      index;
+  };
+
+struct StructureEvent
+  {
+   datetime start_time;
+   datetime end_time;
+   double   price;
+   string   text;
+   bool     bullish;
+   bool     label_above;
+  };
+
+struct EliteState
+  {
+   int      swing_dir;
+   int      internal_dir;
+   int      last_ibos_dir;
+   int      last_swing_break_index;
+   bool     internal_seeded;
+   bool     has_range;
+   string   last_event;
+   string   early_signal;
+   double   dealing_high;
+   double   dealing_low;
+   datetime dealing_high_time;
+   datetime dealing_low_time;
+   datetime dealing_start_time;
+   double   strong_high;
+   double   strong_low;
+   double   weak_high;
+   double   weak_low;
+   datetime strong_high_time;
+   datetime strong_low_time;
+   datetime weak_high_time;
+   datetime weak_low_time;
   };
 
 struct FVGZone
@@ -128,6 +203,12 @@ struct SetupContext
    bool   sell_liquidity_swept;
    double nearest_bull_poi_pips;
    double nearest_bear_poi_pips;
+   double bull_poi_upper;
+   double bull_poi_lower;
+   double bear_poi_upper;
+   double bear_poi_lower;
+   double support_level;
+   double resistance_level;
    string state;
    string direction;
    string reason;
@@ -172,25 +253,55 @@ string TimeframeLabel()
       case PERIOD_D1:  return "D1";
       case PERIOD_W1:  return "W1";
       case PERIOD_MN1: return "MN1";
-      default:         return EnumToString(_Period);
+     default:         return EnumToString(_Period);
+     }
+  }
+
+string TimeframeShortLabel(const ENUM_TIMEFRAMES tf)
+  {
+   switch(tf)
+     {
+      case PERIOD_M1:  return "M1";
+      case PERIOD_M5:  return "M5";
+      case PERIOD_M15: return "M15";
+      case PERIOD_H1:  return "H1";
+      case PERIOD_H4:  return "H4";
+      case PERIOD_D1:  return "D1";
+      case PERIOD_W1:  return "W1";
+      default:         return EnumToString(tf);
      }
   }
 
 int EffectivePivotBars()
   {
-   int pivot = MathMax(1, InpPivotBars);
+   return MathMax(1, InpPivotBars);
+  }
+
+int EffectiveLiquidityLookback()
+  {
+   int length = MathMax(1, InpLiquidityLookback);
    if(_Period == PERIOD_M1 || _Period == PERIOD_M5)
-      return MathMin(pivot, 2);
+      return MathMin(length, MathMax(1, InpFastLiquidityLookback));
+   return length;
+  }
+
+double EffectiveFVGMinGapPips()
+  {
+   double base = MathMax(0.0, InpMinFVGGapPips);
+   if(!InpUseAdaptiveFVGMinGap)
+      return base;
+   if(_Period == PERIOD_M1 || _Period == PERIOD_M5)
+      return MathMin(base, MathMax(0.0, InpEntryFVGMinGapPips));
    if(_Period == PERIOD_M15 || _Period == PERIOD_M30)
-      return MathMin(pivot, 3);
-   return pivot;
+      return MathMin(base, MathMax(0.0, InpSetupFVGMinGapPips));
+   return base;
   }
 
 int ModeMaxFVG()
   {
    if(InpMode == TDA_SNIPER && InpShowOnlyActionableZones)
       return 2;
-   int cap = (InpMode == TDA_AGENT_SCREENSHOT ? 3 : 5);
+   int cap = (InpMode == TDA_AGENT_SCREENSHOT ? 2 : 14);
    return MathMax(1, MathMin(InpMaxFVGZones, cap));
   }
 
@@ -205,6 +316,27 @@ int ModeMaxLiquidity()
 bool IsSniperMode()
   {
    return InpMode == TDA_SNIPER;
+  }
+
+bool CleanAgentScreenshotMode()
+  {
+   return InpMode == TDA_AGENT_SCREENSHOT && InpCleanAgentScreenshot;
+  }
+
+bool DrawLiquidityVisuals()
+  {
+   return InpShowLiquidity && !CleanAgentScreenshotMode();
+  }
+
+void CleanupVisualObjects()
+  {
+   ObjectsDeleteAll(0, g_prefix);
+   if(CleanAgentScreenshotMode() && InpCleanLegacyEhukaiObjects)
+     {
+      ObjectsDeleteAll(0, "EMS_");
+      ObjectsDeleteAll(0, "EFVG_");
+      ObjectsDeleteAll(0, "ELS_");
+     }
   }
 
 void InitSetupContext(SetupContext &ctx)
@@ -223,6 +355,12 @@ void InitSetupContext(SetupContext &ctx)
    ctx.sell_liquidity_swept = false;
    ctx.nearest_bull_poi_pips = DBL_MAX;
    ctx.nearest_bear_poi_pips = DBL_MAX;
+   ctx.bull_poi_upper = 0.0;
+   ctx.bull_poi_lower = 0.0;
+   ctx.bear_poi_upper = 0.0;
+   ctx.bear_poi_lower = 0.0;
+   ctx.support_level = 0.0;
+   ctx.resistance_level = 0.0;
    ctx.state = "NO_TRADE";
    ctx.direction = "-";
    ctx.reason = "No actionable alignment";
@@ -242,7 +380,11 @@ void TrackFVGContext(SetupContext &ctx, const FVGZone &zone, const double curren
    if(zone.is_bullish)
      {
       if(distance < ctx.nearest_bull_poi_pips)
+        {
          ctx.nearest_bull_poi_pips = distance;
+         ctx.bull_poi_upper = zone.upper;
+         ctx.bull_poi_lower = zone.lower;
+        }
       ctx.bull_poi_near = true;
       if(touched)
          ctx.bull_poi_touched = true;
@@ -250,7 +392,11 @@ void TrackFVGContext(SetupContext &ctx, const FVGZone &zone, const double curren
    else
      {
       if(distance < ctx.nearest_bear_poi_pips)
+        {
          ctx.nearest_bear_poi_pips = distance;
+         ctx.bear_poi_upper = zone.upper;
+         ctx.bear_poi_lower = zone.lower;
+        }
       ctx.bear_poi_near = true;
       if(touched)
          ctx.bear_poi_touched = true;
@@ -311,6 +457,43 @@ void SetObjectDefaults(const string name, const bool back, const int zorder)
    ObjectSetInteger(0, name, OBJPROP_ZORDER, zorder);
   }
 
+void DrawPanelBackground(const string name, const ENUM_BASE_CORNER corner,
+                         const int x, const int y, const int width, const int height,
+                         const color bg, const color border, const int zorder)
+  {
+   if(ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0))
+     {
+      ObjectSetInteger(0, name, OBJPROP_CORNER, corner);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bg);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, border);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      SetObjectDefaults(name, false, zorder);
+     }
+  }
+
+void DrawPanelLine(const string name, const ENUM_BASE_CORNER corner,
+                   const ENUM_ANCHOR_POINT anchor, const int x, const int y,
+                   const string text, const color c, const bool bold,
+                   const int zorder)
+  {
+   if(ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, corner);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, anchor);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
+      ObjectSetString(0, name, OBJPROP_FONT, bold ? "Arial Bold" : "Arial");
+      SetObjectDefaults(name, false, zorder);
+     }
+  }
+
 datetime FutureTime(const datetime &time[], const int rates_total)
   {
    int seconds = PeriodSeconds(_Period);
@@ -339,6 +522,17 @@ void AddSwing(SwingPoint &swings[], int &count, const datetime t,
    swings[count - 1].is_high = is_high;
    swings[count - 1].index = index;
    swings[count - 1].kind = "";
+  }
+
+void AddPivot(PivotPoint &pivots[], int &count, const datetime t,
+              const double price, const bool is_high, const int index)
+  {
+   count++;
+   ArrayResize(pivots, count);
+   pivots[count - 1].time = t;
+   pivots[count - 1].price = price;
+   pivots[count - 1].is_high = is_high;
+   pivots[count - 1].index = index;
   }
 
 void DetectSwings(const double &high[], const double &low[],
@@ -371,6 +565,40 @@ void DetectSwings(const double &high[], const double &low[],
          AddSwing(swings, swing_count, time[i], high[i], true, i);
       if(is_low)
          AddSwing(swings, swing_count, time[i], low[i], false, i);
+     }
+  }
+
+void DetectPivots(const double &high[], const double &low[],
+                  const datetime &time[], const int rates_total,
+                  const int pivot, PivotPoint &pivots[], int &pivot_count)
+  {
+   ArrayResize(pivots, 0);
+   pivot_count = 0;
+
+   int effective_pivot = MathMax(1, pivot);
+   int lookback = MathMin(InpLookbackBars, rates_total - (effective_pivot * 2) - 1);
+   int start = MathMax(effective_pivot, rates_total - lookback);
+   int stop = rates_total - effective_pivot;
+
+   for(int i = start; i < stop; i++)
+     {
+      bool is_high = true;
+      bool is_low = true;
+      for(int j = i - effective_pivot; j <= i + effective_pivot; j++)
+        {
+         if(j == i)
+            continue;
+         if(high[i] <= high[j])
+            is_high = false;
+         if(low[i] >= low[j])
+            is_low = false;
+         if(!is_high && !is_low)
+            break;
+        }
+      if(is_high)
+         AddPivot(pivots, pivot_count, time[i], high[i], true, i);
+      if(is_low)
+         AddPivot(pivots, pivot_count, time[i], low[i], false, i);
      }
   }
 
@@ -433,6 +661,88 @@ string StructureBias(const SwingPoint &last_high, const bool have_high,
    return "NEUTRAL / RANGE";
   }
 
+int PivotForTF(const ENUM_TIMEFRAMES tf)
+  {
+   return MathMax(1, InpPivotBars);
+  }
+
+color BiasColor(const string bias)
+  {
+   if(StringFind(bias, "Bull") >= 0 || StringFind(bias, "BULL") >= 0)
+      return InpBullColor;
+   if(StringFind(bias, "Bear") >= 0 || StringFind(bias, "BEAR") >= 0)
+      return InpBearColor;
+   return InpNeutralColor;
+  }
+
+string ComputeTFStructureRead(const ENUM_TIMEFRAMES tf)
+  {
+   MqlRates rates[];
+   int copied = CopyRates(_Symbol, tf, 0, 240, rates);
+   if(copied < 30)
+      return "No data";
+
+   ArraySetAsSeries(rates, false);
+   int pivot = PivotForTF(tf);
+   int signal = copied - 2;
+   if(signal <= pivot * 2)
+      return "No data";
+
+   double last_high = 0.0;
+   double prev_high = 0.0;
+   double last_low = 0.0;
+   double prev_low = 0.0;
+   bool have_high = false;
+   bool have_low = false;
+
+   for(int i = pivot; i <= signal - pivot; i++)
+     {
+      bool is_high = true;
+      bool is_low = true;
+      for(int j = i - pivot; j <= i + pivot; j++)
+        {
+         if(j == i)
+            continue;
+         if(rates[j].high >= rates[i].high)
+            is_high = false;
+         if(rates[j].low <= rates[i].low)
+            is_low = false;
+        }
+      if(is_high)
+        {
+         prev_high = last_high;
+         last_high = rates[i].high;
+         have_high = true;
+        }
+      if(is_low)
+        {
+         prev_low = last_low;
+         last_low = rates[i].low;
+         have_low = true;
+        }
+     }
+
+   if(!have_high || !have_low || prev_high == 0.0 || prev_low == 0.0)
+      return "Neutral build";
+
+   double close_price = rates[signal].close;
+   double buffer = PipsToPrice(InpBreakBufferPips);
+   bool hh = last_high > prev_high;
+   bool hl = last_low > prev_low;
+   bool lh = last_high < prev_high;
+   bool ll = last_low < prev_low;
+
+   if(close_price > last_high + buffer)
+      return (lh && ll) ? "Bull CHOCH" : "Bull BOS";
+   if(close_price < last_low - buffer)
+      return (hh && hl) ? "Bear CHOCH" : "Bear BOS";
+   if(hh && hl)
+      return "Bull HH/HL";
+   if(lh && ll)
+      return "Bear LH/LL";
+   return "Neutral range";
+  }
+
 color StructureColor(const string kind)
   {
    if(kind == "HH" || kind == "HL")
@@ -488,6 +798,9 @@ void DrawStructureLevel(const SwingPoint &swing, const datetime chart_end,
 void DrawBiasPanel(const string bias, const SwingPoint &last_high, const bool have_high,
                    const SwingPoint &last_low, const bool have_low)
   {
+   if(!InpShowStatusHeaders)
+      return;
+
    color c = InpNeutralColor;
    if(StringFind(bias, "BULLISH") >= 0)
       c = InpBullColor;
@@ -500,7 +813,7 @@ void DrawBiasPanel(const string bias, const SwingPoint &last_high, const bool ha
       string hi = have_high ? StringFormat("H %s %.3f", last_high.kind, last_high.price) : "H n/a";
       string lo = have_low ? StringFormat("L %s %.3f", last_low.kind, last_low.price) : "L n/a";
       ObjectSetString(0, name, OBJPROP_TEXT,
-                      StringFormat("TDA %s: %s | %s | %s", TimeframeLabel(), bias, hi, lo));
+                      StringFormat("TDA v1.23 %s: %s | %s | %s", TimeframeLabel(), bias, hi, lo));
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
@@ -508,7 +821,591 @@ void DrawBiasPanel(const string bias, const SwingPoint &last_high, const bool ha
       ObjectSetInteger(0, name, OBJPROP_COLOR, c);
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
       ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+     SetObjectDefaults(name, false, 6);
+     }
+  }
+
+void DrawTopDownPanel()
+  {
+   if(!InpShowTopDownPanel)
+      return;
+
+   string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_TOPDOWN";
+   int x = 14;
+   int y = 94;
+   DrawPanelBackground(base + "_BG", CORNER_LEFT_UPPER, x, y, 205, 112,
+                       InpGuideBgColor, C'55,65,81', 8);
+   DrawPanelLine(base + "_T", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 8,
+                 "TDA v1.23 TOP-DOWN", InpGuideTextColor, true, 9);
+
+   ENUM_TIMEFRAMES frames[5] = {PERIOD_D1, PERIOD_H4, PERIOD_M15, PERIOD_M5, PERIOD_M1};
+   for(int i = 0; i < 5; i++)
+     {
+      string read = ComputeTFStructureRead(frames[i]);
+      string line = TimeframeShortLabel(frames[i]) + "  " + read;
+      DrawPanelLine(base + "_R" + IntegerToString(i), CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER,
+                    x + 10, y + 27 + i * 16, line, BiasColor(read), false, 9);
+     }
+  }
+
+string EliteBiasText(const int dir)
+  {
+   if(dir > 0)
+      return "Bullish";
+   if(dir < 0)
+      return "Bearish";
+   return "Neutral";
+  }
+
+string EliteInternalText(const int dir, const bool seeded)
+  {
+   if(seeded && dir > 0)
+      return "Bull Seeded";
+   if(seeded && dir < 0)
+      return "Bear Seeded";
+   if(dir > 0)
+      return "Bullish iBOS";
+   if(dir < 0)
+      return "Bearish iBOS";
+   return "Unconfirmed";
+  }
+
+string EliteZoneText(const double price, const EliteState &state)
+  {
+   if(!state.has_range)
+      return "No Range";
+   double eq = (MathMax(state.dealing_high, state.dealing_low) + MathMin(state.dealing_high, state.dealing_low)) / 2.0;
+   if(price > eq)
+      return "Premium";
+   if(price < eq)
+      return "Discount";
+   return "EQ";
+  }
+
+bool EliteInsideRange(const double price, const int pivot_index, const EliteState &state)
+  {
+   if(!state.has_range)
+      return false;
+   double top = MathMax(state.dealing_high, state.dealing_low);
+   double bot = MathMin(state.dealing_high, state.dealing_low);
+   return price < top && price > bot && pivot_index > state.last_swing_break_index;
+  }
+
+void AddEliteEvent(StructureEvent &events[], int &event_count,
+                   const datetime start_time, const datetime end_time,
+                   const double price, const string text,
+                   const bool bullish, const bool label_above)
+  {
+   event_count++;
+   ArrayResize(events, event_count);
+   events[event_count - 1].start_time = start_time;
+   events[event_count - 1].end_time = end_time;
+   events[event_count - 1].price = price;
+   events[event_count - 1].text = text;
+   events[event_count - 1].bullish = bullish;
+   events[event_count - 1].label_above = label_above;
+  }
+
+void DrawEliteLine(const string name, const datetime t1, const double price,
+                   const datetime t2, const color c,
+                   const ENUM_LINE_STYLE style, const int width)
+  {
+   if(ObjectCreate(0, name, OBJ_TREND, 0, t1, price, t2, price))
+     {
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+      ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+      SetObjectDefaults(name, false, 3);
+     }
+  }
+
+void DrawEliteText(const string name, const datetime t, const double price,
+                  const string text, const color c, const bool above)
+  {
+   double y = above ? price + PipsToPrice(InpLabelOffsetPips) : price - PipsToPrice(InpLabelOffsetPips);
+   if(ObjectCreate(0, name, OBJ_TEXT, 0, t, y))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
       SetObjectDefaults(name, false, 6);
+     }
+  }
+
+void DrawEliteLevel(const string suffix, const datetime start_time,
+                    const double price, const datetime chart_end,
+                    const string text, const color c,
+                    const ENUM_LINE_STYLE style, const int width)
+  {
+   if(start_time <= 0 || price == 0.0)
+      return;
+   string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_" + suffix;
+   DrawEliteLine(base + "_LN", start_time, price, chart_end, c, style, width);
+   DrawEliteText(base + "_TX", chart_end, price, text, c, true);
+  }
+
+string CompactBreakText(const StructureEvent &event)
+  {
+   string arrow = event.bullish ? " ^" : " v";
+   if(event.text == "BOS")
+      return "BOS" + arrow;
+   if(event.text == "CHOCH")
+      return "CHOCH" + arrow;
+   if(event.text == "iBOS")
+      return "iBOS" + arrow;
+   return event.text;
+  }
+
+int NextNearestUndrawnFVG(const FVGZone &zones[], const int count,
+                          const bool &drawn[], const double current_price)
+  {
+   int best = -1;
+   double best_distance = DBL_MAX;
+   for(int i = 0; i < count; i++)
+     {
+      if(drawn[i])
+         continue;
+      double distance = FVGDistancePips(zones[i], current_price);
+      if(distance < best_distance)
+        {
+         best_distance = distance;
+         best = i;
+        }
+     }
+   return best;
+  }
+
+void DrawEliteStatePanel(const EliteState &state, const double last_close)
+  {
+   if(!InpShowStatusHeaders)
+      return;
+
+   int display_dir = state.internal_dir != 0 ? state.internal_dir : (state.has_range ? state.swing_dir : 0);
+   bool display_seeded = state.internal_seeded || (state.internal_dir == 0 && display_dir != 0 && state.has_range);
+   string event_text = state.last_event == "" ? EliteBiasText(state.swing_dir) : state.last_event;
+   string signal_text = state.early_signal == "" ? "Waiting for fCHOCH / iBOS" : state.early_signal;
+   string text = StringFormat("TDA v1.23 | %s | Swing %s\nInternal %s | %s\n%s",
+                              TimeframeLabel(), event_text,
+                              EliteInternalText(display_dir, display_seeded),
+                              EliteZoneText(last_close, state), signal_text);
+   string name = g_prefix + _Symbol + "_" + TimeframeLabel() + "_ELITE_STATE";
+   if(ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 66);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, InpStateTextColor);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      SetObjectDefaults(name, false, 8);
+     }
+  }
+
+void DrawEliteOverlays(const EliteState &state, const StructureEvent &events[],
+                       const int event_count, const datetime chart_end,
+                       const datetime last_time, const double last_close)
+  {
+   if(!InpShowEliteStructure)
+      return;
+
+   if(InpShowEliteEvents)
+     {
+      int max_events = MathMax(1, InpMaxEliteEvents);
+      int start_event = MathMax(0, event_count - max_events);
+      for(int i = start_event; i < event_count; i++)
+        {
+         bool is_failure = StringFind(events[i].text, "Fail") >= 0;
+         color c = is_failure ? InpFailureColor : (events[i].bullish ? InpBullColor : InpBearColor);
+         string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_ELITE_EV_" + IntegerToString(i);
+         if(!is_failure)
+            DrawEliteLine(base + "_LN", events[i].start_time, events[i].price, events[i].end_time, c, STYLE_DASH, 1);
+         DrawEliteText(base + "_TX", events[i].end_time, events[i].price, events[i].text, c, events[i].label_above);
+        }
+     }
+
+   bool show_elite_levels = InpShowEliteLevels && !CleanAgentScreenshotMode();
+   if(show_elite_levels && state.has_range)
+     {
+      double eq = (MathMax(state.dealing_high, state.dealing_low) + MathMin(state.dealing_high, state.dealing_low)) / 2.0;
+      DrawEliteLine(g_prefix + _Symbol + "_" + TimeframeLabel() + "_ELITE_EQ",
+                    last_time, eq, chart_end, InpEQColor, STYLE_DOT, 1);
+     }
+
+   if(show_elite_levels && state.internal_dir > 0)
+     {
+      DrawEliteLevel("ELITE_STRONG_IL", last_time, state.strong_low, chart_end,
+                     "Strong iL", InpStrongColor, STYLE_SOLID, 2);
+      DrawEliteLevel("ELITE_WEAK_IH", last_time, state.weak_high, chart_end,
+                     "Weak iH", InpWeakColor, STYLE_DASH, 1);
+     }
+   else if(show_elite_levels && state.internal_dir < 0)
+     {
+      DrawEliteLevel("ELITE_STRONG_IH", last_time, state.strong_high, chart_end,
+                     "Strong iH", InpStrongColor, STYLE_SOLID, 2);
+      DrawEliteLevel("ELITE_WEAK_IL", last_time, state.weak_low, chart_end,
+                     "Weak iL", InpWeakColor, STYLE_DASH, 1);
+     }
+
+   DrawEliteStatePanel(state, last_close);
+  }
+
+void DrawBreakMap(const StructureEvent &events[], const int event_count)
+  {
+   if(!InpShowBreakMap || event_count <= 0)
+      return;
+
+   int max_events = MathMax(1, InpMaxBreakEvents);
+   if(CleanAgentScreenshotMode())
+      max_events = MathMin(max_events, 4);
+
+   int shown = 0;
+   for(int i = event_count - 1; i >= 0 && shown < max_events; i--)
+     {
+      bool is_bos = events[i].text == "BOS";
+      bool is_choch = events[i].text == "CHOCH";
+      bool is_ibos = events[i].text == "iBOS";
+      if(!is_bos && !is_choch && !is_ibos)
+         continue;
+
+      color c = events[i].bullish ? InpBullColor : InpBearColor;
+      ENUM_LINE_STYLE style = is_ibos ? STYLE_DOT : STYLE_SOLID;
+      int width = is_ibos ? 1 : 2;
+      string side = events[i].bullish ? "Bull " : "Bear ";
+      string text = side + events[i].text;
+      string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_BREAK_" + IntegerToString(shown);
+
+      DrawEliteLine(base + "_LN", events[i].start_time, events[i].price, events[i].end_time, c, style, width);
+      if(InpShowBreakTextLabels || (InpShowLatestBreakLabel && shown == 0))
+         DrawEliteText(base + "_TX", events[i].end_time, events[i].price,
+                       InpShowBreakTextLabels ? text : CompactBreakText(events[i]),
+                       c, events[i].label_above);
+      shown++;
+     }
+  }
+
+void CalculateEliteState(const SwingPoint &swings[], const int swing_count,
+                         const double &high[], const double &low[],
+                         const datetime &time[], const double &close[],
+                         const int rates_total, EliteState &state,
+                         StructureEvent &events[], int &event_count)
+  {
+   state.swing_dir = 0;
+   state.internal_dir = 0;
+   state.last_ibos_dir = 0;
+   state.last_swing_break_index = -1;
+   state.internal_seeded = false;
+   state.has_range = false;
+   state.last_event = "";
+   state.early_signal = "";
+   state.dealing_high = 0.0;
+   state.dealing_low = 0.0;
+   state.dealing_high_time = 0;
+   state.dealing_low_time = 0;
+   state.dealing_start_time = 0;
+   state.strong_high = 0.0;
+   state.strong_low = 0.0;
+   state.weak_high = 0.0;
+   state.weak_low = 0.0;
+   state.strong_high_time = 0;
+   state.strong_low_time = 0;
+   state.weak_high_time = 0;
+   state.weak_low_time = 0;
+   ArrayResize(events, 0);
+   event_count = 0;
+
+   PivotPoint internal_pivots[];
+   PivotPoint fractal_pivots[];
+   int internal_count = 0;
+   int fractal_count = 0;
+   int swing_pivot = EffectivePivotBars();
+   int internal_pivot = MathMax(1, InpInternalPivotBars);
+   int fractal_pivot = MathMax(1, InpFractalPivotBars);
+   DetectPivots(high, low, time, rates_total, internal_pivot, internal_pivots, internal_count);
+   DetectPivots(high, low, time, rates_total, fractal_pivot, fractal_pivots, fractal_count);
+
+   double last_swing_high = 0.0;
+   double last_swing_low = 0.0;
+   datetime last_swing_high_time = 0;
+   datetime last_swing_low_time = 0;
+   int last_swing_high_index = -1;
+   int last_swing_low_index = -1;
+   bool have_swing_high = false;
+   bool have_swing_low = false;
+   bool high_armed = false;
+   bool low_armed = false;
+
+   double last_internal_high = 0.0;
+   double last_internal_low = 0.0;
+   datetime last_internal_high_time = 0;
+   datetime last_internal_low_time = 0;
+   bool internal_high_armed = false;
+   bool internal_low_armed = false;
+
+   double last_fractal_high = 0.0;
+   double last_fractal_low = 0.0;
+   bool fractal_high_armed = false;
+   bool fractal_low_armed = false;
+   int fractal_dir = 0;
+
+   int swing_ptr = 0;
+   int internal_ptr = 0;
+   int fractal_ptr = 0;
+   int start = MathMax(0, rates_total - InpLookbackBars);
+   int signal_end = SignalBarIndex(rates_total);
+
+   for(int i = start; i <= signal_end; i++)
+     {
+      while(swing_ptr < swing_count && swings[swing_ptr].index + swing_pivot <= i)
+        {
+         if(swings[swing_ptr].is_high)
+           {
+            last_swing_high = swings[swing_ptr].price;
+            last_swing_high_time = swings[swing_ptr].time;
+            last_swing_high_index = swings[swing_ptr].index;
+            have_swing_high = true;
+            high_armed = true;
+           }
+         else
+           {
+            last_swing_low = swings[swing_ptr].price;
+            last_swing_low_time = swings[swing_ptr].time;
+            last_swing_low_index = swings[swing_ptr].index;
+            have_swing_low = true;
+            low_armed = true;
+           }
+         swing_ptr++;
+        }
+
+      bool raw_bull_break = high_armed && have_swing_high && close[i] > last_swing_high + PipsToPrice(InpBreakBufferPips);
+      bool raw_bear_break = low_armed && have_swing_low && close[i] < last_swing_low - PipsToPrice(InpBreakBufferPips);
+      bool bull_break = raw_bull_break && !raw_bear_break;
+      bool bear_break = raw_bear_break && !raw_bull_break;
+
+      if(bull_break)
+        {
+         string event_text = state.swing_dir < 0 ? "CHOCH" : "BOS";
+         AddEliteEvent(events, event_count, last_swing_high_time, time[i], last_swing_high, event_text, true, true);
+         state.swing_dir = 1;
+         state.last_event = "Bull " + event_text;
+         state.last_swing_break_index = i;
+         high_armed = false;
+         if(have_swing_high && have_swing_low)
+           {
+            state.has_range = true;
+            state.dealing_high = last_swing_high;
+            state.dealing_high_time = last_swing_high_time;
+            state.dealing_low = last_swing_low;
+            state.dealing_low_time = last_swing_low_time;
+            state.dealing_start_time = last_swing_high_index < last_swing_low_index ? last_swing_high_time : last_swing_low_time;
+           }
+         last_internal_high = 0.0;
+         last_internal_low = low[i];
+         last_internal_high_time = 0;
+         last_internal_low_time = time[i];
+         internal_high_armed = false;
+         internal_low_armed = false;
+         state.internal_dir = 1;
+         state.internal_seeded = true;
+         state.last_ibos_dir = 0;
+         state.strong_high = 0.0;
+         state.strong_low = low[i];
+         state.strong_high_time = 0;
+         state.strong_low_time = time[i];
+         state.weak_high = state.dealing_high;
+         state.weak_high_time = state.dealing_high_time;
+         state.weak_low = 0.0;
+         state.weak_low_time = 0;
+         fractal_high_armed = false;
+         fractal_low_armed = false;
+         fractal_dir = 0;
+         state.early_signal = "";
+        }
+
+      if(bear_break)
+        {
+         string event_text = state.swing_dir > 0 ? "CHOCH" : "BOS";
+         AddEliteEvent(events, event_count, last_swing_low_time, time[i], last_swing_low, event_text, false, false);
+         state.swing_dir = -1;
+         state.last_event = "Bear " + event_text;
+         state.last_swing_break_index = i;
+         low_armed = false;
+         if(have_swing_high && have_swing_low)
+           {
+            state.has_range = true;
+            state.dealing_high = last_swing_high;
+            state.dealing_high_time = last_swing_high_time;
+            state.dealing_low = last_swing_low;
+            state.dealing_low_time = last_swing_low_time;
+            state.dealing_start_time = last_swing_high_index < last_swing_low_index ? last_swing_high_time : last_swing_low_time;
+           }
+         last_internal_high = high[i];
+         last_internal_low = 0.0;
+         last_internal_high_time = time[i];
+         last_internal_low_time = 0;
+         internal_high_armed = false;
+         internal_low_armed = false;
+         state.internal_dir = -1;
+         state.internal_seeded = true;
+         state.last_ibos_dir = 0;
+         state.strong_high = high[i];
+         state.strong_high_time = time[i];
+         state.strong_low = 0.0;
+         state.strong_low_time = 0;
+         state.weak_high = 0.0;
+         state.weak_high_time = 0;
+         state.weak_low = state.dealing_low;
+         state.weak_low_time = state.dealing_low_time;
+         fractal_high_armed = false;
+         fractal_low_armed = false;
+         fractal_dir = 0;
+         state.early_signal = "";
+        }
+
+      if(!bull_break && !bear_break && state.has_range)
+        {
+         if(state.swing_dir > 0 && high[i] > state.dealing_high)
+           {
+            state.dealing_high = high[i];
+            state.dealing_high_time = time[i];
+           }
+         if(state.swing_dir < 0 && low[i] < state.dealing_low)
+           {
+            state.dealing_low = low[i];
+            state.dealing_low_time = time[i];
+           }
+        }
+
+      while(internal_ptr < internal_count && internal_pivots[internal_ptr].index + internal_pivot <= i)
+        {
+         PivotPoint pivot = internal_pivots[internal_ptr];
+         if(EliteInsideRange(pivot.price, pivot.index, state))
+           {
+            if(pivot.is_high)
+              {
+               last_internal_high = pivot.price;
+               last_internal_high_time = pivot.time;
+               internal_high_armed = true;
+              }
+            else
+              {
+               last_internal_low = pivot.price;
+               last_internal_low_time = pivot.time;
+               internal_low_armed = true;
+              }
+           }
+         internal_ptr++;
+        }
+
+      while(fractal_ptr < fractal_count && fractal_pivots[fractal_ptr].index + fractal_pivot <= i)
+        {
+         PivotPoint pivot = fractal_pivots[fractal_ptr];
+         if(EliteInsideRange(pivot.price, pivot.index, state))
+           {
+            if(pivot.is_high)
+              {
+               last_fractal_high = pivot.price;
+               fractal_high_armed = true;
+              }
+            else
+              {
+               last_fractal_low = pivot.price;
+               fractal_low_armed = true;
+              }
+           }
+         fractal_ptr++;
+        }
+
+      double range_top = state.has_range ? MathMax(state.dealing_high, state.dealing_low) : 0.0;
+      double range_bot = state.has_range ? MathMin(state.dealing_high, state.dealing_low) : 0.0;
+      bool bull_fractal_break = state.has_range && fractal_high_armed && last_fractal_high > 0.0 && close[i] > last_fractal_high && close[i] < range_top;
+      bool bear_fractal_break = state.has_range && fractal_low_armed && last_fractal_low > 0.0 && close[i] < last_fractal_low && close[i] > range_bot;
+      if(bull_fractal_break)
+        {
+         if(fractal_dir <= 0)
+            state.early_signal = state.internal_dir < 0 ? "Bull fCHOCH: internal pullback may start" : "Bull fCHOCH: internal pullback may end";
+         fractal_dir = 1;
+         fractal_high_armed = false;
+        }
+      if(bear_fractal_break)
+        {
+         if(fractal_dir >= 0)
+            state.early_signal = state.internal_dir > 0 ? "Bear fCHOCH: internal pullback may start" : "Bear fCHOCH: internal pullback may end";
+         fractal_dir = -1;
+         fractal_low_armed = false;
+        }
+
+      bool bull_ibos = state.has_range && internal_high_armed && last_internal_high > 0.0 && close[i] > last_internal_high && close[i] < range_top;
+      bool bear_ibos = state.has_range && internal_low_armed && last_internal_low > 0.0 && close[i] < last_internal_low && close[i] > range_bot;
+      bool seeded_bull_ibos = !bull_ibos && state.internal_seeded && state.internal_dir > 0 && state.weak_high > 0.0 && close[i] > state.weak_high && i > state.last_swing_break_index;
+      bool seeded_bear_ibos = !bear_ibos && state.internal_seeded && state.internal_dir < 0 && state.weak_low > 0.0 && close[i] < state.weak_low && i > state.last_swing_break_index;
+
+      if(bull_ibos)
+        {
+         AddEliteEvent(events, event_count, last_internal_high_time, time[i], last_internal_high, "iBOS", true, true);
+         state.internal_dir = 1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = 1;
+         state.strong_low = last_internal_low;
+         state.strong_low_time = last_internal_low_time;
+         state.weak_high = range_top;
+         state.weak_high_time = state.dealing_high_time;
+         internal_high_armed = false;
+        }
+      if(seeded_bull_ibos)
+        {
+         AddEliteEvent(events, event_count, state.weak_high_time, time[i], state.weak_high, "iBOS", true, true);
+         state.internal_seeded = false;
+         state.last_ibos_dir = 1;
+         state.weak_high = range_top;
+         state.weak_high_time = state.dealing_high_time;
+        }
+      if(bear_ibos)
+        {
+         AddEliteEvent(events, event_count, last_internal_low_time, time[i], last_internal_low, "iBOS", false, false);
+         state.internal_dir = -1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = -1;
+         state.strong_high = last_internal_high;
+         state.strong_high_time = last_internal_high_time;
+         state.weak_low = range_bot;
+         state.weak_low_time = state.dealing_low_time;
+         internal_low_armed = false;
+        }
+      if(seeded_bear_ibos)
+        {
+         AddEliteEvent(events, event_count, state.weak_low_time, time[i], state.weak_low, "iBOS", false, false);
+         state.internal_seeded = false;
+         state.last_ibos_dir = -1;
+         state.weak_low = range_bot;
+         state.weak_low_time = state.dealing_low_time;
+        }
+
+      bool failed_bull_internal = state.internal_dir > 0 && state.strong_low > 0.0 && close[i] < state.strong_low;
+      bool failed_bear_internal = state.internal_dir < 0 && state.strong_high > 0.0 && close[i] > state.strong_high;
+      if(failed_bull_internal)
+        {
+         AddEliteEvent(events, event_count, time[i], time[i], state.strong_low, "Strong iL Fail", false, false);
+         state.internal_dir = -1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = -1;
+         state.strong_low = 0.0;
+         state.strong_low_time = 0;
+         state.early_signal = "Bull strong iL failed";
+        }
+      if(failed_bear_internal)
+        {
+         AddEliteEvent(events, event_count, time[i], time[i], state.strong_high, "Strong iH Fail", true, true);
+         state.internal_dir = 1;
+         state.internal_seeded = false;
+         state.last_ibos_dir = 1;
+         state.strong_high = 0.0;
+         state.strong_high_time = 0;
+         state.early_signal = "Bear strong iH failed";
+        }
      }
   }
 
@@ -538,7 +1435,9 @@ void RenderStructure(const double &high[], const double &low[],
    ctx.bear_choch = StringFind(bias, "BEARISH CHOCH") >= 0;
 
    int max_labels = MathMax(1, InpMaxSwingLabels);
-   if(InpMode == TDA_AGENT_SCREENSHOT)
+   if(CleanAgentScreenshotMode())
+      max_labels = MathMin(max_labels, 3);
+   else if(InpMode == TDA_AGENT_SCREENSHOT)
       max_labels = MathMin(max_labels, 6);
    if(IsSniperMode())
       max_labels = MathMin(max_labels, 4);
@@ -551,10 +1450,25 @@ void RenderStructure(const double &high[], const double &low[],
 
    datetime chart_end = FutureTime(time, rates_total);
    if(have_high)
+     {
+      ctx.resistance_level = last_high.price;
       DrawStructureLevel(last_high, chart_end, "RESISTANCE", InpLevelColor);
+     }
    if(have_low)
+     {
+      ctx.support_level = last_low.price;
       DrawStructureLevel(last_low, chart_end, "SUPPORT", InpLevelColor);
+     }
    DrawBiasPanel(bias, last_high, have_high, last_low, have_low);
+   DrawTopDownPanel();
+
+   EliteState elite_state;
+   StructureEvent elite_events[];
+   int elite_event_count = 0;
+   CalculateEliteState(swings, swing_count, high, low, time, close, rates_total,
+                       elite_state, elite_events, elite_event_count);
+   DrawBreakMap(elite_events, elite_event_count);
+   DrawEliteOverlays(elite_state, elite_events, elite_event_count, chart_end, time[signal_index], close[signal_index]);
   }
 
 //+------------------------------------------------------------------+
@@ -651,7 +1565,7 @@ void DrawFVG(const FVGZone &zone, const int ordinal,
      {
       ObjectSetInteger(0, rect, OBJPROP_COLOR, c);
       ObjectSetInteger(0, rect, OBJPROP_FILL, fill_rect);
-      ObjectSetInteger(0, rect, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, rect, OBJPROP_WIDTH, zone.is_partial ? 1 : 2);
       ObjectSetString(0, rect, OBJPROP_TOOLTIP,
                       StringFormat("%s %.5f-%.5f", label_text, zone.lower, zone.upper));
       SetObjectDefaults(rect, true, 0);
@@ -662,20 +1576,23 @@ void DrawFVG(const FVGZone &zone, const int ordinal,
    if(ObjectCreate(0, midline, OBJ_TREND, 0, zone.time_start, mid, chart_end, mid))
      {
       ObjectSetInteger(0, midline, OBJPROP_COLOR, c);
-      ObjectSetInteger(0, midline, OBJPROP_STYLE, STYLE_DASH);
+      ObjectSetInteger(0, midline, OBJPROP_STYLE, zone.is_partial ? STYLE_DOT : STYLE_DASH);
       ObjectSetInteger(0, midline, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, midline, OBJPROP_RAY_RIGHT, false);
       SetObjectDefaults(midline, false, 1);
      }
 
-   string label = base + "_label";
-   if(ObjectCreate(0, label, OBJ_TEXT, 0, label_time, mid))
+   if(InpShowFVGTextLabels)
      {
-      ObjectSetString(0, label, OBJPROP_TEXT, label_text);
-      ObjectSetInteger(0, label, OBJPROP_COLOR, c);
-      ObjectSetInteger(0, label, OBJPROP_FONTSIZE, InpLabelFontSize);
-      ObjectSetString(0, label, OBJPROP_FONT, "Arial Bold");
-      SetObjectDefaults(label, false, 5);
+      string label = base + "_label";
+      if(ObjectCreate(0, label, OBJ_TEXT, 0, label_time, mid))
+        {
+         ObjectSetString(0, label, OBJPROP_TEXT, label_text);
+         ObjectSetInteger(0, label, OBJPROP_COLOR, c);
+         ObjectSetInteger(0, label, OBJPROP_FONTSIZE, InpLabelFontSize);
+         ObjectSetString(0, label, OBJPROP_FONT, "Arial Bold");
+         SetObjectDefaults(label, false, 5);
+        }
      }
   }
 
@@ -688,7 +1605,7 @@ void RenderFVGs(const double &open[], const double &high[], const double &low[],
 
    int lookback = MathMin(InpLookbackBars, rates_total - 3);
    int start = MathMax(0, rates_total - lookback);
-   double min_gap = PipsToPrice(InpMinFVGGapPips);
+   double min_gap = PipsToPrice(EffectiveFVGMinGapPips());
    double current_price = close[rates_total - 1];
    FVGZone zones[];
    int count = 0;
@@ -779,7 +1696,25 @@ void RenderFVGs(const double &open[], const double &high[], const double &low[],
      }
 
    int shown = 0;
-   for(int i = count - 1; i >= 0 && shown < ModeMaxFVG(); i--)
+   int max_fvg = ModeMaxFVG();
+   if(InpShowHistoricalFVG)
+     {
+      bool drawn[];
+      ArrayResize(drawn, count);
+      ArrayInitialize(drawn, false);
+      while(shown < max_fvg)
+        {
+         int idx = NextNearestUndrawnFVG(zones, count, drawn, current_price);
+         if(idx < 0)
+            break;
+         drawn[idx] = true;
+         DrawFVG(zones[idx], shown, chart_end, label_time);
+         shown++;
+        }
+      return;
+     }
+
+   for(int i = count - 1; i >= 0 && shown < max_fvg; i--)
      {
       DrawFVG(zones[i], shown, chart_end, label_time);
       shown++;
@@ -896,15 +1831,47 @@ void DrawLiquidity(const int ordinal, const bool buy_side, const datetime pivot_
       ObjectSetInteger(0, label, OBJPROP_COLOR, c);
       ObjectSetInteger(0, label, OBJPROP_FONTSIZE, InpLabelFontSize);
       ObjectSetString(0, label, OBJPROP_FONT, "Arial Bold");
-      SetObjectDefaults(label, false, 5);
+     SetObjectDefaults(label, false, 5);
      }
+  }
+
+void DrawSweepMarker(const int ordinal, const bool buy_side, const datetime swept_time,
+                     const double level)
+  {
+   if(!InpShowSweepMarkers || swept_time <= 0)
+      return;
+
+   string side = buy_side ? "BSL sweep" : "SSL sweep";
+   color c = C'245,158,11';
+   double y = buy_side ? level + PipsToPrice(InpLabelOffsetPips)
+                       : level - PipsToPrice(InpLabelOffsetPips);
+   string name = g_prefix + _Symbol + "_" + TimeframeLabel() + "_SWEEP_" + IntegerToString(ordinal);
+   if(ObjectCreate(0, name, OBJ_TEXT, 0, swept_time, y))
+     {
+      ObjectSetString(0, name, OBJPROP_TEXT, side);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, MathMax(7, InpLabelFontSize - 1));
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+      ObjectSetString(0, name, OBJPROP_TOOLTIP, side + " - liquidity taken and reclaimed");
+      SetObjectDefaults(name, false, 6);
+     }
+  }
+
+bool RecentSweepMarker(const datetime swept_time, const datetime &time[], const int rates_total)
+  {
+   if(swept_time <= 0)
+      return false;
+   int age = MathMax(1, InpMaxSweepMarkerAgeBars);
+   int start = MathMax(0, rates_total - age);
+   return swept_time >= time[start];
   }
 
 void RenderLiquidity(const double &open[], const double &high[], const double &low[],
                      const double &close[], const datetime &time[], const long &tick_volume[],
                      const int rates_total, SetupContext &ctx)
   {
-   if(!InpShowLiquidity)
+   bool draw_liquidity = DrawLiquidityVisuals();
+   if(!draw_liquidity && !InpUseLiquidityContext)
       return;
 
    int length = MathMax(1, InpLiquidityLookback);
@@ -917,6 +1884,7 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
    double current_price = close[rates_total - 1];
    int signal_index = SignalBarIndex(rates_total);
    int drawn = 0;
+   int sweep_markers = 0;
    LiquidityCandidate best_buy;
    LiquidityCandidate best_sell;
    InitLiquidityCandidate(best_buy);
@@ -934,25 +1902,33 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          datetime swept_time = 0;
          bool swept = FindSweep(true, i, top, bottom, high, low, close, time, signal_index, swept_time);
          double distance = LiquidityDistancePips(top, bottom, current_price);
-         TrackLiquidityContext(ctx, true, swept);
-         if(count > 0 && (!swept || InpShowSweptLiquidity)
-            && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
-           {
-            if(IsSniperMode() && InpShowOnlyActionableZones)
-              {
-               if(distance < best_buy.distance_pips)
-                  SetLiquidityCandidate(best_buy, true, time[i], swept ? swept_time : future_time,
-                                        top, bottom, top, swept, count, vol, distance);
-              }
-            else
-              {
-               DrawLiquidity(drawn, true, time[i], swept ? swept_time : future_time,
-                             top, bottom, top, swept, count, vol);
-               drawn++;
-              }
-           }
+          if(InpUseLiquidityContext)
+             TrackLiquidityContext(ctx, true, swept);
+          if(!draw_liquidity && swept && count > 0 && sweep_markers < 2
+             && RecentSweepMarker(swept_time, time, rates_total)
+             && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
+            {
+             DrawSweepMarker(sweep_markers, true, swept_time, top);
+             sweep_markers++;
+            }
+          if(count > 0 && (!swept || InpShowSweptLiquidity)
+             && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
+            {
+             if(IsSniperMode() && InpShowOnlyActionableZones)
+               {
+                if(distance < best_buy.distance_pips)
+                   SetLiquidityCandidate(best_buy, true, time[i], swept ? swept_time : future_time,
+                                         top, bottom, top, swept, count, vol, distance);
+               }
+             else if(draw_liquidity)
+               {
+                DrawLiquidity(drawn, true, time[i], swept ? swept_time : future_time,
+                              top, bottom, top, swept, count, vol);
+                drawn++;
+               }
+            }
         }
-      if(!IsSniperMode() && drawn >= ModeMaxLiquidity())
+      if(draw_liquidity && !IsSniperMode() && drawn >= ModeMaxLiquidity())
          break;
       if(PivotLowAt(i, length, low))
         {
@@ -964,29 +1940,37 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          datetime swept_time = 0;
          bool swept = FindSweep(false, i, top, bottom, high, low, close, time, signal_index, swept_time);
          double distance = LiquidityDistancePips(top, bottom, current_price);
-         TrackLiquidityContext(ctx, false, swept);
-         if(count > 0 && (!swept || InpShowSweptLiquidity)
-            && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
-           {
+          if(InpUseLiquidityContext)
+             TrackLiquidityContext(ctx, false, swept);
+          if(!draw_liquidity && swept && count > 0 && sweep_markers < 2
+             && RecentSweepMarker(swept_time, time, rates_total)
+             && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
+            {
+             DrawSweepMarker(sweep_markers, false, swept_time, bottom);
+             sweep_markers++;
+            }
+          if(count > 0 && (!swept || InpShowSweptLiquidity)
+             && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
+            {
             if(IsSniperMode() && InpShowOnlyActionableZones)
               {
                if(distance < best_sell.distance_pips)
                   SetLiquidityCandidate(best_sell, false, time[i], swept ? swept_time : future_time,
                                         top, bottom, bottom, swept, count, vol, distance);
               }
-            else
-              {
-               DrawLiquidity(drawn, false, time[i], swept ? swept_time : future_time,
-                             top, bottom, bottom, swept, count, vol);
-               drawn++;
-              }
-           }
-        }
-      if(!IsSniperMode() && drawn >= ModeMaxLiquidity())
+             else if(draw_liquidity)
+               {
+                DrawLiquidity(drawn, false, time[i], swept ? swept_time : future_time,
+                              top, bottom, bottom, swept, count, vol);
+                drawn++;
+               }
+            }
+         }
+      if(draw_liquidity && !IsSniperMode() && drawn >= ModeMaxLiquidity())
          break;
      }
 
-   if(IsSniperMode() && InpShowOnlyActionableZones)
+   if(draw_liquidity && IsSniperMode() && InpShowOnlyActionableZones)
      {
       bool draw_buy_side = ctx.bias_dir <= 0;
       bool draw_sell_side = ctx.bias_dir >= 0;
@@ -1127,6 +2111,108 @@ color StateColor(const SetupContext &ctx)
    return InpNeutralColor;
   }
 
+color GuideActionColor(const string action)
+  {
+   if(StringFind(action, "NO TRADE") >= 0)
+      return InpNeutralColor;
+   if(StringFind(action, "WAIT") >= 0)
+      return InpStrongColor;
+   if(StringFind(action, "BUY") >= 0)
+      return InpBullColor;
+   if(StringFind(action, "SELL") >= 0)
+      return InpBearColor;
+   return InpGuideTextColor;
+  }
+
+string GuidePOIText(const bool bullish, const SetupContext &ctx)
+  {
+   double upper = bullish ? ctx.bull_poi_upper : ctx.bear_poi_upper;
+   double lower = bullish ? ctx.bull_poi_lower : ctx.bear_poi_lower;
+   double dist = bullish ? ctx.nearest_bull_poi_pips : ctx.nearest_bear_poi_pips;
+
+   if(upper <= 0.0 || lower <= 0.0 || dist == DBL_MAX)
+      return bullish ? "Bull FVG: none nearby" : "Bear FVG: none nearby";
+
+   return StringFormat("%s FVG %.3f-%.3f (%.1fp)",
+                       bullish ? "Bull" : "Bear", lower, upper, dist);
+  }
+
+string GuideInvalidationText(const bool bullish, const SetupContext &ctx)
+  {
+   if(bullish && ctx.support_level > 0.0)
+      return StringFormat("Invalid below HL %.3f", ctx.support_level);
+   if(!bullish && ctx.resistance_level > 0.0)
+      return StringFormat("Invalid above LH %.3f", ctx.resistance_level);
+   return "Invalidation: wait for clear swing";
+  }
+
+void DrawTradeGuide(const SetupContext &ctx, const double current_price)
+  {
+   if(!InpShowTradeGuide)
+      return;
+
+   string action = "NO TRADE - WAIT FOR STRUCTURE";
+   string step1 = "Need BOS/CHOCH plus usable FVG";
+   string step2 = "Do not force a trade from the middle";
+   string step3 = ctx.reason;
+
+   if(ctx.bias_dir > 0)
+     {
+      bool has_poi = ctx.bull_poi_upper > 0.0 && ctx.bull_poi_lower > 0.0;
+      bool poi_below_support = has_poi && ctx.support_level > 0.0 && ctx.bull_poi_upper < ctx.support_level;
+      if(ctx.bull_poi_touched)
+         action = "WATCH BUY - IN BULL FVG";
+      else if(has_poi && ctx.nearest_bull_poi_pips <= InpGuideEntryProximityPips)
+         action = "WATCH BUY - FVG CLOSE";
+      else if(poi_below_support)
+         action = "WAIT - BULLISH, FVG BELOW HL";
+      else if(has_poi)
+         action = "WAIT PULLBACK - DO NOT CHASE";
+      else
+         action = "WAIT - BULLISH, NO BULL FVG";
+
+      step1 = ctx.sell_liquidity_swept ? "Sweep: SSL taken" : "Sweep: none required yet";
+      step2 = GuidePOIText(true, ctx);
+      step3 = GuideInvalidationText(true, ctx);
+     }
+   else if(ctx.bias_dir < 0)
+     {
+      bool has_poi = ctx.bear_poi_upper > 0.0 && ctx.bear_poi_lower > 0.0;
+      bool poi_above_resistance = has_poi && ctx.resistance_level > 0.0 && ctx.bear_poi_lower > ctx.resistance_level;
+      if(ctx.bear_poi_touched)
+         action = "WATCH SELL - IN BEAR FVG";
+      else if(has_poi && ctx.nearest_bear_poi_pips <= InpGuideEntryProximityPips)
+         action = "WATCH SELL - FVG CLOSE";
+      else if(poi_above_resistance)
+         action = "WAIT - BEARISH, FVG ABOVE LH";
+      else if(has_poi)
+         action = "WAIT PULLBACK - DO NOT CHASE";
+      else
+         action = "WAIT - BEARISH, NO BEAR FVG";
+
+      step1 = ctx.buy_liquidity_swept ? "Sweep: BSL taken" : "Sweep: none required yet";
+      step2 = GuidePOIText(false, ctx);
+      step3 = GuideInvalidationText(false, ctx);
+     }
+
+   if(ctx.state != "NO_TRADE")
+      step1 = StringFormat("%s | Score %d", ctx.state, ctx.score);
+
+   string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_TRADE_GUIDE";
+   int x = 14;
+   int y = InpShowTopDownPanel ? 214 : 94;
+   DrawPanelBackground(base + "_BG", CORNER_LEFT_UPPER, x, y, 310, 88,
+                       InpGuideBgColor, C'55,65,81', 8);
+   DrawPanelLine(base + "_L0", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 8,
+                 "GUIDE: " + action, GuideActionColor(action), true, 9);
+   DrawPanelLine(base + "_L1", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 27,
+                 step1, InpGuideTextColor, false, 9);
+   DrawPanelLine(base + "_L2", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 45,
+                 step2, InpGuideTextColor, false, 9);
+   DrawPanelLine(base + "_L3", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 63,
+                 step3, InpGuideTextColor, false, 9);
+  }
+
 void DrawSniperState(const SetupContext &ctx)
   {
    if(!InpShowSniperState || !IsSniperMode())
@@ -1141,7 +2227,7 @@ void DrawSniperState(const SetupContext &ctx)
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 48);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, InpShowEliteStructure ? 112 : 48);
       ObjectSetInteger(0, name, OBJPROP_COLOR, StateColor(ctx));
       ObjectSetInteger(0, name, OBJPROP_FONTSIZE, InpLabelFontSize);
       ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
@@ -1189,7 +2275,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
   {
-   ObjectsDeleteAll(0, g_prefix);
+   CleanupVisualObjects();
    if(rates_total < 20)
       return rates_total;
 
@@ -1200,6 +2286,7 @@ int OnCalculate(const int rates_total,
    RenderFVGs(open, high, low, close, time, rates_total, ctx);
    RenderLiquidity(open, high, low, close, time, tick_volume, rates_total, ctx);
    EvaluateSetupState(ctx);
+   DrawTradeGuide(ctx, close[SignalBarIndex(rates_total)]);
    DrawSniperState(ctx);
    MaybeAlertSniperState(ctx, time[SignalBarIndex(rates_total)]);
 

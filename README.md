@@ -12,11 +12,11 @@ This project is designed for human operators and coding agents that need to insp
 
 ## Install Globally
 
-From this repository:
+From any checkout of this repository:
 
 ```powershell
-cd "C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI"
-python -m pip install -e . --no-deps
+cd "C:\path\to\Metatrader5-CLI"
+python -m pip install -e .
 ```
 
 This installs an editable package and creates the console script:
@@ -25,17 +25,23 @@ This installs an editable package and creates the console script:
 mt5 --help
 ```
 
-On this machine the script is installed at:
+The script is created by Python packaging in the active Python environment's
+Scripts directory. On a per-user Windows install that is typically:
 
 ```text
-C:\Users\arsen\AppData\Roaming\Python\Python313\Scripts\mt5.exe
+%APPDATA%\Python\Python3XX\Scripts\mt5.exe
 ```
 
 If a new shell cannot find `mt5`, ensure the user Scripts directory is on `PATH`:
 
 ```powershell
-$env:Path -split ';' | Select-String 'Python313\\Scripts'
+$env:Path -split ';' | Select-String 'Python3.*\\Scripts'
 ```
+
+`metatrader5-cli` has no dependency on EhukaiConnect services, routers, daemons,
+ports, SDKs, or install paths. It depends on the Python packages in `setup.py`
+and a local MetaTrader 5 terminal that the `MetaTrader5` Python package can
+initialize.
 
 Agents in other repos can use the CLI directly once this command resolves:
 

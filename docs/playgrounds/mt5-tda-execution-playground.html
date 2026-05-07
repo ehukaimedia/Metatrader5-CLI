@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MT5 TDA Execution Playground</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080b10;color:#e5e7eb;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{height:54px;border-bottom:1px solid #1f2937;background:#0e131c;display:flex;align-items:center;gap:12px;padding:0 18px;flex-shrink:0}
+h1{font-size:16px;margin:0;font-weight:700}
+.tag{font-size:11px;color:#9ca3af;border:1px solid #273244;background:#111827;padding:3px 8px;border-radius:999px}
+main{display:grid;grid-template-columns:310px 1fr;min-height:0;flex:1}
+aside{border-right:1px solid #1f2937;background:#0b1018;overflow:auto;padding:14px}
+.section{border:1px solid #1f2937;background:#0f1722;border-radius:8px;padding:12px;margin-bottom:12px}
+.section h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#93a4b8;margin:0 0 10px}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{font:inherit}
+.preset{border:1px solid #334155;background:#111827;color:#dbeafe;border-radius:6px;padding:8px;cursor:pointer;font-size:12px}
+.preset:hover,.preset.active{border-color:#60a5fa;background:#17263a}
+label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:9px 0;font-size:12px;color:#d1d5db}
+select,input[type="range"]{width:135px}
+select{background:#111827;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:5px}
+input[type="checkbox"]{accent-color:#22c55e}
+.stage{min-width:0;overflow:auto;padding:18px}
+.board{min-width:980px;display:grid;grid-template-columns:1fr;gap:14px}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.card{border:1px solid #233047;background:#0f1722;border-radius:8px;padding:12px;min-height:150px;position:relative}
+.card.active{border-color:#38bdf8;box-shadow:0 0 0 1px rgba(56,189,248,.25)}
+.card.warn{border-color:#f59e0b}
+.card.good{border-color:#22c55e}
+.card.block{border-color:#ef4444}
+.card h3{font-size:13px;margin:0 0 8px;color:#f8fafc}
+.sub{font-size:11px;color:#94a3b8;margin-bottom:8px}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:5px;font-size:12px;line-height:1.4}
+.k{color:#94a3b8}
+.v{color:#e5e7eb}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700}
+.bull{background:rgba(34,197,94,.14);color:#86efac}
+.bear{background:rgba(239,68,68,.14);color:#fca5a5}
+.neutral{background:rgba(148,163,184,.14);color:#cbd5e1}
+.ready{background:rgba(34,197,94,.18);color:#bbf7d0}
+.watch{background:rgba(245,158,11,.16);color:#fde68a}
+.wait{background:rgba(56,189,248,.14);color:#bae6fd}
+.no{background:rgba(239,68,68,.16);color:#fecaca}
+.arrow-row{height:42px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:center;color:#64748b}
+.arrow{height:2px;background:#334155;position:relative}
+.arrow:after{content:"";position:absolute;right:-2px;top:-4px;border-left:8px solid #334155;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.lower{display:grid;grid-template-columns:1.15fr .85fr;gap:14px}
+.panel{border:1px solid #233047;background:#0f1722;border-radius:8px;padding:14px}
+.panel h3{font-size:13px;margin:0 0 10px}
+.gates{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.gate{border:1px solid #334155;border-radius:7px;padding:8px;font-size:12px;background:#111827}
+.gate.pass{border-color:#22c55e;color:#bbf7d0}
+.gate.fail{border-color:#ef4444;color:#fecaca}
+.guide{font-size:28px;font-weight:800;margin-bottom:6px}
+.guide.ready-text{color:#86efac}
+.guide.watch-text{color:#fde68a}
+.guide.wait-text{color:#bae6fd}
+.guide.no-text{color:#fecaca}
+#promptBox{height:145px;border-top:1px solid #1f2937;background:#0b1018;display:grid;grid-template-columns:1fr 130px;flex-shrink:0}
+#prompt{padding:13px 16px;font-size:12px;line-height:1.55;color:#d1d5db;white-space:pre-wrap;overflow:auto}
+#copyArea{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border-left:1px solid #1f2937}
+#copy{border:1px solid #38bdf8;background:#0c2533;color:#bae6fd;border-radius:6px;padding:8px 18px;cursor:pointer}
+#feedback{height:16px;font-size:11px;color:#86efac}
+.small{font-size:11px;color:#94a3b8;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>MT5 TDA Execution Playground</h1>
+  <span class="tag">MT5 first</span>
+  <span class="tag">Pine as reference</span>
+  <span class="tag">alerts later</span>
+  <span class="tag">execution-grade JSON</span>
+</header>
+<main>
+  <aside>
+    <div class="section">
+      <h2>Presets</h2>
+      <div class="preset-grid" id="presets"></div>
+    </div>
+    <div class="section">
+      <h2>Structure</h2>
+      <label>D1/H4 Permission <select id="permission"><option value="bullish">Bullish</option><option value="bearish">Bearish</option><option value="mixed">Mixed</option><option value="neutral">Neutral</option></select></label>
+      <label>M15 Setup <select id="setup"><option value="aligned">Aligned</option><option value="pullback">Pullback</option><option value="conflict">Conflict</option><option value="range">Range</option></select></label>
+      <label>M5/M1 Entry <select id="entry"><option value="confirmed">Confirmed Shift</option><option value="watch">Watching Shift</option><option value="none">No Trigger</option><option value="opposite">Opposite Signal</option></select></label>
+    </div>
+    <div class="section">
+      <h2>POI</h2>
+      <label>Primary POI <select id="poi"><option value="fvg">Fresh FVG</option><option value="ob">Order Block</option><option value="both">FVG + OB</option><option value="none">No Clean POI</option></select></label>
+      <label>Caused BOS <input id="causedBos" type="checkbox" checked></label>
+      <label>Unfilled <input id="unfilled" type="checkbox" checked></label>
+      <label>Historical FVGs <input id="historical" type="checkbox" checked></label>
+    </div>
+    <div class="section">
+      <h2>Liquidity</h2>
+      <label>Show Sweep Hint <input id="sweepHint" type="checkbox" checked></label>
+      <label>Opposing Liq In Front <input id="liqFront" type="checkbox" checked></label>
+      <label>Liquidity Behind POI <input id="liqBehind" type="checkbox"></label>
+    </div>
+    <div class="section">
+      <h2>Risk Gates</h2>
+      <label>Spread OK <input id="spreadOk" type="checkbox" checked></label>
+      <label>RR <input id="rr" type="range" min="0.5" max="5" step="0.1" value="2.2"></label>
+      <label>Session OK <input id="sessionOk" type="checkbox" checked></label>
+    </div>
+    <div class="section">
+      <h2>Visual Defaults</h2>
+      <label>Latest BOS/CHOCH Only <input id="latestOnly" type="checkbox" checked></label>
+      <label>Hide Dense Labels <input id="hideDense" type="checkbox" checked></label>
+      <label>Hide Full Liquidity Rails <input id="hideRails" type="checkbox" checked></label>
+    </div>
+  </aside>
+  <section class="stage">
+    <div class="board">
+      <div class="flow">
+        <div class="card" id="c-tv"><h3>TradingView</h3><div class="sub">USDOLLAR and Pine reference</div><div class="kv"><span class="k">Role</span><span class="v">Screenshot context</span><span class="k">Output</span><span class="v">Daily bias reference</span><span class="k">Execution</span><span class="v">Never</span></div></div>
+        <div class="card" id="c-structure"><h3>D1/H4 Structure</h3><div class="sub">Directional permission</div><div class="kv" id="structureKv"></div></div>
+        <div class="card" id="c-poi"><h3>M15 Setup Area</h3><div class="sub">FVG / OB / supply-demand</div><div class="kv" id="poiKv"></div></div>
+        <div class="card" id="c-entry"><h3>M5/M1 Entry</h3><div class="sub">Execution structure</div><div class="kv" id="entryKv"></div></div>
+        <div class="card" id="c-execute"><h3>MT5 Execution</h3><div class="sub">Guarded order path</div><div class="kv"><span class="k">Planner</span><span class="v">Python JSON</span><span class="k">Order</span><span class="v">core.order</span><span class="k">Manager</span><span class="v">AdaptiveTrailEA</span></div></div>
+      </div>
+      <div class="arrow-row"><div class="arrow"></div><div class="arrow"></div><div class="arrow"></div><div class="arrow"></div></div>
+      <div class="lower">
+        <div class="panel">
+          <h3>Execution Contract Preview</h3>
+          <div class="gates" id="gates"></div>
+        </div>
+        <div class="panel">
+          <h3>Operator Guide</h3>
+          <div id="guide" class="guide"></div>
+          <div class="small" id="guideText"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="promptBox">
+  <pre id="prompt"></pre>
+  <div id="copyArea"><button id="copy">Copy Prompt</button><div id="feedback"></div></div>
+</div>
+<script>
+const DEFAULTS={
+  permission:"bullish",setup:"aligned",entry:"watch",poi:"fvg",causedBos:true,unfilled:true,historical:true,
+  sweepHint:true,liqFront:true,liqBehind:false,spreadOk:true,rr:2.2,sessionOk:true,latestOnly:true,hideDense:true,hideRails:true
+};
+const state={...DEFAULTS};
+const presets={
+  "Clean Buy Watch":{permission:"bullish",setup:"aligned",entry:"watch",poi:"fvg",causedBos:true,unfilled:true,liqFront:true,liqBehind:false,rr:2.4},
+  "Ready Entry":{permission:"bullish",setup:"aligned",entry:"confirmed",poi:"both",causedBos:true,unfilled:true,liqFront:true,liqBehind:false,rr:3.1},
+  "No Trade":{permission:"mixed",setup:"conflict",entry:"none",poi:"none",causedBos:false,unfilled:false,liqFront:false,liqBehind:true,rr:1.1},
+  "Trap Warning":{permission:"bearish",setup:"aligned",entry:"watch",poi:"ob",causedBos:true,unfilled:true,liqFront:false,liqBehind:true,rr:2.0}
+};
+function el(id){return document.getElementById(id)}
+function init(){
+  const p=el("presets");
+  Object.entries(presets).forEach(([name,patch])=>{
+    const b=document.createElement("button");b.className="preset";b.textContent=name;b.onclick=()=>{Object.assign(state,DEFAULTS,patch);syncControls();render()};p.appendChild(b);
+  });
+  Object.keys(DEFAULTS).forEach(k=>{
+    const node=el(k); if(!node)return;
+    node.addEventListener("input",()=>{state[k]=node.type==="checkbox"?node.checked:(node.type==="range"?Number(node.value):node.value);render()});
+  });
+  el("copy").onclick=()=>navigator.clipboard.writeText(el("prompt").textContent).then(()=>{el("feedback").textContent="Copied";setTimeout(()=>el("feedback").textContent="",900)});
+  syncControls(); render();
+}
+function syncControls(){
+  Object.keys(DEFAULTS).forEach(k=>{const node=el(k); if(!node)return; if(node.type==="checkbox")node.checked=state[k]; else node.value=state[k]});
+}
+function badge(text,type){return `<span class="pill ${type}">${text}</span>`}
+function status(){
+  if(state.permission==="neutral"||state.permission==="mixed"||state.setup==="conflict"||state.setup==="range")return "no_trade";
+  if(state.poi==="none"||!state.causedBos||!state.unfilled||state.liqBehind||!state.spreadOk||!state.sessionOk)return "no_trade";
+  if(state.entry==="confirmed"&&state.rr>=1.5)return "ready";
+  if(state.entry==="watch"&&state.rr>=1.5)return "watch";
+  return "wait";
+}
+function direction(){return state.permission==="bearish"?"sell":state.permission==="bullish"?"buy":null}
+function render(){
+  const s=status(), dir=direction();
+  el("structureKv").innerHTML=`<span class="k">Bias</span><span class="v">${badge(state.permission,state.permission==="bearish"?"bear":state.permission==="bullish"?"bull":"neutral")}</span><span class="k">Rule</span><span class="v">D1/H4 permission first</span><span class="k">Target</span><span class="v">${dir==="buy"?"Weak high":dir==="sell"?"Weak low":"None"}</span>`;
+  el("poiKv").innerHTML=`<span class="k">POI</span><span class="v">${state.poi}</span><span class="k">Caused BOS</span><span class="v">${state.causedBos?"yes":"no"}</span><span class="k">State</span><span class="v">${state.unfilled?"open or partial":"filled or invalid"}</span>`;
+  el("entryKv").innerHTML=`<span class="k">Entry</span><span class="v">${state.entry}</span><span class="k">RR</span><span class="v">${state.rr.toFixed(1)}R</span><span class="k">Liquidity</span><span class="v">${state.liqFront?"in front":state.liqBehind?"behind POI":"none"}</span>`;
+  setCard("c-structure",state.permission==="mixed"||state.permission==="neutral"?"block":"good");
+  setCard("c-poi",state.poi==="none"||!state.causedBos||!state.unfilled||state.liqBehind?"block":"good");
+  setCard("c-entry",state.entry==="confirmed"?"good":state.entry==="watch"?"warn":state.entry==="opposite"?"block":"");
+  setCard("c-execute",s==="ready"?"good":s==="watch"?"warn":s==="no_trade"?"block":"");
+  renderGates(s);
+  renderGuide(s,dir);
+  updatePrompt(s,dir);
+}
+function setCard(id,cls){const c=el(id);c.className="card"+(cls?" "+cls:"")}
+function gate(name,pass,detail){return `<div class="gate ${pass?"pass":"fail"}"><strong>${pass?"PASS":"BLOCK"}</strong><br>${name}<br><span class="small">${detail}</span></div>`}
+function renderGates(s){
+  const gates=[
+    gate("Direction",!!direction(),"D1/H4 must give permission"),
+    gate("POI",state.poi!=="none"&&state.causedBos&&state.unfilled,"zone must be valid and unfilled"),
+    gate("Liquidity",!state.liqBehind,"liquidity behind POI warns trap risk"),
+    gate("Entry",state.entry==="confirmed"||state.entry==="watch","M5/M1 must shift or be close"),
+    gate("Spread/session",state.spreadOk&&state.sessionOk,"execution environment must be clean"),
+    gate("RR",state.rr>=1.5,`${state.rr.toFixed(1)}R minimum 1.5R`)
+  ];
+  el("gates").innerHTML=gates.join("");
+}
+function renderGuide(s,dir){
+  const text={ready:"READY",watch:"WATCH",wait:"WAIT",no_trade:"NO TRADE"}[s];
+  el("guide").className=`guide ${s==="no_trade"?"no":s}-text`;
+  el("guide").textContent=text;
+  const side=dir?dir.toUpperCase():"NONE";
+  el("guideText").textContent=s==="ready"
+    ? `${side} setup has permission, valid POI, entry confirmation, and passing risk gates. Stage dry-run order only.`
+    : s==="watch"
+      ? `${side} idea is forming. Wait for M5/M1 close-confirmed entry structure before execution.`
+      : s==="wait"
+        ? `Context is incomplete. Preserve the chart and wait for structure or POI confirmation.`
+        : `Do not trade. One or more core gates blocks this setup.`;
+}
+function updatePrompt(s,dir){
+  const parts=[];
+  parts.push("Use MT5 as the execution source of truth and Pine only as a visual/reference layer.");
+  parts.push(`Configure the TDA workflow for status ${s.toUpperCase()}${dir?` with ${dir.toUpperCase()} direction`:" with no direction"}.`);
+  parts.push(`D1/H4 permission is ${state.permission}; M15 setup is ${state.setup}; M5/M1 entry state is ${state.entry}.`);
+  parts.push(`Primary POI is ${state.poi}; caused BOS=${state.causedBos}; unfilled=${state.unfilled}; historical FVG visibility=${state.historical}.`);
+  parts.push(`Liquidity should be ${state.sweepHint?"shown as subtle sweep hints":"hidden visually"}; opposing liquidity in front=${state.liqFront}; liquidity behind POI=${state.liqBehind}.`);
+  parts.push(`Risk gates: spread OK=${state.spreadOk}; session OK=${state.sessionOk}; RR=${state.rr.toFixed(1)}.`);
+  parts.push("Keep latest BOS/CHOCH, active strong/weak levels, valid FVG/POI, and guide state visible. Keep stale rails, dense labels, and full liquidity drawings off by default.");
+  el("prompt").textContent=parts.join("\n");
+}
+init();
+</script>
+</body>
+</html>

@@ -108,31 +108,15 @@ def structure(symbol: str, timeframe: str, bars: int = 200, pivot_n: int = 5) ->
 # ---------------------------------------------------------------------------
 
 def _classify_tf(symbol: str, timeframe: str, bars: int) -> dict | None:
-    """Return TF market-structure classification or None on any data error."""
-    result = structure(symbol, timeframe, bars=bars)
+    """Return canonical Ehukai/elite TF structure or None on any data error."""
+    result = ehukai.market_structure(symbol, timeframe, bars=bars)
     if not result["ok"]:
         return None
     data = result["data"]
-    swing_highs = data["swing_highs"]
-    swing_lows = data["swing_lows"]
-
-    structure_state = "range"
-    if len(swing_highs) >= 2 and len(swing_lows) >= 2:
-        prev_high, last_high = swing_highs[-2]["price"], swing_highs[-1]["price"]
-        prev_low, last_low = swing_lows[-2]["price"], swing_lows[-1]["price"]
-        if last_high > prev_high and last_low > prev_low:
-            structure_state = "HH_HL"
-        elif last_high < prev_high and last_low < prev_low:
-            structure_state = "LH_LL"
-        else:
-            structure_state = "mixed"
-
-    if structure_state == "HH_HL":
-        trend = "bullish"
-    elif structure_state == "LH_LL":
-        trend = "bearish"
-    else:
-        trend = "neutral"
+    trend = data.get("direction") or "neutral"
+    structure_state = data.get("stage") or "RANGE"
+    if structure_state == "RANGE":
+        structure_state = "range"
 
     return {
         "timeframe": timeframe,
@@ -141,8 +125,14 @@ def _classify_tf(symbol: str, timeframe: str, bars: int) -> dict | None:
         "current_price": data["current_price"],
         "support": data["support"],
         "resistance": data["resistance"],
-        "swing_highs": swing_highs,
-        "swing_lows": swing_lows,
+        "swing_highs": data.get("swing_highs", []),
+        "swing_lows": data.get("swing_lows", []),
+        "bias": data.get("bias"),
+        "signal_bar": data.get("signal_bar"),
+        "last_event": data.get("last_event"),
+        "internal": data.get("internal"),
+        "trade_read": data.get("trade_read"),
+        "structure_engine_version": data.get("structure_engine_version"),
     }
 
 
@@ -177,7 +167,8 @@ def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
     for tf, r in tf_dict.items():
         notes.append(
             f"{tf}: {r['trend']} structure ({r['structure']}); "
-            f"support={r['support']}, resistance={r['resistance']}"
+            f"support={r['support']}, resistance={r['resistance']}; "
+            f"{((r.get('trade_read') or {}).get('summary') or 'No trade read.')}"
         )
 
     return {
