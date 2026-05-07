@@ -5,7 +5,10 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     package_data={
-        "metatrader5_cli.mt5": ["mql5/Indicators/*.mq5"],
+        "metatrader5_cli.mt5": [
+            "mql5/Indicators/*.mq5",
+            "mql5/Experts/*.mq5",
+        ],
     },
     install_requires=[
         "MetaTrader5>=5.0.45",

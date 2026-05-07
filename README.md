@@ -163,6 +163,12 @@ mt5 --json position list --symbol USDJPY
 mt5 --json position close TICKET
 mt5 --json position breakeven TICKET --buffer-points 5
 
+mt5 --json ea adaptive-trail magics show
+mt5 --json ea adaptive-trail magics add 162538
+mt5 --json ea adaptive-trail magics set 113054,162538
+mt5 --json ea adaptive-trail tp-runner set --enabled --distance-points 10
+mt5 --json ea adaptive-trail manual set --enabled --symbols USDJPY,EURUSD,GBPUSD,AUDUSD
+
 mt5 --json history deals --from 2026-01-01 --to 2026-01-31 --symbol USDJPY
 mt5 --json history stats --from 2026-01-01 --to 2026-01-31
 
@@ -218,6 +224,28 @@ For live charts and screenshot agents, apply only `EhukaiTDAOverlay.mq5` by
 default. Keep the primitive overlays above for debugging a single concept, but
 do not stack them on normal TDA charts because labels and rectangles will
 overlap.
+
+`AdaptiveTrailEA.mq5` lives in `metatrader5_cli/mt5/mql5/Experts/` and is
+deployed to the terminal `MQL5\Experts` folder before attaching. Its
+`MagicNumbers` input can be maintained from the CLI through an MT5 `.set`
+preset:
+
+```powershell
+mt5 --json ea adaptive-trail magics add 162538
+mt5 --json ea adaptive-trail magics show
+mt5 --json ea adaptive-trail tp-runner set --enabled --distance-points 10
+mt5 --json ea adaptive-trail manual set --enabled --symbols USDJPY,EURUSD,GBPUSD,AUDUSD
+```
+
+MT5 does not expose already-attached EA input changes through the Python API, so
+after changing the preset, reload or reattach the EA and load
+`AdaptiveTrailEA.set`. TP runner mode is opt-in: when enabled, the EA removes
+an existing TP only after BE/chandelier stage is active and price is within the
+configured point distance of TP. This has to happen before TP touch because a
+broker-side TP normally closes the position as soon as price reaches it.
+Manual magic-0 management is also opt-in and symbol-scoped. Keep it disabled
+unless you intentionally want manual positions on the listed symbols to receive
+the same BE and trailing management.
 
 Use `--no-context` when only screenshots are needed, and `--no-manifest` when a sibling JSON file should not be written.
 

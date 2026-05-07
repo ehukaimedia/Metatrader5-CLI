@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from metatrader5_cli.mt5.core import account, analyze, chart, ehukai, history, indicator, market, order, position, project, rates, screenshot
+from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, order, position, project, rates, screenshot
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -718,6 +718,159 @@ def analyze_sniper_poc_cmd(
             include_partial_fvg=include_partial_fvg,
             avoid_rollover=not allow_rollover,
             include_frames=not summary,
+        ),
+        obj["as_json"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# EA command group
+# ---------------------------------------------------------------------------
+
+@main.group("ea")
+@click.pass_context
+def ea_group(ctx):
+    """Expert Advisor local preset helpers."""
+    ctx.ensure_object(dict)
+
+
+@ea_group.group("adaptive-trail")
+@click.pass_context
+def adaptive_trail_group(ctx):
+    """AdaptiveTrailEA preset helpers."""
+    ctx.ensure_object(dict)
+
+
+@adaptive_trail_group.group("magics")
+@click.pass_context
+def adaptive_trail_magics_group(ctx):
+    """View or update AdaptiveTrailEA MagicNumbers presets."""
+    ctx.ensure_object(dict)
+
+
+@adaptive_trail_group.group("tp-runner")
+@click.pass_context
+def adaptive_trail_tp_runner_group(ctx):
+    """Configure optional TP removal for winner-runner mode."""
+    ctx.ensure_object(dict)
+
+
+@adaptive_trail_group.group("manual")
+@click.pass_context
+def adaptive_trail_manual_group(ctx):
+    """Configure scoped manual magic-0 management."""
+    ctx.ensure_object(dict)
+
+
+def _parse_cli_magics(values):
+    try:
+        return ea.parse_magic_values(values)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
+
+
+def _parse_cli_symbols(values):
+    try:
+        return ea.parse_symbol_values(values)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc)) from exc
+
+
+@adaptive_trail_magics_group.command("show")
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Auto-detected by default.")
+@click.option("--preset-name", default=ea.DEFAULT_PRESET_FILENAME, show_default=True,
+              help="Preset filename to read.")
+@click.pass_context
+def adaptive_trail_magics_show_cmd(ctx, experts_dir, preset_name):
+    """Show the current AdaptiveTrailEA MagicNumbers preset."""
+    obj = ctx.obj
+    output(ea.current_magics(experts_dir=experts_dir, preset_name=preset_name), obj["as_json"])
+
+
+@adaptive_trail_magics_group.command("set")
+@click.argument("magics", nargs=-1, required=True)
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Auto-detected by default.")
+@click.option("--preset-name", default=ea.DEFAULT_PRESET_FILENAME, show_default=True,
+              help="Preset filename to write.")
+@click.pass_context
+def adaptive_trail_magics_set_cmd(ctx, magics, experts_dir, preset_name):
+    """Replace MagicNumbers. Accepts spaces and/or comma-separated values."""
+    obj = ctx.obj
+    parsed = _parse_cli_magics(magics)
+    output(ea.set_magics(parsed, experts_dir=experts_dir, preset_name=preset_name), obj["as_json"])
+
+
+@adaptive_trail_magics_group.command("add")
+@click.argument("magics", nargs=-1, required=True)
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Auto-detected by default.")
+@click.option("--preset-name", default=ea.DEFAULT_PRESET_FILENAME, show_default=True,
+              help="Preset filename to update.")
+@click.pass_context
+def adaptive_trail_magics_add_cmd(ctx, magics, experts_dir, preset_name):
+    """Add one or more magic numbers to the preset."""
+    obj = ctx.obj
+    parsed = _parse_cli_magics(magics)
+    output(ea.add_magics(parsed, experts_dir=experts_dir, preset_name=preset_name), obj["as_json"])
+
+
+@adaptive_trail_magics_group.command("remove")
+@click.argument("magics", nargs=-1, required=True)
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Auto-detected by default.")
+@click.option("--preset-name", default=ea.DEFAULT_PRESET_FILENAME, show_default=True,
+              help="Preset filename to update.")
+@click.pass_context
+def adaptive_trail_magics_remove_cmd(ctx, magics, experts_dir, preset_name):
+    """Remove one or more magic numbers from the preset."""
+    obj = ctx.obj
+    parsed = _parse_cli_magics(magics)
+    output(ea.remove_magics(parsed, experts_dir=experts_dir, preset_name=preset_name), obj["as_json"])
+
+
+@adaptive_trail_tp_runner_group.command("set")
+@click.option("--enabled/--disabled", default=True, show_default=True,
+              help="Enable or disable TP removal.")
+@click.option("--distance-points", default=10, show_default=True, type=int,
+              help="Remove TP when current exit price is this close to TP.")
+@click.option("--require-be/--no-require-be", default=True, show_default=True,
+              help="Require BE/chandelier stage before removing TP.")
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Auto-detected by default.")
+@click.option("--preset-name", default=ea.DEFAULT_PRESET_FILENAME, show_default=True,
+              help="Preset filename to update.")
+@click.pass_context
+def adaptive_trail_tp_runner_set_cmd(ctx, enabled, distance_points, require_be, experts_dir, preset_name):
+    """Update TP runner inputs in AdaptiveTrailEA.set."""
+    obj = ctx.obj
+    output(
+        ea.set_tp_runner(
+            enabled=enabled,
+            distance_points=distance_points,
+            require_be=require_be,
+            experts_dir=experts_dir,
+            preset_name=preset_name,
+        ),
+        obj["as_json"],
+    )
+
+
+@adaptive_trail_manual_group.command("set")
+@click.option("--enabled/--disabled", default=True, show_default=True,
+              help="Enable or disable magic-0 management.")
+@click.option("--symbols", required=True,
+              help="Comma-separated symbol whitelist for manual magic 0.")
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Auto-detected by default.")
+@click.option("--preset-name", default=ea.DEFAULT_PRESET_FILENAME, show_default=True,
+              help="Preset filename to update.")
+@click.pass_context
+def adaptive_trail_manual_set_cmd(ctx, enabled, symbols, experts_dir, preset_name):
+    """Update manual magic-0 whitelist inputs in AdaptiveTrailEA.set."""
+    obj = ctx.obj
+    parsed_symbols = _parse_cli_symbols(symbols)
+    output(
+        ea.set_manual_magic0(
+            enabled=enabled,
+            symbols=parsed_symbols,
+            experts_dir=experts_dir,
+            preset_name=preset_name,
         ),
         obj["as_json"],
     )

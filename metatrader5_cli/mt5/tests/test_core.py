@@ -193,6 +193,132 @@ class TestProject:
         assert loaded["strategy_ids"] == {"gopher-gate": 12001}
 
 
+class TestEAHelpers:
+    def test_adaptive_trail_add_magics_creates_preset(self, tmp_path):
+        from metatrader5_cli.mt5.core import ea
+
+        experts = tmp_path / "Experts"
+        (experts / ea.EA_FILENAME).parent.mkdir(parents=True)
+        (experts / ea.EA_FILENAME).write_text(
+            'input string                  MagicNumbers                 = "113054";\n',
+            encoding="utf-8",
+        )
+
+        result = ea.add_magics([162538], experts_dir=str(experts))
+
+        assert result["ok"] is True
+        assert result["data"]["magic_numbers"] == "113054,162538"
+        preset = experts / ea.DEFAULT_PRESET_FILENAME
+        assert preset.exists()
+        assert "MagicNumbers=113054,162538" in preset.read_text(encoding="utf-16")
+
+    def test_adaptive_trail_rejects_manual_magic_zero(self):
+        from metatrader5_cli.mt5.core import ea
+
+        with pytest.raises(ValueError, match="Magic 0"):
+            ea.parse_magic_values("113054,0")
+
+    def test_cli_adaptive_trail_magics_set_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        experts = tmp_path / "Experts"
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            [
+                "--json",
+                "ea",
+                "adaptive-trail",
+                "magics",
+                "set",
+                "113054,162538",
+                "--experts-dir",
+                str(experts),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["magic_numbers"] == "113054,162538"
+
+    def test_cli_adaptive_trail_tp_runner_set_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        experts = tmp_path / "Experts"
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            [
+                "--json",
+                "ea",
+                "adaptive-trail",
+                "tp-runner",
+                "set",
+                "--enabled",
+                "--distance-points",
+                "15",
+                "--experts-dir",
+                str(experts),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        preset = experts / "AdaptiveTrailEA.set"
+        text = preset.read_text(encoding="utf-16")
+        assert "Allow_TP_Removal=true" in text
+        assert "TP_Removal_Distance_Points=15" in text
+
+    def test_cli_adaptive_trail_manual_magic0_set_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        experts = tmp_path / "Experts"
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            [
+                "--json",
+                "ea",
+                "adaptive-trail",
+                "manual",
+                "set",
+                "--enabled",
+                "--symbols",
+                "USDJPY,EURUSD,GBPUSD,AUDUSD",
+                "--experts-dir",
+                str(experts),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        preset = experts / "AdaptiveTrailEA.set"
+        text = preset.read_text(encoding="utf-16")
+        assert "Allow_Manual_Magic_0=true" in text
+        assert "Manual_Magic_0_Symbols=USDJPY,EURUSD,GBPUSD,AUDUSD" in text
+
+
 # ===========================================================================
 # Task 4 — Risk (core/risk.py)
 # ===========================================================================
