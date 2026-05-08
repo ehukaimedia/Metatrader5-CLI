@@ -363,15 +363,22 @@ def place_new_orders(cfg: dict) -> int:
                     "explain": data.get("explain"),
                     "rr": rr,
                 }
-                task_id = dispatch.create_review_task(
-                    payload,
-                    alerts_dir=dispatch.alerts_dir_default(),
-                    reviewer=a.get("reviewer_agent", "ClaudeReviewer"),
-                )
-                if task_id:
-                    journal.log_review_request(
-                        alert_id=alert_id, task_id=task_id, pair=pair,
+                # autopilot is a TOP-LEVEL cfg block, NOT under cfg.agent.
+                # Reading from a.get("autopilot") would silently fall back to
+                # the single-reviewer phase-1 path (Codex1 caught this in the
+                # plan orientation review).
+                reviewers = (cfg.get("autopilot") or {}).get("reviewer_agents") \
+                    or [a.get("reviewer_agent", "ClaudeReviewer")]
+                for reviewer in reviewers:
+                    task_id = dispatch.create_review_task(
+                        payload,
+                        alerts_dir=dispatch.alerts_dir_default(),
+                        reviewer=reviewer,
                     )
+                    if task_id:
+                        journal.log_review_request(
+                            alert_id=alert_id, task_id=task_id, pair=pair,
+                        )
             continue
 
         placement = place_ready_limit(cfg, pair)
