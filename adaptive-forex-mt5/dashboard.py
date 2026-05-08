@@ -33,6 +33,15 @@ def _state_payload() -> dict:
                 "autopilot": {"kill_switch": "off", "shadow_stats": {},
                               "daily_caps": {}}}
     managed = state_db.list_managed_positions(STATE_DB, only_active=True)
+    # Phase-3: enrich each managed row with adopted=true / autopilot=true
+    # by joining to the matching kind=placement journal record. The state.db
+    # schema doesn't carry these flags directly, so the dashboard reads
+    # them from the canonical journal record.
+    flags_by_ticket = _placement_flags_by_ticket()
+    for row in managed:
+        flags = flags_by_ticket.get(row["ticket"], {})
+        row["adopted"] = bool(flags.get("adopted"))
+        row["autopilot"] = bool(flags.get("autopilot"))
     hb = state_db.heartbeat_all(STATE_DB)
     unmanaged = state_db.unmanaged_warning_recent(STATE_DB, since_seconds=60)
     return {
@@ -41,6 +50,20 @@ def _state_payload() -> dict:
         "unmanaged_warnings": unmanaged,
         "autopilot": _autopilot_payload(),
     }
+
+
+def _placement_flags_by_ticket() -> dict[int, dict]:
+    """Map ticket → {adopted, autopilot} flags from journal placements."""
+    out: dict[int, dict] = {}
+    for r in journal.read_all():
+        if r.get("kind") != "placement":
+            continue
+        tk = r.get("ticket")
+        if tk is None:
+            continue
+        out[tk] = {"adopted": bool(r.get("adopted")),
+                   "autopilot": bool(r.get("autopilot"))}
+    return out
 
 
 def _autopilot_payload() -> dict:
@@ -257,7 +280,8 @@ async function refreshState() {
       left.appendChild(el('span', 'sym', r.symbol));
       const dirCls = r.direction === 'buy' ? 'dir buy' : 'dir sell';
       left.appendChild(el('span', dirCls, r.direction.toUpperCase()));
-      left.appendChild(el('span', 'meta', ' · #' + r.ticket + ' · ' + r.stage + (r.pending_action ? ' (pending: ' + r.pending_action + ')' : '')));
+      const tag = r.adopted ? ' [ADOPTED]' : (r.autopilot ? ' [AUTO]' : '');
+      left.appendChild(el('span', 'meta', ' · #' + r.ticket + ' · ' + r.stage + tag + (r.pending_action ? ' (pending: ' + r.pending_action + ')' : '')));
       top.appendChild(left);
       card.appendChild(top);
       const row = el('div', 'row');
