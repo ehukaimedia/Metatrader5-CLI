@@ -2,6 +2,9 @@ config.json
 briefings/*.json
 !briefings/example.json
 state/
+state.db
+state.db-wal
+state.db-shm
 logs/
 __pycache__/
 *.pyc
