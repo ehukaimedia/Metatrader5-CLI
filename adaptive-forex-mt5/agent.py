@@ -323,16 +323,24 @@ def place_new_orders(cfg: dict) -> int:
                 f"R:R {rr:.2f}  Quality {quality:.2f}" if rr is not None else f"Quality {quality:.2f}",
                 why,
             ]
-            # Stamp the deterministic setup fingerprint so reviewers + the
-            # phase-2 autopilot executor can pin verdicts to THIS setup,
-            # not a fresh cousin a few bars later.
+            # Build the canonical reasoning context once (mirrors the shape
+            # journal records use), then feed it to BOTH fingerprint and the
+            # review payload. The raw sniper-poc output has structure / poi /
+            # liquidity / entry / gates at the TOP level — `data["reasoning"]`
+            # does not exist on raw output, only on already-journaled records.
+            reasoning_ctx = journal._reasoning(data)
+            structure_block = reasoning_ctx.get("structure") or {}
+            bar_time = (
+                structure_block.get("bar_time")
+                or (structure_block.get("last_confirmed_event") or {}).get("level", {}).get("time")
+            )
             data["setup_fingerprint"] = fingerprint.compute({
                 "pair": pair,
                 "direction": direction.lower(),
                 "setup": setup,
                 "poi": data.get("poi"),
-                "reasoning": data.get("reasoning"),
-                "bar_time": (data.get("reasoning") or {}).get("bar_time"),
+                "reasoning": reasoning_ctx,
+                "bar_time": bar_time,
                 "digits": digits,
             })
             push(
@@ -351,7 +359,7 @@ def place_new_orders(cfg: dict) -> int:
                     "setup_fingerprint": data["setup_fingerprint"],
                     "setup": setup,
                     "poi": data.get("poi"),
-                    "reasoning": data.get("reasoning"),
+                    "reasoning": reasoning_ctx,
                     "explain": data.get("explain"),
                     "rr": rr,
                 }

@@ -24,7 +24,7 @@ and emits an advisory verdict on the deterministic setup the bot produced.
 3. Run top-down analysis using the MT5 CLI:
 
    ```
-   mt5 --json ehukai topdown <pair>
+   mt5 --json analyze topdown <pair>
    mt5 --json rates <pair> M1 200
    mt5 --json rates <pair> M5 200
    mt5 --json rates <pair> M15 200
@@ -33,7 +33,7 @@ and emits an advisory verdict on the deterministic setup the bot produced.
    Optionally screenshot the relevant TFs if available:
 
    ```
-   mt5 ehukai screenshot <pair> --tf M5
+   mt5 --json screenshot tda <pair> --timeframes M1,M5,M15
    ```
 
 4. Emit the verdict by writing

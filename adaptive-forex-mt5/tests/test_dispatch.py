@@ -33,8 +33,13 @@ def test_create_review_task_calls_ehukaiconnect(tmp_path):
     assert task_id is not None and len(task_id) >= 4
     args, kwargs = run.call_args
     cmd = args[0]
-    assert cmd[0] == "ehukaiconnect"
+    # cmd[0] is the resolved ehukaiconnect path (may include .cmd on Windows
+    # or the bare name when on PATH). Just check the binary basename.
+    assert "ehukaiconnect" in cmd[0].lower()
     assert cmd[1] == "task" and cmd[2] == "create"
+    # Subprocess call must include a timeout so a stalled CLI does not hang
+    # the scan loop.
+    assert "timeout" in kwargs and kwargs["timeout"] > 0
     # The CLI doesn't expose --type, so we discriminate by title prefix.
     assert "--title" in cmd
     title = cmd[cmd.index("--title") + 1]

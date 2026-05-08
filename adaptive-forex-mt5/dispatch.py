@@ -2,9 +2,38 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
+
+
+_DEFAULT_TIMEOUT_SECONDS = 30
+
+
+def _resolve_ehukaiconnect() -> str:
+    """Resolve the ehukaiconnect command, falling back to the well-known
+    Windows install path if PATH lookup fails.
+
+    `shutil.which` honours PATH; if that fails, this falls back to
+    `~/.ehukaiconnect/bin/ehukaiconnect.cmd` on Windows or
+    `~/.ehukaiconnect/bin/ehukaiconnect` elsewhere.
+    """
+    found = shutil.which("ehukaiconnect")
+    if found:
+        return found
+    home = Path.home()
+    win = home / ".ehukaiconnect" / "bin" / "ehukaiconnect.cmd"
+    nix = home / ".ehukaiconnect" / "bin" / "ehukaiconnect"
+    if os.name == "nt" and win.exists():
+        return str(win)
+    if nix.exists():
+        return str(nix)
+    return "ehukaiconnect"  # last-resort; subprocess will surface the error
+
+
+_EHUKAICONNECT = _resolve_ehukaiconnect()
 
 
 def _shared_root() -> Path:
@@ -43,18 +72,23 @@ _TASK_ID_RE = re.compile(r"Task created:\s+([A-Za-z0-9_-]+)")
 
 
 def create_review_task(payload: dict, *, alerts_dir: Path, reviewer: str,
-                       priority: str = "high") -> str | None:
+                       priority: str = "high",
+                       timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> str | None:
     """Write the alert payload to shared files, create an ehukaiconnect task,
-    and return the parsed task id (None on failure)."""
+    and return the parsed task id (None on failure or timeout)."""
     path = write_alert_payload(alerts_dir, payload)
     cmd = [
-        "ehukaiconnect", "task", "create",
+        _EHUKAICONNECT, "task", "create",
         "--title", f"trade_review-{payload.get('pair','?')}-{payload['alert_id']}"[:80],
         "--assignee", reviewer,
         "--priority", priority,
         "--description", str(path),
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        return None
     if res.returncode != 0:
         return None
     m = _TASK_ID_RE.search(res.stdout or "")
@@ -64,14 +98,19 @@ def create_review_task(payload: dict, *, alerts_dir: Path, reviewer: str,
 _REVIEW_TITLE_PREFIX = "trade_review-"
 
 
-def list_done_review_tasks(since: str | None) -> list[dict]:
+def list_done_review_tasks(since: str | None,
+                           timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> list[dict]:
     """List done tasks whose title starts with `trade_review-`.
 
     The ehukaiconnect CLI doesn't expose a --type flag so we discriminate
     by title prefix in Python. `since` filters by `updated_at` (unix ts).
     """
-    cmd = ["ehukaiconnect", "task", "list", "--status", "done", "--json"]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    cmd = [_EHUKAICONNECT, "task", "list", "--status", "done", "--json"]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        return []
     if res.returncode != 0:
         return []
     try:
