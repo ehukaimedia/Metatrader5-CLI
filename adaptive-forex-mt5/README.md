@@ -222,3 +222,70 @@ cd C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI
 claude
 # then: "continue the adaptive-forex-mt5 work"
 ```
+
+## Process layout (phase 1)
+
+Three Python processes plus one persistent reviewer agent:
+
+```powershell
+cd C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI\adaptive-forex-mt5
+Start-Process powershell -ArgumentList '-NoExit','-Command','python dashboard.py'
+Start-Process powershell -ArgumentList '-NoExit','-Command','python agent.py'
+Start-Process powershell -ArgumentList '-NoExit','-Command','python trade_manager.py'
+```
+
+Then register the reviewer agent (one-time):
+
+```powershell
+ehukaiconnect agent create ClaudeReviewer --skill .ehukaiconnect/skills/ClaudeReviewer/SKILL.md
+```
+
+Launch the reviewer terminal per your ehukaiconnect platform docs; it reads
+its skill and waits for `dispatch_wake` events on `trade_review-*` tasks.
+
+## Trade manager (replaces AdaptiveTrailEA for our magics)
+
+`trade_manager.py` runs a 1-second loop:
+
+1. Heartbeat upsert to `state.db`.
+2. List MT5 positions, filter to the poc-magic set
+   (derived from `cfg.pairs` + `cfg.agent.strategy_id_prefix`).
+3. For each: bootstrap from `trades.jsonl`, infer stage from the current SL,
+   then run BE-move (R-based, 0.80R default) → Chandelier trail
+   (ATR(22)x3.0 on M5).
+
+Manual trades (magic=0) are NEVER touched by the manager. Phase 3 will add
+an explicit allowlist for adopting them.
+
+The manager is **fail-closed**: a poc-magic position with no journal placement
+record is logged as `kind=unmanaged_poc_position` (rate-limited to once per
+ticket per minute) and left alone. The dashboard surfaces a red banner so
+silent failures are visible.
+
+The modify pipeline is **confirm-before-promote**: `last_sl_set` is only
+written after MT5 confirms `position.sl == requested_sl`. If a broker call's
+ack is lost, the next loop re-reads position state first; if MT5 is already
+at the requested SL, the row is promoted with no second broker call.
+Cooldown-elapsed retries reuse the same `idempotency_key` so a delayed ack
+cannot land twice.
+
+## LLM review pipeline (advisory only)
+
+On every READY alert, `agent.py`:
+
+1. Computes a `setup_fingerprint` over the deterministic setup
+   (pair, direction, entry/sl/tp, POI bounds/id, structure event, bar time).
+2. Writes the alert payload to
+   `.ehukaiconnect/shared/files/alerts/<alert_id>.json`.
+3. Creates an `ehukaiconnect` task assigned to `ClaudeReviewer`.
+
+The reviewer wakes, runs `mt5 --json analyze topdown` + `mt5 --json rates`
++ optional screenshots, and emits a verdict
+(`take` / `skip` / `adjust`) into
+`.ehukaiconnect/shared/files/verdicts/<alert_id>-claude.json`.
+
+`agent.py` polls closed `trade_review-*` tasks each scan, journals
+`kind=llm_verdict`, and pushes an enriched ntfy.
+
+**Reviewer verdicts are advisory.** They never modify orders directly. Phase 2
+adds a two-of-two consensus auto-trade lane on top of this foundation.
