@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import alerts
+import consensus as _consensus
 import dispatch
 import fingerprint
 import journal
@@ -453,6 +454,96 @@ def poll_verdicts(cfg: dict, db_path: Path | None = None) -> int:
     return count
 
 
+def evaluate_pending_consensus(cfg: dict, db_path: Path | None = None) -> int:
+    """Join llm_verdict records by alert_id and journal a consensus_verdict
+    when both reviewers have weighed in.
+
+    Records every joined pair regardless of `autopilot.enabled` — that's the
+    shadow-mode calibration data the operator needs before flipping the
+    master flag. Dedupes via state.db.cursor 'last_consensus_seen'.
+
+    Returns the count of new consensus_verdict rows journaled this call.
+    """
+    if db_path is None:
+        db_path = _state_db_path()
+    cursor_name = "last_consensus_seen"
+    last_seen = state_db.cursor_get(db_path, cursor_name) or ""
+
+    rows = journal.read_all()
+    # Group llm_verdicts by alert_id; capture each alert's setup_fingerprint
+    verdicts_by_alert: dict[str, list[dict]] = {}
+    fp_by_alert: dict[str, str] = {}
+    for r in rows:
+        kind = r.get("kind")
+        if kind == "ready_alert":
+            aid_match = r.get("alert_id")
+            fp = r.get("setup_fingerprint")
+            if fp:
+                if aid_match:
+                    fp_by_alert[aid_match] = fp
+                # Also record the most recent fingerprint for this pair so we
+                # can still match when alert_id wasn't stamped on ready_alert
+                # (alert_id is generated AFTER log_ready_alert in agent.py).
+                fp_by_alert.setdefault(f"_pair:{r.get('pair')}", fp)
+        elif kind == "llm_verdict":
+            aid = r.get("alert_id")
+            if aid:
+                verdicts_by_alert.setdefault(aid, []).append(r)
+
+    min_conf = float((cfg.get("autopilot") or {}).get("min_confidence", 0.75))
+    new_consensus = 0
+    latest_aid = last_seen
+    for aid in sorted(verdicts_by_alert):
+        if aid <= last_seen:
+            continue
+        verdicts = verdicts_by_alert[aid]
+        if len(verdicts) < 2:
+            continue
+        # Take the first 2 distinct-reviewer verdicts (model is the reviewer
+        # discriminator since reviewers self-report `model`).
+        seen_models = set()
+        votes = []
+        for v in verdicts:
+            m = v.get("model")
+            if m in seen_models:
+                continue
+            seen_models.add(m)
+            votes.append({
+                "reviewer": m,
+                "decision": v.get("decision"),
+                "direction": v.get("direction"),
+                "confidence": v.get("confidence"),
+                "accepted_levels": v.get("accepted_levels"),
+                "reviewed_fingerprint": v.get("reviewed_fingerprint"),
+            })
+            if len(votes) == 2:
+                break
+        if len(votes) < 2:
+            continue
+        # Resolve the alert's setup_fingerprint: prefer the matching
+        # ready_alert record, fall back to the per-pair fingerprint, fall
+        # back to whatever the first verdict reviewed (so consensus can't
+        # silently match anything).
+        pair = aid.rsplit("-", 1)[-1] if "-" in aid else None
+        fp = fp_by_alert.get(aid) or fp_by_alert.get(f"_pair:{pair}") \
+             or votes[0]["reviewed_fingerprint"]
+        result = _consensus.evaluate(votes, alert_fingerprint=fp,
+                                     min_confidence=min_conf)
+        journal.log_consensus_verdict({
+            "alert_id": aid,
+            "setup_fingerprint": fp,
+            "reviewers": [v["reviewer"] for v in votes],
+            "votes": votes,
+            **result,
+        })
+        new_consensus += 1
+        if aid > latest_aid:
+            latest_aid = aid
+    if latest_aid and latest_aid != last_seen:
+        state_db.cursor_set(db_path, cursor_name, latest_aid)
+    return new_consensus
+
+
 def scan_once(cfg: dict) -> None:
     """One full scan cycle: resolve outcomes, then place new orders."""
     resolve_outcomes(cfg)
@@ -462,6 +553,10 @@ def scan_once(cfg: dict) -> None:
             poll_verdicts(cfg)
         except Exception as e:
             journal.log_error("agent", "poll_verdicts", str(e))
+        try:
+            evaluate_pending_consensus(cfg)
+        except Exception as e:
+            journal.log_error("agent", "evaluate_pending_consensus", str(e))
 
 
 def run() -> None:
