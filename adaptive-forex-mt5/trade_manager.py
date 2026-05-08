@@ -190,9 +190,35 @@ def bootstrap_position(cfg: dict, db_path: Path, pos: dict, *, account: int) -> 
     return row
 
 
+def infer_stage_after_bootstrap(cfg: dict, db_path: Path, pos: dict) -> None:
+    """After bootstrap, look at the live SL relative to entry and promote
+    stage if it is already at or beyond breakeven. Never loosen.
+
+    Buy: position.sl >= entry + BE_buffer_points * point  → at least be_armed.
+    Sell: position.sl <= entry - BE_buffer_points * point → at least be_armed.
+    """
+    row = state_db.get_managed_position(db_path, pos["ticket"])
+    if row is None or row.get("stage") != "init":
+        return
+    point = row["point"]
+    entry = row["entry_price"]
+    buffer_points = float(cfg["manager"].get("be_buffer_points", 5))
+    sl = float(pos["sl"])
+    if pos["type"] == "buy":
+        threshold = entry + buffer_points * point
+        is_at_be = sl >= threshold
+    else:
+        threshold = entry - buffer_points * point
+        is_at_be = sl <= threshold
+    if is_at_be:
+        row["stage"] = "be_armed"
+        row["last_sl_set"] = sl
+        state_db.upsert_managed_position(db_path, row)
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
     """One iteration: heartbeat + scan-and-manage. Subsequent tasks fill in
-    stage inference / BE / Chandelier / modify."""
+    BE / Chandelier / modify."""
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
     list_positions(cfg)
 
