@@ -189,7 +189,7 @@ def topdown(symbol: str, timeframes: list[str], bars: int = 200) -> dict:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_TIMEFRAMES = ["D1", "H4", "H1"]
-_SNIPER_TIMEFRAMES = ["H4", "H1", "M15", "M5", "M1"]
+_SNIPER_TIMEFRAMES = ["D1", "H4", "M15", "M5", "M1"]
 _FX_ROLLOVER_HOURS_UTC = {21, 22}
 
 
@@ -362,6 +362,213 @@ def _target_candidates(pools: list[dict], structures: list[dict], direction: str
     return sorted(candidates, key=lambda c: entry - c["price"])
 
 
+def _structure_side(structure_data: dict | None) -> str | None:
+    if not structure_data:
+        return None
+    return _side_from_bias(structure_data.get("bias")) or _side_from_bias(structure_data.get("direction"))
+
+
+def _structure_stage(structure_data: dict | None) -> str:
+    if not structure_data:
+        return "range"
+    return str(structure_data.get("stage") or structure_data.get("structure") or "range")
+
+
+def _last_event(structure_data: dict | None) -> dict | None:
+    if not structure_data:
+        return None
+    event = structure_data.get("last_event")
+    return event if isinstance(event, dict) else None
+
+
+def _structure_contract(frames: dict[str, dict], direction: str) -> dict:
+    setup_tf = (frames.get("M15") or {}).get("market_structure") or {}
+    entry_tf = (frames.get("M5") or {}).get("market_structure") or {}
+    internal = setup_tf.get("internal") if isinstance(setup_tf.get("internal"), dict) else {}
+    strong_level = internal.get("strong_level") or setup_tf.get("strong_level")
+    weak_target = internal.get("weak_level") or setup_tf.get("weak_target")
+    permission_sides = {
+        tf: _structure_side((frames.get(tf) or {}).get("market_structure"))
+        for tf in ("D1", "H4", "M15", "M5", "M1")
+    }
+    return {
+        "permission_timeframes": ["D1", "H4"],
+        "setup_timeframe": "M15",
+        "entry_timeframe": "M5",
+        "bias": "bullish" if direction == "buy" else "bearish",
+        "stage": _structure_stage(setup_tf),
+        "strong_level": strong_level,
+        "weak_target": weak_target,
+        "last_confirmed_event": _last_event(setup_tf) or _last_event(entry_tf),
+        "timeframe_sides": permission_sides,
+    }
+
+
+def _zone_caused_structure_break(zone: dict | None, frames: dict[str, dict], direction: str) -> bool:
+    if not zone:
+        return False
+    zone_tf = zone.get("timeframe")
+    structure_data = (frames.get(str(zone_tf)) or {}).get("market_structure") or {}
+    event = _last_event(structure_data)
+    event_type = str((event or {}).get("type") or "").upper()
+    if event_type not in {"BOS", "CHOCH", "IBOS"}:
+        return False
+    return _structure_side(structure_data) == direction
+
+
+def _annotated_poi(zone: dict | None, frames: dict[str, dict], direction: str) -> dict | None:
+    if not zone:
+        return None
+    state = str(zone.get("state") or "").lower()
+    item = dict(zone)
+    item["type"] = item.get("type") or "fvg"
+    item["caused_structure_break"] = _zone_caused_structure_break(zone, frames, direction)
+    item["mitigated"] = state in {"partial", "filled"} or float(zone.get("fill_pct") or 0.0) > 0.0
+    item["validity_reason"] = (
+        "fresh aligned FVG"
+        if state == "open"
+        else "partial aligned FVG" if state == "partial" else "filled FVG"
+    )
+    item["poi_quality"] = (
+        "primary"
+        if item["caused_structure_break"] and not item["mitigated"]
+        else "fresh" if state == "open"
+        else "secondary" if state == "partial"
+        else "invalid"
+    )
+    return item
+
+
+def _pool_level(pool: dict) -> float | None:
+    level = pool.get("level")
+    if isinstance(level, (int, float)):
+        return float(level)
+    top = pool.get("top")
+    bottom = pool.get("bottom")
+    if isinstance(top, (int, float)) and isinstance(bottom, (int, float)):
+        return (float(top) + float(bottom)) / 2.0
+    return None
+
+
+def _pool_between(pool: dict, lower: float, upper: float) -> bool:
+    level = _pool_level(pool)
+    if level is None:
+        return False
+    lo, hi = sorted((float(lower), float(upper)))
+    return lo <= level <= hi
+
+
+def _liquidity_context(
+    *,
+    frames: dict[str, dict],
+    direction: str,
+    zone: dict | None,
+    quote_price: float,
+    pip_size: float,
+    swept_pools: list[dict],
+    target_pools: list[dict],
+    max_entry_distance_pips: float,
+    behind_zone_tolerance_pips: float = 15.0,
+) -> dict:
+    if not zone:
+        return {
+            "sweep_in_zone_creation": False,
+            "opposing_liquidity_in_front": False,
+            "liquidity_behind_zone": False,
+            "poi_trap_risk": False,
+            "nearest_target_liquidity": target_pools[0] if target_pools else None,
+            "context_note": "No active POI, so liquidity is informational only.",
+        }
+
+    opposing_side = "sell_side" if direction == "buy" else "buy_side"
+    open_opposing = _pools(frames, side=opposing_side, status="open")
+    lower = float(zone.get("lower", zone.get("entry_price")))
+    upper = float(zone.get("upper", zone.get("entry_price")))
+    entry_tolerance = pip_size * max(1.0, max_entry_distance_pips)
+    behind_tolerance = pip_size * max(1.0, behind_zone_tolerance_pips)
+
+    sweep_in_zone_creation = any(_pool_between(p, lower - behind_tolerance, upper + behind_tolerance) for p in swept_pools)
+    if direction == "buy":
+        opposing_in_front = (
+            any(_pool_between(p, lower, quote_price) for p in open_opposing)
+            or any(_pool_between(p, lower, quote_price) for p in swept_pools)
+        )
+        liquidity_behind = any(_pool_between(p, lower - behind_tolerance, lower) for p in open_opposing)
+    else:
+        opposing_in_front = (
+            any(_pool_between(p, quote_price, upper) for p in open_opposing)
+            or any(_pool_between(p, quote_price, upper) for p in swept_pools)
+        )
+        liquidity_behind = any(_pool_between(p, upper, upper + behind_tolerance) for p in open_opposing)
+
+    nearest_target = None
+    if target_pools:
+        target_pools = sorted(
+            target_pools,
+            key=lambda p: abs((_pool_level(p) or quote_price) - quote_price),
+        )
+        nearest_target = target_pools[0]
+
+    poi_trap_risk = bool(liquidity_behind and not opposing_in_front and not sweep_in_zone_creation)
+    return {
+        "sweep_in_zone_creation": bool(sweep_in_zone_creation),
+        "opposing_liquidity_in_front": bool(opposing_in_front),
+        "liquidity_behind_zone": bool(liquidity_behind),
+        "poi_trap_risk": poi_trap_risk,
+        "nearest_target_liquidity": nearest_target,
+        "opposing_side": opposing_side,
+        "behind_zone_tolerance_pips": behind_zone_tolerance_pips,
+        "entry_tolerance_pips": max_entry_distance_pips,
+        "context_note": (
+            "Recent sweep or opposing liquidity supports the POI."
+            if opposing_in_front or sweep_in_zone_creation
+            else "No useful opposing liquidity context in front of the POI."
+        ),
+    }
+
+
+def _entry_context(frames: dict[str, dict], direction: str, setup: dict | None) -> dict:
+    checks = []
+    for tf in ("M1", "M5"):
+        structure_data = (frames.get(tf) or {}).get("market_structure") or {}
+        internal = structure_data.get("internal") if isinstance(structure_data.get("internal"), dict) else {}
+        side = _structure_side(structure_data)
+        internal_side = _side_from_bias(internal.get("direction")) if internal else None
+        event = internal.get("last_event") if isinstance(internal.get("last_event"), dict) else _last_event(structure_data)
+        confirmed = side == direction or internal_side == direction
+        opposite = side in {"buy", "sell"} and side != direction
+        checks.append({
+            "timeframe": tf,
+            "side": side,
+            "internal_side": internal_side,
+            "stage": _structure_stage(structure_data),
+            "last_event": event,
+            "confirmed": bool(confirmed),
+            "opposite": bool(opposite),
+        })
+
+    confirmed_tf = next((c for c in checks if c["confirmed"]), None)
+    hard_opposite = all(c["opposite"] for c in checks)
+    trigger = (
+        f"{confirmed_tf['timeframe']} structure aligned"
+        if confirmed_tf
+        else "wait for M1/M5 shift in setup direction"
+    )
+    return {
+        "model": "fvg_limit" if setup else "wait_for_shift",
+        "timeframe": confirmed_tf["timeframe"] if confirmed_tf else "M1",
+        "trigger": trigger,
+        "entry_price": setup.get("entry") if setup else None,
+        "sl": setup.get("sl") if setup else None,
+        "tp": setup.get("tp") if setup else None,
+        "rr": setup.get("rr") if setup else None,
+        "invalidation": setup.get("sl") if setup else None,
+        "confirmed": bool(confirmed_tf),
+        "hard_opposite": bool(hard_opposite),
+        "checks": checks,
+    }
+
+
 def sniper_poc(
     symbol: str,
     *,
@@ -428,7 +635,7 @@ def sniper_poc(
     generated_at = generated_at or datetime.now(tz=timezone.utc)
     frames = {tf: _frame(symbol, tf, bars) for tf in _SNIPER_TIMEFRAMES}
     side_counts = {"buy": 0, "sell": 0, "neutral": 0}
-    for tf in ("H4", "H1", "M15", "M5"):
+    for tf in ("D1", "H4", "M15", "M5"):
         bias_side = _side_from_bias(((frames.get(tf) or {}).get("market_structure") or {}).get("bias"))
         side_counts[bias_side or "neutral"] += 1
 
@@ -444,7 +651,7 @@ def sniper_poc(
             "generated_at": generated_at.isoformat(),
             "status": "no_trade",
             "direction": None,
-            "reason": "No directional majority across H4/H1/M15/M5 Ehukai structure.",
+            "reason": "No directional majority across D1/H4/M15/M5 Ehukai structure.",
             "quote": {"source": quote_source, "bid": bid, "ask": ask, "spread_points": spread_points},
             "dom": dom_context,
             "bias_counts": side_counts,
@@ -482,6 +689,18 @@ def sniper_poc(
         structure_data = (frames.get(tf) or {}).get("market_structure")
         if structure_data:
             structures.append({**structure_data, "timeframe": tf})
+    poi_context = _annotated_poi(primary_zone, frames, selected_direction)
+    liquidity_context = _liquidity_context(
+        frames=frames,
+        direction=selected_direction,
+        zone=poi_context,
+        quote_price=quote_trigger,
+        pip_size=pip_size,
+        swept_pools=swept_pools,
+        target_pools=target_pools,
+        max_entry_distance_pips=max_entry_distance_pips,
+    )
+    structure_context = _structure_contract(frames, selected_direction)
 
     gates = [
         _gate("spread", spread_points <= max_spread_points, f"spread={spread_points} points; max={max_spread_points}"),
@@ -503,6 +722,15 @@ def sniper_poc(
             ),
         ),
         _gate(
+            "valid_poi",
+            bool(poi_context and poi_context.get("poi_quality") != "invalid"),
+            (
+                f"{poi_context.get('timeframe')} {poi_context.get('validity_reason')}"
+                if poi_context
+                else "no valid FVG/POI in the active setup path"
+            ),
+        ),
+        _gate(
             "liquidity_sweep",
             bool(swept_pools),
             (
@@ -510,6 +738,11 @@ def sniper_poc(
                 if swept_pools
                 else f"no recent swept {opposing_sweep_side} pool in M1/M5/M15 context"
             ),
+        ),
+        _gate(
+            "liquidity_trap",
+            not liquidity_context.get("poi_trap_risk", False),
+            liquidity_context.get("context_note", "liquidity context unavailable"),
         ),
     ]
 
@@ -578,34 +811,62 @@ def sniper_poc(
             "target": target,
             "strategy_id_suggestion": "ehukai-m1-sniper-poc",
         }
-        if all(g["ok"] for g in gates):
-            dryrun_command = (
-                f"mt5 --json order dryrun {symbol.upper()} {selected_direction} "
-                f"--order-type limit --price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
-                "--strategy-id ehukai-m1-sniper-poc"
-            )
-            limit_command = (
-                f"mt5 --json order limit {symbol.upper()} {selected_direction} "
-                f"--price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
-                "--strategy-id ehukai-m1-sniper-poc"
-            )
-            setup["dryrun_command"] = dryrun_command
-            setup["placement_command"] = limit_command
-            setup["order_commands"] = [dryrun_command, limit_command]
-            setup["order_command"] = (
-                dryrun_command + "\n" + limit_command
-            )
 
-    status = "candidate" if setup and all(g["ok"] for g in gates) else "no_trade"
-    confidence = sum(1 for g in gates if g["ok"]) / len(gates) if gates else 0.0
+    entry_context = _entry_context(frames, selected_direction, setup)
+    if setup:
+        gates.append(_gate(
+            "entry_structure",
+            not entry_context["hard_opposite"],
+            (
+                entry_context["trigger"]
+                if entry_context["confirmed"]
+                else "M1/M5 has not shifted against the setup, but no entry confirmation yet"
+            ),
+            severity="blocker",
+        ))
+
     blockers = [g for g in gates if not g["ok"] and g["severity"] == "blocker"]
+    ready = bool(setup and not blockers and entry_context["confirmed"])
+    watch = bool(setup and not blockers and not entry_context["confirmed"])
+    status = "ready" if ready else "watch" if watch else "no_trade"
+    if ready:
+        dryrun_command = (
+            f"mt5 --json order dryrun {symbol.upper()} {selected_direction} "
+            f"--order-type limit --price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
+            "--strategy-id ehukai-m1-sniper-poc"
+        )
+        limit_command = (
+            f"mt5 --json order limit {symbol.upper()} {selected_direction} "
+            f"--price {setup['entry']} --volume 0.001 --sl {setup['sl']} --tp {setup['tp']} "
+            "--strategy-id ehukai-m1-sniper-poc"
+        )
+        setup["dryrun_command"] = dryrun_command
+        setup["placement_command"] = limit_command
+        setup["order_commands"] = [dryrun_command, limit_command]
+        setup["order_command"] = dryrun_command + "\n" + limit_command
+
+    confidence = sum(1 for g in gates if g["ok"]) / len(gates) if gates else 0.0
+    explain = [
+        structure_context.get("stage", "range"),
+        (poi_context or {}).get("validity_reason") or "No active POI.",
+        liquidity_context.get("context_note", "No liquidity context."),
+        entry_context.get("trigger") or "No entry trigger.",
+    ]
     data = {
             "symbol": symbol.upper(),
             "generated_at": generated_at.isoformat(),
             "status": status,
+            "legacy_status": "candidate" if status == "ready" else status,
             "direction": selected_direction,
             "confidence_score": round(confidence, 2),
-            "reason": "candidate ready for dry-run" if status == "candidate" else "; ".join(g["detail"] for g in blockers),
+            "quality_score": round(confidence, 2),
+            "reason": (
+                "ready for dry-run"
+                if status == "ready"
+                else "watch for M1/M5 entry confirmation"
+                if status == "watch"
+                else "; ".join(g["detail"] for g in blockers)
+            ),
             "quote": {
                 "source": quote_source,
                 "bid": bid,
@@ -618,12 +879,19 @@ def sniper_poc(
             },
             "dom": dom_context,
             "bias_counts": side_counts,
+            "structure": structure_context,
+            "poi": poi_context,
+            "liquidity": liquidity_context,
+            "entry": entry_context,
             "gates": gates,
             "setup": setup,
+            "explain": explain,
             "frames_omitted": not include_frames,
             "visual_contract": {
                 "recommended_overlay": "EhukaiTDAOverlay",
-                "entry_model": "M1 sniper point-of-confluence limit plan",
+                "entry_model": entry_context["model"],
+                "visible_priority": ["top_down_panel", "active_poi", "latest_bos_or_choch", "entry_state", "invalidation"],
+                "hide_by_default": ["old_structure_rails", "dense_liquidity_rails", "debug_labels"],
                 "uses": ["EhukaiMarketStructure", "EhukaiFVG", "EhukaiLiquiditySwings", "market depth or quote fallback"],
             },
     }

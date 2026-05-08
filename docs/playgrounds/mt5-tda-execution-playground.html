@@ -195,7 +195,7 @@ function gate(name,pass,detail){return `<div class="gate ${pass?"pass":"fail"}">
 function renderGates(s){
   const gates=[
     gate("Direction",!!direction(),"D1/H4 must give permission"),
-    gate("POI",state.poi!=="none"&&state.causedBos&&state.unfilled,"zone must be valid and unfilled"),
+    gate("POI",state.poi!=="none"&&state.unfilled&&(state.causedBos||state.poi==="fvg"||state.poi==="both"),"zone must be unfilled and either break-causing or a fresh aligned FVG"),
     gate("Liquidity",!state.liqBehind,"liquidity behind POI warns trap risk"),
     gate("Entry",state.entry==="confirmed"||state.entry==="watch","M5/M1 must shift or be close"),
     gate("Spread/session",state.spreadOk&&state.sessionOk,"execution environment must be clean"),

@@ -33,13 +33,15 @@ Structure leads. FVG/order block supplies the trade area. Liquidity refines qual
 
 ## Phase 0: Architecture Artifacts
 
-Status: in progress
+Status: complete
 
 - Create `docs/specs/2026-05-07-mt5-tda-execution-architecture.md`.
 - Create `docs/plans/2026-05-07-mt5-tda-execution-architecture-plan.md`.
 - Create `docs/playgrounds/mt5-tda-execution-playground.html`.
 
 ## Phase 1: Structured Setup Contract
+
+Status: implemented in `metatrader5_cli/mt5/core/analyze.py`
 
 Add or revise a Python setup-planning module that returns:
 
@@ -55,6 +57,16 @@ Add or revise a Python setup-planning module that returns:
 Candidate location:
 
 - Extend `metatrader5_cli/mt5/core/analyze.py`, or create a focused `metatrader5_cli/mt5/core/setup.py` if the contract grows beyond the current sniper POC.
+
+Implemented notes:
+
+- `analyze.sniper_poc()` now returns `status` as `no_trade`, `watch`, or `ready`.
+- The setup stack is D1/H4 permission, M15 setup context, and M5/M1 entry structure.
+- Output now includes `quality_score`, `structure`, `poi`, `liquidity`, `entry`, and `explain`.
+- FVG POIs expose `caused_structure_break`, `mitigated`, and `poi_quality`.
+- Liquidity is contract context, not chart clutter: `sweep_in_zone_creation`, `opposing_liquidity_in_front`, `liquidity_behind_zone`, `poi_trap_risk`, and `nearest_target_liquidity`.
+- Trap geometry is local to the POI. A sweep must be geometrically in front of or near the zone to help the setup, and behind-zone liquidity uses a separate tolerance instead of the entry-distance threshold.
+- Order commands are only attached when the setup reaches `ready`.
 
 ## Phase 2: Visual Cleanup
 

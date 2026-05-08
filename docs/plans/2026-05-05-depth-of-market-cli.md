@@ -15,7 +15,7 @@ Implement DOM as two explicit paths:
 - `chart depth-of-market` / `chart dom` is the GUI menu path that opens Charts > Depth Of Market for the active symbol.
 - `screenshot dom` captures the GUI panel for visual agent review and closes/toggles it by default so it does not block the chart.
 - `chart current` and `chart ensure SYMBOL --timeframe M15` make the active chart deterministic before GUI/TDA/DOM workflows.
-- `analyze sniper-poc` consumes Ehukai structure/FVG/liquidity context plus DOM or quote fallback to return `candidate` or `no_trade`; it never places orders and returns dryrun-before-placement commands when a candidate passes.
+- `analyze sniper-poc` consumes Ehukai structure/FVG/liquidity context plus DOM or quote fallback to return `no_trade`, `watch`, or `ready`; it never places orders and returns dryrun-before-placement commands when a setup is ready.
 
 ## Commands
 
@@ -43,7 +43,7 @@ mt5 --json analyze sniper-poc USDJPY --direction auto --max-spread-points 30 --m
 - Reject sniper POC plans when the current bid/ask spread is wider than the configured gate or the proposed limit is not safely beyond the correct trigger quote side.
 - Reject sniper POC plans when the enabling liquidity sweep is stale, the FVG is stale/partial by default, the entry midpoint is too far from the trigger quote, or the symbol is in the FX 21:00-22:59 UTC rollover window unless explicitly allowed.
 - Gate sniper liquidity freshness with true `sweep_age_bars`; use faster M1/M5 liquidity pivots (`length=5`) so fresh stop-runs visible on the chart are represented in structured data.
-- Treat a sniper POC candidate as analysis only: agents must run the returned `order dryrun --order-type limit` command and then re-check quote/order freshness before sending the returned `order limit`.
+- Treat a ready sniper POC setup as analysis only: agents must run the returned `order dryrun --order-type limit` command and then re-check quote/order freshness before sending the returned `order limit`.
 - Widen the suggested SL to at least the configured minimum stop distance before computing R:R so the plan is closer to what broker dry-run checks will accept.
 - Keep `EhukaiTDAOverlay` visually low-noise: in agent screenshot mode, hide oversized FVGs and distant liquidity pools while preserving full structured context in JSON.
 

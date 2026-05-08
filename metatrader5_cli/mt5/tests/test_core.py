@@ -2060,8 +2060,16 @@ class TestAnalyze:
 
         assert result["ok"] is True
         data = result["data"]
-        assert data["status"] == "candidate"
+        assert data["status"] == "ready"
+        assert data["legacy_status"] == "candidate"
         assert data["direction"] == "buy"
+        assert data["quality_score"] >= 0.8
+        assert data["poi"]["type"] == "fvg"
+        assert data["poi"]["caused_structure_break"] is False
+        assert data["poi"]["mitigated"] is False
+        assert data["liquidity"]["poi_trap_risk"] is False
+        assert data["entry"]["model"] == "fvg_limit"
+        assert data["entry"]["confirmed"] is True
         assert data["quote"]["buy_limits_trigger_on"] == "ask"
         assert data["setup"]["order_type"] == "buy_limit"
         assert data["setup"]["entry"] == 157.8
@@ -2143,6 +2151,107 @@ class TestAnalyze:
         assert data["status"] == "no_trade"
         assert any(g["name"] == "spread" and g["ok"] is False for g in data["gates"])
 
+    def test_sniper_poc_blocks_poi_with_liquidity_behind_zone(self, monkeypatch):
+        from datetime import datetime, timezone
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze.market, "info", lambda symbol: {
+            "ok": True,
+            "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840, "digits": 3, "point": 0.001, "pip_size": 0.01},
+        })
+        monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
+        monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "bias": "BULLISH HH/HL", "support": 157.760, "resistance": 157.900},
+        })
+        monkeypatch.setattr(analyze.ehukai, "fvg", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "zones": [{
+                "type": "fvg",
+                "direction": "bullish",
+                "lower": 157.790,
+                "upper": 157.810,
+                "mid": 157.800,
+                "state": "open",
+                "age_bars": 2,
+            }] if timeframe == "M1" else []},
+        })
+        monkeypatch.setattr(analyze.ehukai, "liquidity", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "pools": [
+                {"side": "sell_side", "status": "open", "level": 157.760, "bottom": 157.755, "top": 157.765},
+                {"side": "buy_side", "status": "open", "level": 157.900, "visual_label": "BSL LIQ OPEN"},
+            ]},
+        })
+
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="buy",
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["status"] == "no_trade"
+        assert data["liquidity"]["liquidity_behind_zone"] is True
+        assert data["liquidity"]["poi_trap_risk"] is True
+        assert any(g["name"] == "liquidity_trap" and g["ok"] is False for g in data["gates"])
+
+    def test_sniper_poc_marks_poi_that_caused_structure_break(self, monkeypatch):
+        from datetime import datetime, timezone
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze.market, "info", lambda symbol: {
+            "ok": True,
+            "data": {"symbol": symbol, "bid": 157.830, "ask": 157.840, "digits": 3, "point": 0.001, "pip_size": 0.01},
+        })
+        monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
+        monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
+        monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {
+                "timeframe": timeframe,
+                "bias": "BULLISH BOS",
+                "direction": "bullish",
+                "stage": "BOS",
+                "support": 157.760,
+                "resistance": 157.900,
+                "last_event": {"type": "BOS", "direction": "bullish", "level": 157.850},
+            },
+        })
+        monkeypatch.setattr(analyze.ehukai, "fvg", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "zones": [{
+                "type": "fvg",
+                "direction": "bullish",
+                "lower": 157.790,
+                "upper": 157.810,
+                "mid": 157.800,
+                "state": "open",
+                "age_bars": 2,
+            }] if timeframe == "M1" else []},
+        })
+        monkeypatch.setattr(analyze.ehukai, "liquidity", lambda symbol, timeframe, **kw: {
+            "ok": True,
+            "data": {"timeframe": timeframe, "pools": [
+                {"side": "sell_side", "status": "swept", "level": 157.795, "bottom": 157.790, "top": 157.800, "sweep_age_bars": 2},
+                {"side": "buy_side", "status": "open", "level": 157.900, "visual_label": "BSL LIQ OPEN"},
+            ]},
+        })
+
+        result = analyze.sniper_poc(
+            "USDJPY",
+            direction="buy",
+            generated_at=datetime(2026, 5, 5, 20, 0, tzinfo=timezone.utc),
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["status"] == "ready"
+        assert data["poi"]["caused_structure_break"] is True
+        assert data["poi"]["poi_quality"] == "primary"
+
     def test_sniper_poc_auto_tie_returns_no_trade(self, monkeypatch):
         from datetime import datetime, timezone
         from metatrader5_cli.mt5.core import analyze
@@ -2154,7 +2263,7 @@ class TestAnalyze:
         monkeypatch.setattr(analyze.market, "tick", lambda symbol: {"ok": True, "data": {"bid": 157.830, "ask": 157.840}})
         monkeypatch.setattr(analyze.market, "depth", lambda symbol, levels=5: {"ok": False, "error": {"code": "NO_BOOK"}})
 
-        biases = {"H4": "BULLISH HH/HL", "H1": "BULLISH HH/HL", "M15": "BEARISH LH/LL", "M5": "BEARISH LH/LL", "M1": "BULLISH HH/HL"}
+        biases = {"D1": "BULLISH HH/HL", "H4": "BULLISH HH/HL", "M15": "BEARISH LH/LL", "M5": "BEARISH LH/LL", "M1": "BULLISH HH/HL"}
         monkeypatch.setattr(analyze.ehukai, "market_structure", lambda symbol, timeframe, **kw: {
             "ok": True,
             "data": {"timeframe": timeframe, "bias": biases[timeframe], "support": 157.760, "resistance": 157.900},
@@ -2292,9 +2401,9 @@ class TestAnalyze:
 
         assert lengths["M1"] == 5
         assert lengths["M5"] == 5
-        assert lengths["M15"] == 14
-        assert lengths["H1"] == 14
         assert lengths["H4"] == 14
+        assert lengths["D1"] == 14
+        assert lengths["M15"] == 14
 
 
 # ===========================================================================
@@ -2385,7 +2494,7 @@ class TestAnalyzeCLI:
                 "ok": True,
                 "data": {
                     "symbol": symbol,
-                    "status": "candidate",
+                    "status": "ready",
                     "direction": kwargs["direction"],
                     "setup": {"order_type": "buy_limit"},
                 },
@@ -2401,7 +2510,7 @@ class TestAnalyzeCLI:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["ok"] is True
-        assert data["data"]["status"] == "candidate"
+        assert data["data"]["status"] == "ready"
         assert data["data"]["direction"] == "buy"
 
 
