@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -27,17 +27,96 @@ def load_config() -> dict:
 
 
 def _state_payload() -> dict:
-    """Read the manager's mutable state for the dashboard."""
+    """Read the manager's mutable state + autopilot snapshot for the dashboard."""
     if not STATE_DB.exists():
-        return {"managed": [], "heartbeat": [], "unmanaged_warnings": []}
+        return {"managed": [], "heartbeat": [], "unmanaged_warnings": [],
+                "autopilot": {"kill_switch": "off", "shadow_stats": {},
+                              "daily_caps": {}}}
     managed = state_db.list_managed_positions(STATE_DB, only_active=True)
     hb = state_db.heartbeat_all(STATE_DB)
-    # Unmanaged-warning rows live in their own table so positions that never
-    # bootstrapped (no journal match, fail-closed) still surface a banner —
-    # the previous implementation read from managed_position which by
-    # definition does not exist for fail-closed cases.
     unmanaged = state_db.unmanaged_warning_recent(STATE_DB, since_seconds=60)
-    return {"managed": managed, "heartbeat": hb, "unmanaged_warnings": unmanaged}
+    return {
+        "managed": managed,
+        "heartbeat": hb,
+        "unmanaged_warnings": unmanaged,
+        "autopilot": _autopilot_payload(),
+    }
+
+
+def _autopilot_payload() -> dict:
+    """Snapshot for the autopilot dashboard panel.
+
+    - kill_switch: 'on' / 'off'
+    - shadow_stats: {pair: {take: N, no_consensus: N}} over last 24h
+    - daily_caps: {trades_today: N, realized_loss_today: float (negative)}
+      from autopilot_placement joined to outcome (when present).
+    """
+    import autopilot
+    kill = autopilot.kill_switch_get(STATE_DB) if STATE_DB.exists() else "off"
+    rows = journal.read_all()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    shadow_stats: dict[str, dict] = {}
+    auto_placements: dict[int, dict] = {}
+    outcomes_by_ticket: dict[int, dict] = {}
+    for r in rows:
+        kind = r.get("kind")
+        if kind == "consensus_verdict":
+            try:
+                ts = datetime.fromisoformat(r.get("ts") or "")
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts < cutoff:
+                    continue
+            except (ValueError, TypeError):
+                pass
+            aid = r.get("alert_id") or ""
+            pair = aid.rsplit("-", 1)[-1] if "-" in aid else "?"
+            verdict = r.get("consensus") or "no_consensus"
+            bucket = shadow_stats.setdefault(pair, {"take": 0, "no_consensus": 0})
+            if verdict == "take":
+                bucket["take"] += 1
+            else:
+                bucket["no_consensus"] += 1
+        elif kind == "autopilot_placement":
+            tk = r.get("ticket")
+            if tk is not None:
+                auto_placements[tk] = r
+        elif kind == "outcome":
+            tk = r.get("ticket")
+            if tk is not None:
+                outcomes_by_ticket[tk] = r
+    today_utc = datetime.now(timezone.utc).date()
+    trades_today = 0
+    realized_loss_today = 0.0
+    for tk, p in auto_placements.items():
+        try:
+            ts = datetime.fromisoformat(p.get("ts") or "")
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts.date() != today_utc:
+                continue
+        except (ValueError, TypeError):
+            continue
+        trades_today += 1
+        oc = outcomes_by_ticket.get(tk)
+        if oc:
+            net = oc.get("net") if oc.get("net") is not None else oc.get("profit") or 0
+            try:
+                net = float(net)
+            except (TypeError, ValueError):
+                net = 0.0
+            if net < 0:
+                realized_loss_today += net  # accumulating a negative number
+    return {
+        "kill_switch": kill,
+        "shadow_stats": shadow_stats,
+        "daily_caps": {
+            "trades_today": trades_today,
+            "realized_loss_today": round(realized_loss_today, 2),
+        },
+    }
+
+
 
 
 INDEX_HTML = """<!doctype html>
@@ -81,6 +160,8 @@ INDEX_HTML = """<!doctype html>
 <div class="stats" id="stats"></div>
 <h2>Process heartbeat</h2>
 <div class="by-pair" id="hb"></div>
+<h2>Autopilot</h2>
+<div id="autopilot"></div>
 <h2>Managed positions</h2>
 <div id="managed"></div>
 <h2>By pair</h2>
@@ -127,6 +208,41 @@ async function refreshState() {
     if ((s.heartbeat || []).length === 0) {
       hb.appendChild(el('div', 'empty', 'no heartbeats yet'));
     }
+
+    const ap = document.getElementById('autopilot');
+    ap.replaceChildren();
+    const apData = s.autopilot || {};
+    const ks = apData.kill_switch || 'off';
+    const ksCls = ks === 'on' ? 'pl neg' : 'pl pos';
+    const apHeader = el('div', 'trade');
+    const apTop = el('div', 'top');
+    const apLeft = el('span');
+    apLeft.appendChild(el('span', 'sym', 'kill-switch '));
+    apLeft.appendChild(el('span', ksCls, ks.toUpperCase()));
+    apTop.appendChild(apLeft);
+    apHeader.appendChild(apTop);
+    const dc = apData.daily_caps || {};
+    const apRow = el('div', 'row');
+    function field(label, val) {
+      const s2 = el('span'); s2.appendChild(el('b', null, label + ' '));
+      s2.appendChild(document.createTextNode(val)); return s2;
+    }
+    apRow.appendChild(field('trades today', dc.trades_today != null ? dc.trades_today : 0));
+    apRow.appendChild(field('realized loss today', fmt(dc.realized_loss_today || 0, 2)));
+    apHeader.appendChild(apRow);
+    const stats = apData.shadow_stats || {};
+    const pairs = Object.entries(stats);
+    if (pairs.length === 0) {
+      apHeader.appendChild(el('div', 'reason', 'no shadow consensus records in last 24h'));
+    } else {
+      const sg = el('div', 'gates');
+      for (const [pair, b] of pairs) {
+        const t = el('span', 'gate', pair + ' take=' + b.take + ' no=' + b.no_consensus);
+        sg.appendChild(t);
+      }
+      apHeader.appendChild(sg);
+    }
+    ap.appendChild(apHeader);
 
     const m = document.getElementById('managed');
     m.replaceChildren();
