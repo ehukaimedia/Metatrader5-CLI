@@ -1,18 +1,22 @@
 """Trade journal dashboard.
 
-Local web view of agent trades, reasoning, and outcomes. Reads journal.py.
-Binds 127.0.0.1; expose to tailnet via:
+Local web view of agent trades, reasoning, and outcomes. Reads journal.py
+and state.db. Binds 127.0.0.1; expose to tailnet via:
     tailscale serve https / http://localhost:8765
 """
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import journal
+import state_db
 
 ROOT = Path(__file__).parent
+STATE_DB = ROOT / "state.db"
 
 
 def load_config() -> dict:
@@ -20,6 +24,29 @@ def load_config() -> dict:
     if not cfg_path.exists():
         raise SystemExit("missing config.json")
     return json.loads(cfg_path.read_text(encoding="utf-8"))
+
+
+def _state_payload() -> dict:
+    """Read the manager's mutable state for the dashboard."""
+    if not STATE_DB.exists():
+        return {"managed": [], "heartbeat": [], "unmanaged_warnings": []}
+    managed = state_db.list_managed_positions(STATE_DB, only_active=True)
+    hb = state_db.heartbeat_all(STATE_DB)
+    now = datetime.now(timezone.utc)
+    unmanaged = []
+    for r in managed:
+        ts = r.get("last_unmanaged_warning_ts")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts)
+            age = (now - dt).total_seconds()
+            if age <= 60:
+                unmanaged.append({"ticket": r["ticket"], "symbol": r["symbol"],
+                                  "magic": r["magic"], "age_seconds": age})
+        except Exception:
+            pass
+    return {"managed": managed, "heartbeat": hb, "unmanaged_warnings": unmanaged}
 
 
 INDEX_HTML = """<!doctype html>
@@ -58,8 +85,13 @@ INDEX_HTML = """<!doctype html>
   .empty { color: #64748b; font-style: italic; padding: 24px 0; text-align: center; }
 </style></head>
 <body>
+<div id="banner"></div>
 <h1>adaptive-forex-mt5 journal <span class="meta" id="ts">-</span></h1>
 <div class="stats" id="stats"></div>
+<h2>Process heartbeat</h2>
+<div class="by-pair" id="hb"></div>
+<h2>Managed positions</h2>
+<div id="managed"></div>
 <h2>By pair</h2>
 <div class="by-pair" id="bypair"></div>
 <h2>Trades</h2>
@@ -74,7 +106,72 @@ function el(tag, cls, text) {
 function fmt(n, d) { return Number(n).toFixed(d); }
 function digitsFor(s) { return s && s.endsWith && s.endsWith('JPY') ? 3 : 5; }
 
+async function refreshState() {
+  try {
+    const s = await (await fetch('/state.json')).json();
+    const banner = document.getElementById('banner');
+    banner.replaceChildren();
+    if ((s.unmanaged_warnings || []).length > 0) {
+      const items = s.unmanaged_warnings.map(u => u.symbol + '#' + u.ticket).join('; ');
+      const b = el('div', null, '⚠ Unmanaged poc-magic positions: ' + items);
+      b.style.cssText = 'background:#7f1d1d;color:white;padding:10px;border-radius:6px;margin-bottom:12px;font-weight:600;';
+      banner.appendChild(b);
+    }
+
+    const hb = document.getElementById('hb');
+    hb.replaceChildren();
+    const now = Date.now();
+    for (const h of s.heartbeat || []) {
+      const t = new Date(h.last_seen).getTime();
+      const ageS = (now - t) / 1000;
+      const floor = h.process === 'manager' ? 10 : 120;
+      const ok = ageS <= floor;
+      const card = el('div', 'pair-card');
+      card.appendChild(el('div', 'p', h.process));
+      card.appendChild(el('div', 'meta', 'pid ' + (h.pid || '?') + ' · ' + ageS.toFixed(1) + 's ago'));
+      const status = el('div', 'pl ' + (ok ? 'pos' : 'neg'), ok ? 'OK' : 'STALE');
+      card.appendChild(status);
+      hb.appendChild(card);
+    }
+    if ((s.heartbeat || []).length === 0) {
+      hb.appendChild(el('div', 'empty', 'no heartbeats yet'));
+    }
+
+    const m = document.getElementById('managed');
+    m.replaceChildren();
+    if ((s.managed || []).length === 0) {
+      m.appendChild(el('div', 'empty', 'no managed positions'));
+    }
+    for (const r of s.managed || []) {
+      const cur_sl = r.last_sl_set != null ? r.last_sl_set : r.initial_sl;
+      const card = el('div', 'trade');
+      const top = el('div', 'top');
+      const left = el('span');
+      left.appendChild(el('span', 'sym', r.symbol));
+      const dirCls = r.direction === 'buy' ? 'dir buy' : 'dir sell';
+      left.appendChild(el('span', dirCls, r.direction.toUpperCase()));
+      left.appendChild(el('span', 'meta', ' · #' + r.ticket + ' · ' + r.stage + (r.pending_action ? ' (pending: ' + r.pending_action + ')' : '')));
+      top.appendChild(left);
+      card.appendChild(top);
+      const row = el('div', 'row');
+      function field(label, val) {
+        const s = el('span'); s.appendChild(el('b', null, label + ' '));
+        s.appendChild(document.createTextNode(val)); return s;
+      }
+      row.appendChild(field('entry', fmt(r.entry_price, r.digits)));
+      row.appendChild(field('init sl', fmt(r.initial_sl, r.digits)));
+      row.appendChild(field('cur sl', fmt(cur_sl, r.digits)));
+      if (r.favorable_extreme_price != null) row.appendChild(field('hwm', fmt(r.favorable_extreme_price, r.digits)));
+      card.appendChild(row);
+      m.appendChild(card);
+    }
+  } catch (e) {
+    // state.db may not exist yet — silently ignore
+  }
+}
+
 async function refresh() {
+  await refreshState();
   try {
     const j = await (await fetch('/journal.json')).json();
     document.getElementById('ts').textContent = 'updated ' + new Date().toLocaleTimeString();
@@ -203,6 +300,9 @@ class Handler(BaseHTTPRequestHandler):
                 "stats": journal.stats(),
             }
             self._send(200, "application/json", json.dumps(payload, default=str))
+            return
+        if self.path == "/state.json":
+            self._send(200, "application/json", json.dumps(_state_payload(), default=str))
             return
         self._send(404, "text/plain", "not found")
 
