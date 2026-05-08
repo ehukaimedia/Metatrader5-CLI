@@ -10,3 +10,18 @@ build/
 .claude/
 .claire/
 .ehukaiconnect/
+
+# Build artifacts (compiled MQL5 binaries — sources are tracked, builds aren't)
+*.ex5
+
+# MT5 + agent compile logs (transient build output)
+*.log
+ehukai-compile-*.log
+docs/code-reviews/compile-*.log
+
+# Audit-time screenshot bundles (chart captures, not source)
+docs/code-reviews/tda-usdjpy-*/
+docs/code-reviews/visual-tda-usdjpy-*/
+
+# Video transcripts (large binary media used as research material, not source)
+docs/video-transcripts/
