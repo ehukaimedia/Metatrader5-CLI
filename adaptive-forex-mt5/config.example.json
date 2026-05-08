@@ -1,0 +1,33 @@
+{
+  "pairs": ["USDJPY", "EURUSD", "GBPUSD", "AUDUSD", "USDCAD", "NZDUSD"],
+
+  "agent": {
+    "scan_interval_seconds": 60,
+    "outcome_poll_seconds": 30,
+    "volume": 0.001,
+    "strategy_id_prefix": "ehukai-poc",
+    "min_quality_score": 0.85,
+    "min_rr": 3.0,
+    "min_stop_points": 80,
+    "max_fvg_age_bars": 40,
+    "max_concurrent_positions": 50,
+    "max_trades_per_day": 500
+  },
+
+  "ntfy": {
+    "topic": "adaptive-forex-mt5",
+    "url": "https://ntfy.sh"
+  },
+
+  "dashboard": {
+    "bind_host": "127.0.0.1",
+    "bind_port": 8765,
+    "refresh_seconds": 5
+  },
+
+  "mt5_cli": {
+    "command": "mt5",
+    "live": false,
+    "subprocess_timeout_seconds": 60
+  }
+}
