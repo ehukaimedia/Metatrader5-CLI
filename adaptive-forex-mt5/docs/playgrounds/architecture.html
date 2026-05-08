@@ -242,8 +242,8 @@
     { id: 'news', label: 'news.is_blackout_active', subtitle: 'news.py', x: 630, y: 360, w: 200, h: 50, layer: 'trade', phases: ['p2'] },
 
     { id: 'trade-mgr', label: 'trade_manager.py', subtitle: 'loop_once (1s)', x: 320, y: 460, w: 200, h: 50, layer: 'trade', phases: ['p1','p2','p3'] },
-    { id: 'bootstrap', label: '_bootstrap_position', subtitle: 'trade_manager.py', x: 70, y: 460, w: 220, h: 50, layer: 'trade', phases: ['p1','p3'] },
-    { id: 'manage', label: 'manage_one (BE → Chandelier)', subtitle: 'trade_manager.py', x: 540, y: 460, w: 250, h: 50, layer: 'trade', phases: ['p1'] },
+    { id: 'bootstrap', label: '_bootstrap_position', subtitle: 'trade_manager.py', x: 70, y: 460, w: 220, h: 50, layer: 'trade', phases: ['p1','p2','p3'] },
+    { id: 'manage', label: 'manage_one (BE → Chandelier)', subtitle: 'trade_manager.py', x: 540, y: 460, w: 250, h: 50, layer: 'trade', phases: ['p1','p2','p3'] },
     { id: 'adopt', label: 'adopt.py', subtitle: 'managed_positions.json', x: 70, y: 540, w: 220, h: 50, layer: 'state', phases: ['p3'] },
 
     { id: 'mt5', label: 'mt5 CLI', subtitle: 'order limit / position move-sl', x: 540, y: 540, w: 250, h: 50, layer: 'external', phases: ['p1','p2','p3'] },
@@ -282,8 +282,8 @@
     { from: 'autopilot', to: 'mt5', type: 'tool', label: 'order limit (alert.setup)' },
     { from: 'autopilot', to: 'journal', type: 'data', label: 'kind=placement (autopilot=true)' },
 
-    // Phase-3 adoption
-    { from: 'adopt', to: 'trade-mgr', type: 'dep', label: 'allowlist' },
+    // Phase-3 adoption — trade_manager imports adopt (caller → callee)
+    { from: 'trade-mgr', to: 'adopt', type: 'dep', label: 'allowlist' },
     { from: 'trade-mgr', to: 'bootstrap', type: 'tool' },
     { from: 'bootstrap', to: 'journal', type: 'data', label: 'placement match' },
     { from: 'trade-mgr', to: 'manage', type: 'tool' },
@@ -292,9 +292,6 @@
 
     // Bus abort + read flow
     { from: 'agent', to: 'kill', type: 'event', label: 'AUTOPILOT ABORT' },
-
-    // State imports (deps)
-    { from: 'journal', to: 'state-db', type: 'dep' },
 
     // Dashboard reads
     { from: 'dashboard', to: 'journal', type: 'dep', label: 'read trades.jsonl' },

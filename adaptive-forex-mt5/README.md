@@ -199,9 +199,14 @@ dependencies) to:
   accumulate into a copy-able prompt at the bottom for handing back to
   Claude when you want changes there.
 
-The diagram covers all 14 production modules and the two external CLIs
-(`mt5`, `ehukaiconnect`). It is **read-only** — clicking a node opens a
-modal for inline notes; nothing in the playground modifies the codebase.
+The diagram covers the 12 runtime modules (`agent.py`, `autopilot.py`,
+`adopt.py`, `alerts.py`, `consensus.py`, `dashboard.py`, `dispatch.py`,
+`fingerprint.py`, `journal.py`, `news.py`, `state_db.py`,
+`trade_manager.py`) plus key sub-functions and the two external CLIs
+(`mt5`, `ehukaiconnect`). The benchmark and live e2e harness
+(`bench_llm.py`, `test_e2e.py`) are intentionally omitted as
+non-runtime tooling. The playground is **read-only** — clicking a node
+opens a modal for inline notes; nothing modifies the codebase.
 
 ## Test infrastructure
 
