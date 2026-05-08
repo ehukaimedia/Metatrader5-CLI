@@ -208,7 +208,16 @@ def test_outcome_attribution(cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 def test_managed_lifecycle(cfg: dict) -> None:
     """Open a 0.001 buy on USDJPY with a poc-magic, run trade_manager.loop_once
-    a few times, confirm state.db tracks it, then close. Live-only."""
+    a few times, confirm state.db tracks it, then close. Live-only.
+
+    CLI-shape notes (Codex1 audit fix):
+    - `mt5 order market SYMBOL buy --volume <v> --sl <p> --magic <m>`
+      (--sl is REQUIRED; --volume is a flag, not positional).
+    - `mt5 position close <TICKET>`  (TICKET is positional, no --ticket).
+    - `mt5 order market` returns a market-order shape; we synthesize a
+      placement record matching `journal.log_placement`'s ready-limit shape
+      so the bootstrap can match by ticket.
+    """
     import trade_manager
     import state_db
 
@@ -217,16 +226,37 @@ def test_managed_lifecycle(cfg: dict) -> None:
     state_db.init(db)
     magic = agent.derive_magic(f"{cfg['agent']['strategy_id_prefix']}-{sym}")
 
-    print(f"managed_lifecycle: opening 0.001 buy on {sym} magic={magic}")
+    # Need a current quote to compute a safe SL ~50 pips below for a buy
+    info = run_cli(cfg, ["market", "info", sym])
+    assert info.get("ok"), info
+    bid = float(info["data"]["bid"])
+    point = float(info["data"]["point"])
+    sl_price = round(bid - 500 * point, int(info["data"]["digits"]))  # ~50 pips
+    tp_price = round(bid + 1000 * point, int(info["data"]["digits"]))
+
+    print(f"managed_lifecycle: opening 0.001 buy on {sym} magic={magic} sl={sl_price}")
     res = run_cli(cfg, [
-        "order", "market", sym, "buy", "0.001",
+        "order", "market", sym, "buy",
+        "--volume", "0.001",
+        "--sl", str(sl_price),
+        "--tp", str(tp_price),
         "--magic", str(magic),
+        "--strategy-id", f"{cfg['agent']['strategy_id_prefix']}-{sym}",
     ])
     assert res.get("ok"), res
-    placement = res
-    journal.log_placement(sym, placement)
-    ticket = ((placement.get("data") or {}).get("placement") or {}).get("ticket")
-    assert ticket, "no ticket from order market"
+    placement_data = res.get("data") or {}
+    ticket = (placement_data.get("placement") or placement_data.get("position") or {}).get("ticket") \
+             or placement_data.get("ticket")
+    assert ticket, f"no ticket from order market: {res}"
+
+    # Synthesize a placement record matching log_placement's expected shape so
+    # the manager's bootstrap can ticket-match this position.
+    journal.append({
+        "kind": "placement", "pair": sym,
+        "ticket": ticket, "magic": magic, "direction": "buy",
+        "entry": bid, "sl": sl_price, "tp": tp_price,
+        "volume": 0.001, "strategy_id": f"{cfg['agent']['strategy_id_prefix']}-{sym}",
+    })
 
     try:
         for i in range(3):
@@ -237,7 +267,7 @@ def test_managed_lifecycle(cfg: dict) -> None:
         assert managed, f"expected managed_position row for ticket {ticket}, got {rows}"
         ok(f"managed_lifecycle: ticket={ticket} stage={managed[0]['stage']}")
     finally:
-        run_cli(cfg, ["position", "close", "--ticket", str(ticket)])
+        run_cli(cfg, ["position", "close", str(ticket)])
 
 
 def main() -> None:

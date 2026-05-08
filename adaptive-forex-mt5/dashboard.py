@@ -32,20 +32,11 @@ def _state_payload() -> dict:
         return {"managed": [], "heartbeat": [], "unmanaged_warnings": []}
     managed = state_db.list_managed_positions(STATE_DB, only_active=True)
     hb = state_db.heartbeat_all(STATE_DB)
-    now = datetime.now(timezone.utc)
-    unmanaged = []
-    for r in managed:
-        ts = r.get("last_unmanaged_warning_ts")
-        if not ts:
-            continue
-        try:
-            dt = datetime.fromisoformat(ts)
-            age = (now - dt).total_seconds()
-            if age <= 60:
-                unmanaged.append({"ticket": r["ticket"], "symbol": r["symbol"],
-                                  "magic": r["magic"], "age_seconds": age})
-        except Exception:
-            pass
+    # Unmanaged-warning rows live in their own table so positions that never
+    # bootstrapped (no journal match, fail-closed) still surface a banner —
+    # the previous implementation read from managed_position which by
+    # definition does not exist for fail-closed cases.
+    unmanaged = state_db.unmanaged_warning_recent(STATE_DB, since_seconds=60)
     return {"managed": managed, "heartbeat": hb, "unmanaged_warnings": unmanaged}
 
 

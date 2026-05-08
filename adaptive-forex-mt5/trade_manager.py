@@ -65,11 +65,44 @@ def _run(cfg: dict, args: list[str]) -> dict | None:
         return None
 
 
+def _market_info(cfg: dict, symbol: str) -> dict | None:
+    out = _run(cfg, ["market", "info", symbol])
+    if out and out.get("ok"):
+        return out.get("data") or None
+    return None
+
+
 def list_positions(cfg: dict) -> list[dict]:
+    """List open positions, enriched with current bid/ask/spread per symbol.
+
+    The raw `mt5 position list` does not expose live quote fields, so the
+    BE/Chandelier math and the spread-cap guard would silently see 0 for
+    those values (spotted in Codex1's phase-1 audit). We fetch one
+    `market info` per UNIQUE symbol per call and merge.
+    """
     out = _run(cfg, ["position", "list"])
     if not out or not out.get("ok"):
         return []
-    return out.get("data") or []
+    positions = out.get("data") or []
+    if not positions:
+        return positions
+    quote_cache: dict[str, dict] = {}
+    enriched = []
+    for pos in positions:
+        sym = pos.get("symbol")
+        if sym and sym not in quote_cache:
+            info = _market_info(cfg, sym) or {}
+            quote_cache[sym] = info
+        info = quote_cache.get(sym) or {}
+        merged = dict(pos)
+        if info.get("bid") is not None:
+            merged.setdefault("bid", info["bid"])
+        if info.get("ask") is not None:
+            merged.setdefault("ask", info["ask"])
+        if info.get("spread") is not None:
+            merged.setdefault("spread", info["spread"])
+        enriched.append(merged)
+    return enriched
 
 
 def poc_magics(cfg: dict) -> set[int]:
@@ -128,22 +161,6 @@ def _match_placement(pos: dict, placements: list[dict]) -> dict | None:
 _UNMANAGED_WARN_INTERVAL_SECONDS = 60
 
 
-def _should_warn_unmanaged(db_path: Path, ticket: int) -> bool:
-    """Rate-limit the unmanaged_poc_position warning to once per minute per ticket."""
-    row = state_db.get_managed_position(db_path, ticket)
-    if not row:
-        return True
-    last = row.get("last_unmanaged_warning_ts")
-    if not last:
-        return True
-    try:
-        last_dt = datetime.fromisoformat(last)
-    except ValueError:
-        return True
-    delta = (datetime.now(last_dt.tzinfo or timezone.utc) - last_dt).total_seconds()
-    return delta >= _UNMANAGED_WARN_INTERVAL_SECONDS
-
-
 def bootstrap_position(cfg: dict, db_path: Path, pos: dict, *, account: int) -> dict | None:
     """Match an MT5 position to a journal placement and seed managed_position.
 
@@ -157,9 +174,16 @@ def bootstrap_position(cfg: dict, db_path: Path, pos: dict, *, account: int) -> 
         return existing
     placement = _match_placement(pos, _open_journal_placements())
     if placement is None:
-        if _should_warn_unmanaged(db_path, pos["ticket"]):
+        if state_db.unmanaged_warning_should_emit(
+            db_path, pos["ticket"],
+            interval_seconds=_UNMANAGED_WARN_INTERVAL_SECONDS,
+        ):
             journal.log_unmanaged_poc_position(
                 ticket=pos["ticket"], symbol=pos["symbol"],
+                magic=pos["magic"], reason="no_journal_match_or_ambiguous",
+            )
+            state_db.unmanaged_warning_record(
+                db_path, pos["ticket"], symbol=pos["symbol"],
                 magic=pos["magic"], reason="no_journal_match_or_ambiguous",
             )
         return None
@@ -194,16 +218,24 @@ def infer_stage_after_bootstrap(cfg: dict, db_path: Path, pos: dict) -> None:
     """After bootstrap, look at the live SL relative to entry and promote
     stage if it is already at or beyond breakeven. Never loosen.
 
+    Guards:
+    - Only acts when row.stage == 'init'.
+    - SL must be > 0. A position whose SL is 0 (no protective stop set) would
+      otherwise satisfy the sell-side condition `sl <= entry - buffer*point`
+      trivially and falsely promote to be_armed — a real audit catch.
+
     Buy: position.sl >= entry + BE_buffer_points * point  → at least be_armed.
     Sell: position.sl <= entry - BE_buffer_points * point → at least be_armed.
     """
     row = state_db.get_managed_position(db_path, pos["ticket"])
     if row is None or row.get("stage") != "init":
         return
+    sl = float(pos.get("sl") or 0)
+    if sl <= 0:
+        return  # no SL set — cannot infer breakeven from absence
     point = row["point"]
     entry = row["entry_price"]
     buffer_points = float(cfg["manager"].get("be_buffer_points", 5))
-    sl = float(pos["sl"])
     if pos["type"] == "buy":
         threshold = entry + buffer_points * point
         is_at_be = sl >= threshold
@@ -370,10 +402,15 @@ def attempt_modify(cfg: dict, db_path: Path, pos: dict, *,
     eps = 10 ** -(digits + 1)
     cooldown_seconds = float(m.get("modify_cooldown_seconds", 5))
 
-    # 2. Confirm-existing path (no broker call yet)
+    # 2. Single-flight: ALWAYS resolve a pre-existing pending modify before
+    #    starting a fresh one, regardless of whether the freshly computed
+    #    target equals the pending target. Otherwise a dynamic-target update
+    #    (e.g. Chandelier slid up since the previous staging) would issue a
+    #    second broker call with a new idempotency key while the first might
+    #    still be in flight, risking a double-apply.
     if row.get("pending_action") == "modify_sl":
         requested = row.get("requested_sl")
-        if requested is not None and abs(float(requested) - new_sl_rounded) < eps:
+        if requested is not None:
             confirmed = _read_position_sl(cfg, pos["ticket"])
             if confirmed is not None and abs(confirmed - float(requested)) < eps:
                 _promote(db_path, row, float(requested), stage_to, reason)
@@ -388,8 +425,10 @@ def attempt_modify(cfg: dict, db_path: Path, pos: dict, *,
                         return
                 except ValueError:
                     pass
-            # 3. Cooldown elapsed → retry with SAME idempotency key
-            _issue_modify(cfg, db_path, pos, row, new_sl_rounded, reason,
+            # 3. Cooldown elapsed → retry with SAME requested_sl AND SAME
+            #    idempotency_key. New_sl from the fresh manage_one call is
+            #    intentionally ignored until the pending resolves.
+            _issue_modify(cfg, db_path, pos, row, float(requested), reason,
                           stage_to, existing_key=row.get("idempotency_key"))
             return
 

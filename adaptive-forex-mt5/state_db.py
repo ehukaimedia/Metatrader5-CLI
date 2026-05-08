@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS heartbeat (
     pid       INTEGER,
     notes     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS unmanaged_warning (
+    ticket          INTEGER PRIMARY KEY,
+    symbol          TEXT    NOT NULL,
+    magic           INTEGER NOT NULL,
+    reason          TEXT    NOT NULL,
+    last_warning_ts TEXT    NOT NULL
+);
 """
 
 
@@ -180,3 +188,56 @@ def heartbeat_upsert(db_path: Path, process: str, *, pid: int | None = None,
 def heartbeat_all(db_path: Path) -> list[dict]:
     with connect(db_path) as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM heartbeat").fetchall()]
+
+
+def unmanaged_warning_should_emit(db_path: Path, ticket: int,
+                                  *, interval_seconds: float = 60) -> bool:
+    """True if no warning has been recorded for this ticket within the
+    last `interval_seconds`. Lives in its own table so the dashboard can
+    surface a red banner even for tickets that never get a managed_position
+    row (the no-journal-match fail-closed case).
+    """
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT last_warning_ts FROM unmanaged_warning WHERE ticket = ?",
+            (ticket,),
+        ).fetchone()
+    if not row:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(row[0])
+    except (ValueError, TypeError):
+        return True
+    delta = (datetime.now(last_dt.tzinfo or timezone.utc) - last_dt).total_seconds()
+    return delta >= interval_seconds
+
+
+def unmanaged_warning_record(db_path: Path, ticket: int, *, symbol: str,
+                             magic: int, reason: str) -> None:
+    with connect(db_path) as conn:
+        conn.execute("""
+            INSERT INTO unmanaged_warning (ticket, symbol, magic, reason, last_warning_ts)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(ticket) DO UPDATE SET
+                symbol = excluded.symbol,
+                magic = excluded.magic,
+                reason = excluded.reason,
+                last_warning_ts = excluded.last_warning_ts
+        """, (ticket, symbol, magic, reason, _now()))
+
+
+def unmanaged_warning_recent(db_path: Path, *, since_seconds: float = 60) -> list[dict]:
+    """Recent unmanaged warnings for the dashboard banner."""
+    rows = []
+    with connect(db_path) as conn:
+        for r in conn.execute("SELECT * FROM unmanaged_warning").fetchall():
+            try:
+                dt = datetime.fromisoformat(r["last_warning_ts"])
+                age = (datetime.now(dt.tzinfo or timezone.utc) - dt).total_seconds()
+                if age <= since_seconds:
+                    d = dict(r)
+                    d["age_seconds"] = age
+                    rows.append(d)
+            except Exception:
+                pass
+    return rows
