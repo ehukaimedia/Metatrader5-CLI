@@ -33,6 +33,22 @@
     "allow_tp_removal": false
   },
 
+  "autopilot": {
+    "enabled": false,
+    "reviewer_agents": ["ClaudeReviewer", "CodexReviewer"],
+    "min_confidence": 0.75,
+    "pair_allowlist": ["USDJPY"],
+    "lot_size": 0.001,
+    "daily_trade_cap": 5,
+    "daily_loss_cap_usd": 5.00,
+    "news_blackout_minutes_before": 15,
+    "news_blackout_minutes_after": 30,
+    "news_source": null,
+    "decision_timeout_seconds": 90,
+    "max_alert_age_seconds": 180,
+    "max_entry_drift_points": 30
+  },
+
   "ntfy": {
     "topic": "adaptive-forex-mt5",
     "url": "https://ntfy.sh"
