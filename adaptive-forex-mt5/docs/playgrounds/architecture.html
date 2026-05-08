@@ -320,7 +320,7 @@
   const PRESETS = {
     'Full system': { phases: ['p1','p2','p3'], layers: Object.keys(LAYERS), conns: Object.keys(CONN_TYPES) },
     // Phase presets keep the `ui` layer ON — the dashboard is a runtime
-    // process for every phase. Phase 1 + 3 keep `skill` connections ON so
+    // process for every phase. Phase 1 + 2 keep `skill` connections ON so
     // the dispatcher-wake edge from ehukaiconnect to the reviewer is
     // visible (its endpoints are present in those phases).
     'Phase 1 (foundation)': { phases: ['p1'], layers: ['entry','review','trade','state','ui','external'], conns: ['data','tool','skill','dep'] },
