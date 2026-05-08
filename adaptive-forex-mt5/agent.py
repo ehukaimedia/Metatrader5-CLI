@@ -130,23 +130,38 @@ def recent_deals(cfg: dict, days: int = 3) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def find_close_deal(deals: list[dict], *, magic: int, symbol: str, after_time: str) -> dict | None:
+def find_close_deal(deals: list[dict], *, placement_ticket: int, magic: int, symbol: str, direction: str) -> dict | None:
     """Find the closing deal for a netting position.
 
-    The closing-deal record has its own order ticket (NOT the placement ticket),
-    so matching by deal.order == placement_ticket misses closures. Trading.com
-    netting + FIFO guarantees at most one position per (symbol, magic) at a time,
-    so the closing deal is the first deal with profit != 0 on that strategy
-    after the placement time.
+    Anchors on the OPENING deal (matched by deal.order == placement_ticket),
+    then takes the first opposite-direction deal on the same strategy after
+    the opening deal's time. This avoids wall-clock vs broker-server-clock
+    skew when comparing placement timestamps to deal timestamps.
+
+    A buy position closes via a sell deal; a sell position closes via a buy
+    deal. Direction-flip matching attributes breakeven/zero-profit closures
+    correctly — important because AdaptiveTrailEA's breakeven trail can
+    produce exact-zero closes.
     """
-    if not magic:
+    if not magic or direction not in ("buy", "sell"):
         return None
+    opening = next(
+        (d for d in deals
+         if d.get("order") == placement_ticket
+         and d.get("magic") == magic
+         and (d.get("type") or "").lower() == direction),
+        None,
+    )
+    if not opening:
+        return None
+    open_time = opening.get("time") or ""
+    close_type = "sell" if direction == "buy" else "buy"
     matches = [
         d for d in deals
         if d.get("magic") == magic
         and (d.get("symbol") or "").upper() == symbol.upper()
-        and (d.get("time") or "") > after_time
-        and (d.get("profit") or 0) != 0
+        and (d.get("time") or "") > open_time
+        and (d.get("type") or "").lower() == close_type
     ]
     if not matches:
         return None
@@ -200,8 +215,8 @@ def scan_once(cfg: dict) -> None:
                 if not isinstance(magic, int):
                     strategy_id = r.get("strategy_id") or f"{a['strategy_id_prefix']}-{r.get('pair','')}"
                     magic = derive_magic(strategy_id)
-                placement_time = r.get("ts") or "1970-01-01"
-                deal = find_close_deal(deals, magic=magic, symbol=r.get("pair","").upper(), after_time=placement_time)
+                direction = (r.get("direction") or "").lower()
+                deal = find_close_deal(deals, placement_ticket=ticket, magic=magic, symbol=r.get("pair","").upper(), direction=direction)
                 if deal:
                     profit = float(deal.get("profit") or 0)
                     swap = float(deal.get("swap") or 0)
@@ -233,8 +248,11 @@ def scan_once(cfg: dict) -> None:
                     })
                     push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f} net {net:+.2f} R={realized_r}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
 
-    # Concurrency caps
-    if len(list_positions(cfg)) >= a["max_concurrent_positions"]:
+    # Concurrency caps — count BOTH open positions and pending limit orders
+    # against max_concurrent_positions, otherwise pending limits across pairs
+    # accumulate beyond the cap before any position appears.
+    active = active_strategies(cfg)
+    if len(active) >= a["max_concurrent_positions"]:
         return
     if trades_today() >= a["max_trades_per_day"]:
         return
@@ -242,11 +260,10 @@ def scan_once(cfg: dict) -> None:
     # One active strategy per (symbol, magic): if we already have a pending
     # limit OR open position with our magic on this pair, don't fire another
     # placement until it resolves.
-    active = active_strategies(cfg)
     placed_this_cycle = 0
 
     for pair in cfg["pairs"]:
-        if (len(list_positions(cfg)) + placed_this_cycle) >= a["max_concurrent_positions"]:
+        if (len(active) + placed_this_cycle) >= a["max_concurrent_positions"]:
             break
         if trades_today() >= a["max_trades_per_day"]:
             break
