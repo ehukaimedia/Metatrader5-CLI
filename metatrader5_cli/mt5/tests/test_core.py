@@ -2485,6 +2485,81 @@ class TestAnalyze:
         assert result["ok"] is False
         assert result["error"]["code"] == "EHUKAI_SETUP_NOT_READY"
 
+    def test_place_ready_limit_blocks_when_entry_drifts_after_dryrun(self, monkeypatch, cfg):
+        from metatrader5_cli.mt5.core import analyze
+
+        initial_setup = {
+            "status": "ready",
+            "direction": "sell",
+            "quote": {"point": 0.001},
+            "setup": {"entry": 156.899, "sl": 156.949, "tp": 156.676},
+        }
+        final_setup = {
+            "status": "ready",
+            "direction": "sell",
+            "quote": {"point": 0.001},
+            "setup": {"entry": 156.910, "sl": 156.949, "tp": 156.676},
+        }
+        responses = [initial_setup, final_setup]
+        calls = {"dryrun": 0}
+
+        def mock_sniper(symbol, **kwargs):
+            return {"ok": True, "data": responses.pop(0)}
+
+        def mock_dryrun(*args, **kwargs):
+            calls["dryrun"] += 1
+            return {"ok": True, "data": {"dry_run": True}}
+
+        monkeypatch.setattr(analyze, "sniper_poc", mock_sniper)
+        monkeypatch.setattr(analyze.order_module, "dryrun", mock_dryrun)
+        monkeypatch.setattr(analyze.order_module, "place_limit", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("place should not be called")))
+
+        result = analyze.place_ready_limit(
+            "USDJPY",
+            direction="auto",
+            volume=0.001,
+            max_entry_drift_points=5,
+            cfg=cfg,
+            is_live_intent=True,
+        )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "EHUKAI_SETUP_DRIFTED"
+        assert calls["dryrun"] == 1
+
+    def test_place_ready_limit_fails_closed_without_quote_point(self, monkeypatch, cfg):
+        from metatrader5_cli.mt5.core import analyze
+
+        initial_setup = {
+            "status": "ready",
+            "direction": "buy",
+            "quote": {"point": 0.001},
+            "setup": {"entry": 156.800, "sl": 156.740, "tp": 156.920},
+        }
+        final_setup = {
+            "status": "ready",
+            "direction": "buy",
+            "quote": {"point": 0.0},
+            "setup": {"entry": 156.800, "sl": 156.740, "tp": 156.920},
+        }
+        responses = [initial_setup, final_setup]
+
+        monkeypatch.setattr(analyze, "sniper_poc", lambda symbol, **kwargs: {"ok": True, "data": responses.pop(0)})
+        monkeypatch.setattr(analyze.order_module, "dryrun", lambda *a, **kw: {"ok": True, "data": {"dry_run": True}})
+        monkeypatch.setattr(analyze.order_module, "place_limit", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("place should not be called")))
+
+        result = analyze.place_ready_limit(
+            "USDJPY",
+            direction="auto",
+            volume=0.001,
+            cfg=cfg,
+            is_live_intent=True,
+        )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "EHUKAI_SETUP_INVALID"
+        assert "tick size" in result["error"]["message"]
+
 
 # ===========================================================================
 # Task 10 — Analyze CLI smoke tests

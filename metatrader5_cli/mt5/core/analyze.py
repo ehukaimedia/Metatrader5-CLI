@@ -1020,7 +1020,9 @@ def place_ready_limit(
     if not isinstance(final_entry, (int, float)) or not isinstance(final_sl, (int, float)) or not isinstance(final_tp, (int, float)):
         return _fail("EHUKAI_SETUP_INVALID", "Final READY setup must include entry, SL, and TP.")
     point = float((final_data.get("quote") or {}).get("point") or 0.0)
-    drift_points = abs(float(final_entry) - float(initial_entry)) / point if point else 0.0
+    if point <= 0.0:
+        return _fail("EHUKAI_SETUP_INVALID", "Final READY setup is missing tick size; cannot validate entry drift.")
+    drift_points = abs(float(final_entry) - float(initial_entry)) / point
     if drift_points > max_entry_drift_points:
         return {
             "ok": False,
