@@ -25,42 +25,68 @@ def append(record: dict) -> None:
         f.write(json.dumps(record, default=str) + "\n")
 
 
-def log_placement(pair: str, setup: dict, placement: dict) -> None:
-    """Record a successful order placement with the full reasoning."""
+def _reasoning(scan: dict) -> dict:
+    """Extract the reasoning block from a sniper-poc scan dict."""
+    if not scan:
+        return {}
+    return {
+        "structure": scan.get("structure"),
+        "poi": scan.get("poi"),
+        "liquidity": scan.get("liquidity"),
+        "entry": scan.get("entry"),
+        "gates_passed": [g["name"] for g in (scan.get("gates") or []) if g.get("ok")],
+        "gates_failed": [{"name": g["name"], "detail": g.get("detail")} for g in (scan.get("gates") or []) if not g.get("ok")],
+        "explain": scan.get("explain"),
+        "quality_score": scan.get("quality_score"),
+        "bias_counts": scan.get("bias_counts"),
+        "quote": scan.get("quote"),
+    }
+
+
+def log_placement(pair: str, placement: dict) -> None:
+    """Record a successful order placement.
+
+    Captures both the initial-scan and final-scan setup contracts so post-hoc
+    analysis can see the reasoning that actually produced the placed entry/SL/TP
+    (final scan), and compare against the first scan that triggered the place
+    attempt (initial scan). The placement response from `mt5 order ready-limit`
+    includes both internally.
+    """
     data = placement.get("data") or {}
-    final = data.get("final_setup") or {}
-    final_setup = final.get("setup") or {}
-    ticket = (data.get("placement") or {}).get("ticket")
+    initial = data.get("initial_setup") or {}
+    final = data.get("final_setup") or initial
+    final_order = final.get("setup") or {}
+    placement_data = data.get("placement") or {}
+    ticket = placement_data.get("ticket")
+    magic = placement_data.get("magic")
     append({
         "kind": "placement",
         "pair": pair,
         "ticket": ticket,
-        "direction": setup.get("direction"),
-        "entry": final_setup.get("entry"),
-        "sl": final_setup.get("sl"),
-        "tp": final_setup.get("tp"),
-        "rr": final_setup.get("rr"),
-        "volume": final_setup.get("volume"),
+        "magic": magic,
+        "direction": final.get("direction") or initial.get("direction"),
+        "entry": final_order.get("entry"),
+        "sl": final_order.get("sl"),
+        "tp": final_order.get("tp"),
+        "rr": final_order.get("rr"),
+        "volume": final_order.get("volume"),
         "strategy_id": data.get("strategy_id"),
-        "reasoning": {
-            "structure": setup.get("structure"),
-            "poi": setup.get("poi"),
-            "liquidity": setup.get("liquidity"),
-            "entry": setup.get("entry"),
-            "gates_passed": [g["name"] for g in setup.get("gates", []) if g.get("ok")],
-            "explain": setup.get("explain"),
-            "quality_score": setup.get("quality_score"),
-        },
+        "reasoning": _reasoning(final),
+        "initial_reasoning": _reasoning(initial) if initial is not final else None,
+        "drift_points": data.get("drift_points") if isinstance(data.get("drift_points"), (int, float)) else None,
     })
 
 
-def log_skip(pair: str, status: str, reason: str, setup: dict | None = None) -> None:
+def log_skip(pair: str, scan: dict | None) -> None:
+    """Record a skip with the full setup contract for post-hoc false-negative review."""
+    scan = scan or {}
     append({
         "kind": "skip",
         "pair": pair,
-        "status": status,
-        "reason": reason,
-        "explain": (setup or {}).get("explain"),
+        "status": scan.get("status"),
+        "direction": scan.get("direction"),
+        "reason": scan.get("reason"),
+        "reasoning": _reasoning(scan),
     })
 
 

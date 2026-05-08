@@ -89,6 +89,32 @@ def list_positions(cfg: dict) -> list[dict]:
     return data.get("positions") or [] if isinstance(data, dict) else []
 
 
+def list_pending_orders(cfg: dict) -> list[dict]:
+    r = _run(cfg, ["order", "list"])
+    if not r or not r.get("ok"):
+        return []
+    data = r.get("data")
+    if isinstance(data, list):
+        return data
+    return data.get("orders") or [] if isinstance(data, dict) else []
+
+
+def active_strategies(cfg: dict) -> set[tuple[str, int]]:
+    """Set of (symbol, magic) currently held by us as a position OR a pending order.
+
+    Used to enforce one active strategy per pair: if we already have a pending
+    limit on EURUSD with our magic, we should not place another one this cycle
+    even if sniper-poc returns ready again.
+    """
+    active: set[tuple[str, int]] = set()
+    for p in list_positions(cfg) + list_pending_orders(cfg):
+        sym = (p.get("symbol") or "").upper()
+        magic = p.get("magic")
+        if sym and isinstance(magic, int):
+            active.add((sym, magic))
+    return active
+
+
 def recent_deals(cfg: dict, days: int = 3) -> list[dict]:
     """Pull deals from the last N days. data is a flat list."""
     today = datetime.now(timezone.utc).date()
@@ -168,8 +194,12 @@ def scan_once(cfg: dict) -> None:
             deals = recent_deals(cfg, days=3)
             for r in closed_records:
                 ticket = r["ticket"]
-                strategy_id = r.get("strategy_id") or f"{a['strategy_id_prefix']}-{r.get('pair','')}"
-                magic = derive_magic(strategy_id)
+                # Prefer magic stored at placement time. Fall back to local
+                # derivation only if older journal entries pre-date this fix.
+                magic = r.get("magic")
+                if not isinstance(magic, int):
+                    strategy_id = r.get("strategy_id") or f"{a['strategy_id_prefix']}-{r.get('pair','')}"
+                    magic = derive_magic(strategy_id)
                 placement_time = r.get("ts") or "1970-01-01"
                 deal = find_close_deal(deals, magic=magic, symbol=r.get("pair","").upper(), after_time=placement_time)
                 if deal:
@@ -178,6 +208,16 @@ def scan_once(cfg: dict) -> None:
                     commission = float(deal.get("commission") or 0)
                     net = profit + swap + commission
                     result = "tp" if profit > 0 else ("sl" if profit < 0 else "even")
+
+                    # Realized R: how many SL-distances of profit (in price terms) we got.
+                    realized_r = None
+                    entry = r.get("entry"); sl = r.get("sl"); close = deal.get("price")
+                    if all(isinstance(v, (int, float)) for v in (entry, sl, close)):
+                        sl_distance = abs(float(entry) - float(sl))
+                        if sl_distance > 0:
+                            sign = 1 if r.get("direction") == "buy" else -1
+                            realized_r = round(sign * (float(close) - float(entry)) / sl_distance, 2)
+
                     journal.log_outcome(ticket, {
                         "profit": profit,
                         "swap": swap,
@@ -188,21 +228,35 @@ def scan_once(cfg: dict) -> None:
                         "result": result,
                         "deal_id": deal.get("ticket"),
                         "magic": magic,
+                        "planned_rr": r.get("rr"),
+                        "realized_r": realized_r,
                     })
-                    push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f} net {net:+.2f}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
+                    push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f} net {net:+.2f} R={realized_r}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
 
-    # Concurrency cap
-    open_now = len(list_positions(cfg))
-    if open_now >= a["max_concurrent_positions"]:
+    # Concurrency caps
+    if len(list_positions(cfg)) >= a["max_concurrent_positions"]:
         return
     if trades_today() >= a["max_trades_per_day"]:
         return
 
+    # One active strategy per (symbol, magic): if we already have a pending
+    # limit OR open position with our magic on this pair, don't fire another
+    # placement until it resolves.
+    active = active_strategies(cfg)
+    placed_this_cycle = 0
+
     for pair in cfg["pairs"]:
-        if open_now >= a["max_concurrent_positions"]:
+        if (len(list_positions(cfg)) + placed_this_cycle) >= a["max_concurrent_positions"]:
             break
         if trades_today() >= a["max_trades_per_day"]:
             break
+
+        strategy_id = f"{a['strategy_id_prefix']}-{pair}"
+        magic = derive_magic(strategy_id)
+        if (pair.upper(), magic) in active:
+            journal.log_skip(pair, {"status": "active_strategy", "reason": "pending order or open position already exists for this strategy"})
+            continue
+
         result = sniper_poc(cfg, pair)
         if not result or not result.get("ok"):
             journal.log_error(pair, "sniper_poc", (result or {}).get("error") or "no_response")
@@ -211,23 +265,29 @@ def scan_once(cfg: dict) -> None:
         status = data.get("status")
         quality = float(data.get("quality_score") or 0)
         if status != "ready":
-            journal.log_skip(pair, status or "unknown", data.get("reason") or "", data)
+            journal.log_skip(pair, data)
             continue
         if quality < a["min_quality_score"]:
-            journal.log_skip(pair, "below_quality", f"quality={quality} < {a['min_quality_score']}", data)
+            data["status"] = "below_quality"
+            data["reason"] = f"quality={quality} < {a['min_quality_score']}"
+            journal.log_skip(pair, data)
             continue
 
         placement = place_ready_limit(cfg, pair)
         if placement and placement.get("ok"):
-            journal.log_placement(pair, data, placement)
-            ticket = (placement.get("data") or {}).get("placement", {}).get("ticket")
+            journal.log_placement(pair, placement)
+            placement_data = (placement.get("data") or {}).get("placement") or {}
+            ticket = placement_data.get("ticket")
+            placed_magic = placement_data.get("magic")
+            if isinstance(placed_magic, int):
+                active.add((pair.upper(), placed_magic))
+            placed_this_cycle += 1
             push(
                 cfg,
                 f"{pair} placed {data.get('direction')}",
                 f"ticket {ticket} q={quality} -- {(data.get('explain') or [''])[0]}",
                 tags=["heavy_check_mark"], priority=4,
             )
-            open_now += 1
         else:
             err = (placement or {}).get("error") or {"code": "NO_PLACEMENT"}
             journal.log_error(pair, "ready_limit", err)
