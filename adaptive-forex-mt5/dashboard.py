@@ -77,7 +77,7 @@ def _autopilot_payload() -> dict:
                 bucket["take"] += 1
             else:
                 bucket["no_consensus"] += 1
-        elif kind == "autopilot_placement":
+        elif kind == "placement" and r.get("autopilot"):
             tk = r.get("ticket")
             if tk is not None:
                 auto_placements[tk] = r

@@ -210,19 +210,37 @@ def log_consensus_verdict(record: dict) -> None:
     append({"kind": "consensus_verdict", **record})
 
 
-def log_autopilot_placement(*, pair: str, placement: dict,
+def log_autopilot_placement(*, pair: str, alert: dict, placement: dict,
                             consensus_alert_id: str,
-                            reviewer_confidences: list[float]) -> None:
-    """Record a successful autopilot auto-placement. Distinct from
-    `kind=placement` so the dashboard can split manual / agent / autopilot.
+                            reviewer_confidences: list[float],
+                            strategy_id: str | None = None) -> None:
+    """Record a successful autopilot auto-placement.
+
+    Codex1 phase-2 audit fix: writes a `kind=placement` record (NOT a new
+    kind) so it flows through every existing lifecycle consumer —
+    `journal.folded_trades`, `agent.open_journal_records`,
+    `agent.resolve_outcomes`, `trade_manager._open_journal_placements`.
+    The `autopilot=true` flag plus `consensus_alert_id` and
+    `reviewer_confidences` let the dashboard split autopilot trades from
+    manual / phase-1 placements.
     """
     data = placement.get("data") or {}
     placement_data = data.get("placement") or {}
+    setup = alert.get("setup") or {}
     append({
-        "kind": "autopilot_placement",
+        "kind": "placement",
+        "autopilot": True,
         "pair": pair,
         "ticket": placement_data.get("ticket"),
         "magic": placement_data.get("magic"),
+        "direction": alert.get("direction"),
+        "entry": setup.get("entry"),
+        "sl": setup.get("sl"),
+        "tp": setup.get("tp"),
+        "rr": setup.get("rr"),
+        "volume": placement_data.get("volume"),
+        "strategy_id": strategy_id,
+        "reasoning": alert.get("reasoning") or {},
         "consensus_alert_id": consensus_alert_id,
         "reviewer_confidences": reviewer_confidences,
     })

@@ -312,9 +312,11 @@ def test_all_pass_places_at_alert_setup_levels_exactly(tmp_path, monkeypatch):
     assert float(sl) == 156.30     # alert.setup.sl,    NOT the 156.35 current
     assert float(tp) == 157.00     # alert.setup.tp,    NOT the 157.05 current
 
-    # Journal records autopilot_placement, not regular placement
+    # Journal records a kind=placement with autopilot=true so the
+    # existing trade lifecycle (manager bootstrap, resolve_outcomes,
+    # folded_trades) consumes it natively (Codex1 phase-2 audit fix).
     rows = _kinds(log)
-    assert any(r["kind"] == "autopilot_placement" for r in rows)
+    assert any(r["kind"] == "placement" and r.get("autopilot") for r in rows)
 
 
 def test_executor_never_reads_reviewer_adjusted_fields(tmp_path, monkeypatch):

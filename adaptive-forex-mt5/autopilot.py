@@ -208,7 +208,7 @@ def _within_caps(db_path, ap: dict) -> bool:
     outcomes_by_ticket: dict[int, dict] = {}
     for r in rows:
         kind = r.get("kind")
-        if kind == "autopilot_placement":
+        if kind == "placement" and r.get("autopilot"):
             try:
                 ts = _datetime.fromisoformat(r.get("ts") or "")
                 if ts.tzinfo is None:
@@ -342,11 +342,14 @@ def attempt_autopilot_place(cfg: dict, db_path, alert: dict,
     placement = _run_cli_capture(cmd)
     if placement and placement.get("ok"):
         journal.log_autopilot_placement(
-            pair=alert["pair"], placement=placement,
+            pair=alert["pair"],
+            alert=alert,
+            placement=placement,
             consensus_alert_id=aid,
             reviewer_confidences=[
                 float(v.get("confidence") or 0)
                 for v in (consensus.get("votes") or [])
             ],
+            strategy_id=f"{cfg['agent']['strategy_id_prefix']}-{alert['pair']}",
         )
     return placement

@@ -578,7 +578,19 @@ def evaluate_pending_consensus(cfg: dict, db_path: Path | None = None) -> int:
 
 
 def scan_once(cfg: dict) -> None:
-    """One full scan cycle: resolve outcomes, then place new orders."""
+    """One full scan cycle: poll bus abort → resolve outcomes → place new
+    orders → poll verdicts → evaluate consensus (and run autopilot if
+    enabled).
+
+    Bus-abort polling runs FIRST so an operator's `AUTOPILOT ABORT` flips
+    the kill-switch before any consensus/autopilot path can fire this
+    cycle.
+    """
+    if cfg.get("agent", {}).get("review_enabled"):
+        try:
+            autopilot.poll_bus_for_abort(_state_db_path())
+        except Exception as e:
+            journal.log_error("agent", "poll_bus_for_abort", str(e))
     resolve_outcomes(cfg)
     place_new_orders(cfg)
     if cfg.get("agent", {}).get("review_enabled"):
