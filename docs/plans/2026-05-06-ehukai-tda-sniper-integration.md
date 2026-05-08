@@ -200,7 +200,6 @@ Add these inputs to `EhukaiTDAOverlay.mq5`:
 - `InpRequireLiquiditySweep = false`
 - `InpRequireFVGTouch = false`
 - `InpAlertOnWatch = false`
-- `InpAlertOnArmed = true`
 - `InpAlertOnTrigger = true`
 
 ## State Definitions

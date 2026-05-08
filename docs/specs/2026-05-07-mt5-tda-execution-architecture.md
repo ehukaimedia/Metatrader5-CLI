@@ -209,6 +209,18 @@ structured setup plan
 
 The setup planner may produce a placement command, but order placement must remain guarded by `core.order` risk checks.
 
+For supervised live-capable testing, the CLI may offer an execution bridge that consumes the setup contract. That bridge must:
+
+- Require `status = ready`.
+- Run a broker dry-run before any placement.
+- Refresh the setup and quote after the dry-run.
+- Reject the order if the setup stops being READY or the entry drifts beyond the configured tolerance.
+- Run an immediate second dry-run using the final setup.
+- Require SL, TP, and a strategy ID.
+- Use the normal live-intent and risk gates without adding a demo-only account-type block.
+
+Current implementation: `order ready-limit` follows this bridge and routes final placement through `core.order.place_limit()`.
+
 ## Future Alert Agent
 
 The future scanner should monitor symbols/timeframes and ping only when a high-value setup reaches WATCH or READY.
@@ -231,3 +243,4 @@ The MT5 TDA system is acceptable when:
 - A valid setup contains direction, POI, trigger, SL, TP, RR, invalidation, and blockers.
 - Liquidity improves or blocks setups without cluttering the chart.
 - Pine and MT5 agree on the core structure language, but MT5 remains the execution source of truth.
+- A supervised READY placement can be exercised with `order ready-limit` without bypassing broker dry-run, quote freshness, SL/TP, strategy ID, or the existing live-intent risk gate.

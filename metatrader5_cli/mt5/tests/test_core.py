@@ -2405,6 +2405,86 @@ class TestAnalyze:
         assert lengths["D1"] == 14
         assert lengths["M15"] == 14
 
+    def test_place_ready_limit_requires_ready_setup_and_places_after_immediate_dryrun(self, monkeypatch, cfg):
+        from metatrader5_cli.mt5.core import analyze
+
+        setup_payload = {
+            "symbol": "USDJPY",
+            "status": "ready",
+            "direction": "sell",
+            "quote": {"point": 0.001},
+            "reason": "ready for dry-run",
+            "setup": {
+                "order_type": "sell_limit",
+                "entry": 156.899,
+                "sl": 156.949,
+                "tp": 156.676,
+            },
+        }
+        calls = {"sniper": 0, "dryrun": 0, "place": 0}
+
+        def mock_sniper(symbol, **kwargs):
+            calls["sniper"] += 1
+            return {"ok": True, "data": dict(setup_payload)}
+
+        def mock_dryrun(symbol, side, **kwargs):
+            calls["dryrun"] += 1
+            assert symbol == "USDJPY"
+            assert side == "sell"
+            assert kwargs["order_type"] == "limit"
+            assert kwargs["price"] == 156.899
+            assert kwargs["sl"] == 156.949
+            assert kwargs["tp"] == 156.676
+            assert kwargs["strategy_id"] == "ehukai-m1-sniper-poc"
+            return {"ok": True, "data": {"dry_run": True, "retcode": 0}}
+
+        def mock_place(symbol, side, price, **kwargs):
+            calls["place"] += 1
+            assert symbol == "USDJPY"
+            assert side == "sell"
+            assert price == 156.899
+            assert kwargs["sl"] == 156.949
+            assert kwargs["tp"] == 156.676
+            return {"ok": True, "data": {"ticket": 204, "symbol": symbol, "type": side}}
+
+        monkeypatch.setattr(analyze, "sniper_poc", mock_sniper)
+        monkeypatch.setattr(analyze.order_module, "dryrun", mock_dryrun)
+        monkeypatch.setattr(analyze.order_module, "place_limit", mock_place)
+
+        result = analyze.place_ready_limit(
+            "USDJPY",
+            direction="auto",
+            volume=0.001,
+            cfg=cfg,
+            is_live_intent=True,
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["status"] == "placed"
+        assert result["data"]["safety"]["account_type_block"] is False
+        assert calls == {"sniper": 2, "dryrun": 2, "place": 1}
+
+    def test_place_ready_limit_blocks_when_setup_not_ready(self, monkeypatch, cfg):
+        from metatrader5_cli.mt5.core import analyze
+
+        monkeypatch.setattr(analyze, "sniper_poc", lambda symbol, **kwargs: {
+            "ok": True,
+            "data": {"status": "no_trade", "direction": "buy", "reason": "liquidity trap", "setup": None},
+        })
+        monkeypatch.setattr(analyze.order_module, "dryrun", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("dryrun should not be called")))
+        monkeypatch.setattr(analyze.order_module, "place_limit", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("place should not be called")))
+
+        result = analyze.place_ready_limit(
+            "AUDUSD",
+            direction="auto",
+            volume=0.001,
+            cfg=cfg,
+            is_live_intent=True,
+        )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "EHUKAI_SETUP_NOT_READY"
+
 
 # ===========================================================================
 # Task 10 — Analyze CLI smoke tests
@@ -2512,6 +2592,45 @@ class TestAnalyzeCLI:
         assert data["ok"] is True
         assert data["data"]["status"] == "ready"
         assert data["data"]["direction"] == "buy"
+
+    def test_cli_order_ready_limit_json(self, monkeypatch, tmp_path):
+        import json
+        from metatrader5_cli.mt5.core import analyze
+        runner, mt5_cli = self._runner_and_env(monkeypatch, tmp_path)
+
+        captured = {}
+
+        def mock_place_ready_limit(symbol, **kwargs):
+            captured["symbol"] = symbol
+            captured["kwargs"] = kwargs
+            return {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "status": "placed",
+                    "safety": {"account_type_block": False},
+                },
+            }
+
+        monkeypatch.setattr(analyze, "place_ready_limit", mock_place_ready_limit)
+
+        result = runner.invoke(mt5_cli.main, [
+            "--json", "order", "ready-limit", "USDJPY",
+            "--direction", "sell",
+            "--volume", "0.001",
+            "--strategy-id", "ehukai-m1-sniper-poc",
+            "--allow-rollover",
+        ])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["status"] == "placed"
+        assert data["data"]["safety"]["account_type_block"] is False
+        assert captured["symbol"] == "USDJPY"
+        assert captured["kwargs"]["direction"] == "sell"
+        assert captured["kwargs"]["volume"] == 0.001
+        assert captured["kwargs"]["avoid_rollover"] is False
 
 
 # ===========================================================================

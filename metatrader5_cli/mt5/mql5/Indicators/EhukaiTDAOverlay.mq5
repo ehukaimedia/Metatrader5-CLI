@@ -82,7 +82,6 @@ input double        InpGuideEntryProximityPips = 6.0;             // Guide: entr
 input bool          InpUseClosedBarSignals = true;                // Confirm signals on closed bar
 input double        InpBreakBufferPips    = 0.2;                  // BOS close buffer
 input bool          InpAlertOnWatch       = false;                // Alert on watch state
-input bool          InpAlertOnArmed       = false;                // Alert on armed state
 input bool          InpAlertOnTrigger     = true;                 // Alert on trigger state
 input int           InpLabelFontSize      = 8;                    // Label size
 input double        InpLabelOffsetPips    = 3.0;                  // Label offset
@@ -206,6 +205,8 @@ struct SetupContext
    bool   sell_opposing_liquidity_front;
    bool   buy_liquidity_behind_zone;
    bool   sell_liquidity_behind_zone;
+   bool   bull_sweep_in_zone_creation;
+   bool   bear_sweep_in_zone_creation;
    bool   buy_poi_trap_risk;
    bool   sell_poi_trap_risk;
    double nearest_bull_poi_pips;
@@ -364,6 +365,8 @@ void InitSetupContext(SetupContext &ctx)
    ctx.sell_opposing_liquidity_front = false;
    ctx.buy_liquidity_behind_zone = false;
    ctx.sell_liquidity_behind_zone = false;
+   ctx.bull_sweep_in_zone_creation = false;
+   ctx.bear_sweep_in_zone_creation = false;
    ctx.buy_poi_trap_risk = false;
    ctx.sell_poi_trap_risk = false;
    ctx.nearest_bull_poi_pips = DBL_MAX;
@@ -427,6 +430,8 @@ void TrackLiquidityContext(SetupContext &ctx, const bool buy_side, const bool sw
          ctx.buy_liquidity_swept = true;
       if(ctx.bear_poi_upper > 0.0 && ctx.bear_poi_lower > 0.0)
         {
+         if(swept && level >= ctx.bear_poi_lower - behind_tolerance && level <= ctx.bear_poi_upper + behind_tolerance)
+            ctx.bear_sweep_in_zone_creation = true;
          if(level >= current_price && level <= ctx.bear_poi_upper)
             ctx.sell_opposing_liquidity_front = true;
          if(level >= ctx.bear_poi_upper && level <= ctx.bear_poi_upper + behind_tolerance)
@@ -439,6 +444,8 @@ void TrackLiquidityContext(SetupContext &ctx, const bool buy_side, const bool sw
          ctx.sell_liquidity_swept = true;
       if(ctx.bull_poi_upper > 0.0 && ctx.bull_poi_lower > 0.0)
         {
+         if(swept && level >= ctx.bull_poi_lower - behind_tolerance && level <= ctx.bull_poi_upper + behind_tolerance)
+            ctx.bull_sweep_in_zone_creation = true;
          if(level >= ctx.bull_poi_lower && level <= current_price)
             ctx.buy_opposing_liquidity_front = true;
          if(level <= ctx.bull_poi_lower && level >= ctx.bull_poi_lower - behind_tolerance)
@@ -2079,8 +2086,8 @@ void EvaluateSetupState(SetupContext &ctx)
 
    bool buy_has_poi = ctx.bull_poi_near;
    bool sell_has_poi = ctx.bear_poi_near;
-   ctx.buy_poi_trap_risk = ctx.buy_liquidity_behind_zone && !ctx.buy_opposing_liquidity_front;
-   ctx.sell_poi_trap_risk = ctx.sell_liquidity_behind_zone && !ctx.sell_opposing_liquidity_front;
+   ctx.buy_poi_trap_risk = ctx.buy_liquidity_behind_zone && !ctx.buy_opposing_liquidity_front && !ctx.bull_sweep_in_zone_creation;
+   ctx.sell_poi_trap_risk = ctx.sell_liquidity_behind_zone && !ctx.sell_opposing_liquidity_front && !ctx.bear_sweep_in_zone_creation;
    if(ctx.buy_poi_trap_risk)
       buy_score = MathMax(0, buy_score - 25);
    if(ctx.sell_poi_trap_risk)

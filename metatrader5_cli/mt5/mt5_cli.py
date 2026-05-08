@@ -963,6 +963,89 @@ def order_limit_cmd(ctx, symbol, side, price, volume, risk_pct, sl, tp, expiry, 
     output(result, obj["as_json"])
 
 
+@order_group.command("ready-limit")
+@click.argument("symbol")
+@click.option("--direction", default="auto", show_default=True,
+              type=click.Choice(["auto", "buy", "sell"], case_sensitive=False),
+              help="Setup direction. auto derives from the TDA setup contract.")
+@click.option("--volume", type=float, default=None, help="Lot size.")
+@click.option("--risk-pct", "risk_pct", type=float, default=None, help="Risk as % of equity.")
+@click.option("--strategy-id", "strategy_id", default="ehukai-m1-sniper-poc", show_default=True,
+              help="Strategy identifier used for magic/comment metadata.")
+@click.option("--bars", default=300, show_default=True, type=int, help="Bars per timeframe for setup context.")
+@click.option("--max-spread-points", default=30, show_default=True, type=int,
+              help="Reject setup when current spread is wider than this.")
+@click.option("--min-rr", default=1.5, show_default=True, type=float, help="Minimum reward:risk.")
+@click.option("--entry-buffer-points", default=5, show_default=True, type=int,
+              help="Limit entry must be this many points beyond the correct quote side.")
+@click.option("--min-stop-points", default=50, show_default=True, type=int,
+              help="Minimum entry-to-SL distance in points.")
+@click.option("--stop-buffer-pips", default=1.0, show_default=True, type=float,
+              help="Buffer beyond structural/FVG invalidation for SL.")
+@click.option("--max-fvg-age-bars", default=20, show_default=True, type=int,
+              help="Reject FVGs older than this many bars on their timeframe.")
+@click.option("--max-sweep-age-bars", default=12, show_default=True, type=int,
+              help="Require the enabling liquidity sweep to be this recent.")
+@click.option("--max-entry-distance-pips", default=15.0, show_default=True, type=float,
+              help="Reject FVG midpoints farther than this from the trigger quote.")
+@click.option("--max-entry-drift-points", default=5, show_default=True, type=int,
+              help="Reject placement if setup entry moves this many points after dry-run.")
+@click.option("--include-partial-fvg", is_flag=True, help="Allow PARTIAL FVGs.")
+@click.option("--allow-rollover", is_flag=True, help="Allow setup during FX rollover window.")
+@click.option("--filling", default="auto", show_default=True, help="Filling mode: auto/FOK/IOC/RETURN.")
+@click.pass_context
+def order_ready_limit_cmd(
+    ctx,
+    symbol,
+    direction,
+    volume,
+    risk_pct,
+    strategy_id,
+    bars,
+    max_spread_points,
+    min_rr,
+    entry_buffer_points,
+    min_stop_points,
+    stop_buffer_pips,
+    max_fvg_age_bars,
+    max_sweep_age_bars,
+    max_entry_distance_pips,
+    max_entry_drift_points,
+    include_partial_fvg,
+    allow_rollover,
+    filling,
+):
+    """Place a supervised limit order only when TDA status is READY."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    result = analyze.place_ready_limit(
+        symbol,
+        direction=direction,
+        volume=volume,
+        risk_pct=risk_pct,
+        strategy_id=strategy_id,
+        bars=bars,
+        max_spread_points=max_spread_points,
+        min_rr=min_rr,
+        entry_buffer_points=entry_buffer_points,
+        min_stop_points=min_stop_points,
+        stop_buffer_pips=stop_buffer_pips,
+        max_fvg_age_bars=max_fvg_age_bars,
+        max_sweep_age_bars=max_sweep_age_bars,
+        max_entry_distance_pips=max_entry_distance_pips,
+        include_partial_fvg=include_partial_fvg,
+        avoid_rollover=not allow_rollover,
+        max_entry_drift_points=max_entry_drift_points,
+        filling=filling,
+        cfg=obj["cfg"],
+        is_live_intent=obj["live_intent"],
+    )
+    output(result, obj["as_json"])
+
+
 @order_group.command("stop")
 @click.argument("symbol")
 @click.argument("side", type=click.Choice(["buy", "sell"], case_sensitive=False))

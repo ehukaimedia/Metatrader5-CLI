@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from metatrader5_cli.mt5.core import ehukai, market, rates as rates_module
+from metatrader5_cli.mt5.core import ehukai, market, order as order_module, rates as rates_module
 
 
 def _fail(code: str, message: str) -> dict:
@@ -898,3 +898,198 @@ def sniper_poc(
     if include_frames:
         data["frames"] = frames
     return {"ok": True, "data": data}
+
+
+def place_ready_limit(
+    symbol: str,
+    *,
+    direction: str = "auto",
+    volume: float | None = None,
+    risk_pct: float | None = None,
+    strategy_id: str = "ehukai-m1-sniper-poc",
+    bars: int = 300,
+    max_spread_points: int = 30,
+    min_rr: float = 1.5,
+    entry_buffer_points: int = 5,
+    min_stop_points: int = 50,
+    stop_buffer_pips: float = 1.0,
+    max_fvg_age_bars: int = 20,
+    max_sweep_age_bars: int = 12,
+    max_entry_distance_pips: float = 15.0,
+    include_partial_fvg: bool = False,
+    avoid_rollover: bool = True,
+    max_entry_drift_points: int = 5,
+    filling: str = "auto",
+    cfg: dict,
+    is_live_intent: bool,
+) -> dict:
+    """Place a guarded limit order only when the setup contract remains READY.
+
+    This is a supervised execution bridge. It deliberately does not enforce a
+    demo-only account type because some broker demos report like live-capable
+    accounts. Live permission stays with the existing CLI live-intent/risk gate.
+    """
+    if (volume is None) == (risk_pct is None):
+        return _fail("MT5_INVALID_ARGUMENT", "Provide exactly one of volume or risk_pct.")
+    if not strategy_id:
+        return _fail("MT5_INVALID_ARGUMENT", "strategy_id is required for setup placement.")
+    if max_entry_drift_points < 0:
+        return _fail("MT5_INVALID_ARGUMENT", "max_entry_drift_points must be >= 0.")
+
+    setup_kwargs = {
+        "direction": direction,
+        "bars": bars,
+        "max_spread_points": max_spread_points,
+        "min_rr": min_rr,
+        "entry_buffer_points": entry_buffer_points,
+        "min_stop_points": min_stop_points,
+        "stop_buffer_pips": stop_buffer_pips,
+        "max_fvg_age_bars": max_fvg_age_bars,
+        "max_sweep_age_bars": max_sweep_age_bars,
+        "max_entry_distance_pips": max_entry_distance_pips,
+        "include_partial_fvg": include_partial_fvg,
+        "avoid_rollover": avoid_rollover,
+        "include_frames": False,
+    }
+
+    initial = sniper_poc(symbol, **setup_kwargs)
+    if not initial.get("ok"):
+        return initial
+    initial_data = initial["data"]
+    if initial_data.get("status") != "ready":
+        return {
+            "ok": False,
+            "error": {
+                "code": "EHUKAI_SETUP_NOT_READY",
+                "message": initial_data.get("reason") or "Setup is not READY.",
+                "mt5_retcode": None,
+            },
+            "data": {"setup": initial_data},
+        }
+
+    setup = initial_data.get("setup") or {}
+    side = initial_data.get("direction")
+    initial_entry = setup.get("entry")
+    sl = setup.get("sl")
+    tp = setup.get("tp")
+    if side not in {"buy", "sell"} or not isinstance(initial_entry, (int, float)):
+        return _fail("EHUKAI_SETUP_INVALID", "READY setup has no valid side/entry.")
+    if not isinstance(sl, (int, float)) or not isinstance(tp, (int, float)):
+        return _fail("EHUKAI_SETUP_INVALID", "READY setup must include SL and TP.")
+
+    first_dryrun = order_module.dryrun(
+        symbol.upper(),
+        side,
+        order_type="limit",
+        price=float(initial_entry),
+        volume=volume,
+        risk_pct=risk_pct,
+        sl=float(sl),
+        tp=float(tp),
+        strategy_id=strategy_id,
+        filling=filling,
+        cfg=cfg,
+        is_live_intent=is_live_intent,
+    )
+    if not first_dryrun.get("ok"):
+        return {
+            "ok": False,
+            "error": first_dryrun.get("error"),
+            "data": {"setup": initial_data, "dryrun": first_dryrun},
+        }
+
+    final = sniper_poc(symbol, **setup_kwargs)
+    if not final.get("ok"):
+        return final
+    final_data = final["data"]
+    if final_data.get("status") != "ready":
+        return {
+            "ok": False,
+            "error": {
+                "code": "EHUKAI_SETUP_CHANGED",
+                "message": final_data.get("reason") or "Setup stopped being READY after dry-run.",
+                "mt5_retcode": None,
+            },
+            "data": {"initial_setup": initial_data, "final_setup": final_data, "dryrun": first_dryrun},
+        }
+
+    final_setup = final_data.get("setup") or {}
+    final_entry = final_setup.get("entry")
+    final_sl = final_setup.get("sl")
+    final_tp = final_setup.get("tp")
+    if not isinstance(final_entry, (int, float)) or not isinstance(final_sl, (int, float)) or not isinstance(final_tp, (int, float)):
+        return _fail("EHUKAI_SETUP_INVALID", "Final READY setup must include entry, SL, and TP.")
+    point = float((final_data.get("quote") or {}).get("point") or 0.0)
+    drift_points = abs(float(final_entry) - float(initial_entry)) / point if point else 0.0
+    if drift_points > max_entry_drift_points:
+        return {
+            "ok": False,
+            "error": {
+                "code": "EHUKAI_SETUP_DRIFTED",
+                "message": f"Entry drifted {drift_points:.1f} points after dry-run; max={max_entry_drift_points}.",
+                "mt5_retcode": None,
+            },
+            "data": {"initial_setup": initial_data, "final_setup": final_data, "dryrun": first_dryrun},
+        }
+
+    immediate_dryrun = order_module.dryrun(
+        symbol.upper(),
+        side,
+        order_type="limit",
+        price=float(final_entry),
+        volume=volume,
+        risk_pct=risk_pct,
+        sl=float(final_sl),
+        tp=float(final_tp),
+        strategy_id=strategy_id,
+        filling=filling,
+        cfg=cfg,
+        is_live_intent=is_live_intent,
+    )
+    if not immediate_dryrun.get("ok"):
+        return {
+            "ok": False,
+            "error": immediate_dryrun.get("error"),
+            "data": {"initial_setup": initial_data, "final_setup": final_data, "dryrun": immediate_dryrun},
+        }
+
+    placement = order_module.place_limit(
+        symbol.upper(),
+        side,
+        float(final_entry),
+        volume=volume,
+        risk_pct=risk_pct,
+        sl=float(final_sl),
+        tp=float(final_tp),
+        strategy_id=strategy_id,
+        filling=filling,
+        cfg=cfg,
+        is_live_intent=is_live_intent,
+    )
+    if not placement.get("ok"):
+        return {
+            "ok": False,
+            "error": placement.get("error"),
+            "data": {"initial_setup": initial_data, "final_setup": final_data, "dryrun": immediate_dryrun, "placement": placement},
+        }
+
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol.upper(),
+            "status": "placed",
+            "strategy_id": strategy_id,
+            "initial_setup": initial_data,
+            "final_setup": final_data,
+            "dryrun": immediate_dryrun["data"],
+            "placement": placement["data"],
+            "safety": {
+                "ready_required": True,
+                "dryrun_immediate_before_placement": True,
+                "sl_required": True,
+                "tp_required": True,
+                "strategy_id_required": True,
+                "account_type_block": False,
+            },
+        },
+    }

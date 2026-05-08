@@ -131,6 +131,17 @@ The alert should include:
 - Why it is high value.
 - What would invalidate it.
 
+## Phase 6: Supervised READY Placement
+
+Status: implemented for live-capable demo testing
+
+Add a guarded placement bridge for setups that already reach READY:
+
+- `order ready-limit` calls `analyze.sniper_poc()` and rejects anything other than `status=ready`.
+- The command runs a broker `order dryrun`, refreshes the setup and quote, rejects stale or drifting entries, runs an immediate second dry-run, and only then calls the normal `order limit` placement path.
+- SL, TP, and `strategy_id` are required before placement.
+- The implementation does not add a demo-only account-type block because some broker demo accounts report as real/live-capable. It relies on the existing `--live` / `MT5_LIVE=1` live-intent and risk gates.
+
 ## Non-Goals
 
 - Do not make the TDA overlay place trades.
