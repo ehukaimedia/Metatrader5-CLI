@@ -19,6 +19,7 @@ from pathlib import Path
 import hashlib
 from datetime import datetime, timezone
 
+import adopt
 import journal
 import state_db
 
@@ -164,11 +165,11 @@ _UNMANAGED_WARN_INTERVAL_SECONDS = 60
 def bootstrap_position(cfg: dict, db_path: Path, pos: dict, *, account: int) -> dict | None:
     """Match an MT5 position to a journal placement and seed managed_position.
 
-    Returns the seeded row dict on success, None on fail-closed (no match,
-    ambiguous, or out-of-scope magic).
+    Returns the seeded row dict on success, None on fail-closed (no match
+    or ambiguous). The caller (loop_once) gatekeeps which positions are
+    eligible for management — this function only enforces the
+    journal-match requirement.
     """
-    if pos["magic"] not in poc_magics(cfg):
-        return None
     existing = state_db.get_managed_position(db_path, pos["ticket"])
     if existing and existing.get("stage") != "closed":
         return existing
@@ -509,18 +510,80 @@ def manage_one(cfg: dict, db_path: Path, pos: dict) -> None:
                        reason="chandelier", stage_to="trailing")
 
 
+def _allowlist_path(cfg: dict) -> Path:
+    p = (cfg.get("manager") or {}).get("allowlist_path")
+    return Path(p) if p else adopt.default_path()
+
+
+def _ensure_adopted_placement(cfg: dict, pos: dict, allowlist_entry: dict) -> None:
+    """Synthesize a kind=placement record (with adopted=true) so the
+    existing bootstrap_position path can ticket-match this manual position
+    without a journal placement from agent.py.
+
+    Idempotent: if a placement already exists for this ticket, no-op.
+    """
+    for r in journal.read_all():
+        if r.get("kind") == "placement" and r.get("ticket") == pos["ticket"]:
+            return
+    journal.append({
+        "kind": "placement",
+        "adopted": True,
+        "pair": pos["symbol"],
+        "ticket": pos["ticket"],
+        "magic": pos.get("magic", 0),
+        "direction": pos.get("type"),
+        "entry": pos.get("open_price"),
+        "sl": pos.get("sl"),
+        "tp": pos.get("tp"),
+        "volume": pos.get("volume"),
+        "strategy_id": f"adopted-{pos.get('symbol')}",
+        "reasoning": {
+            "adopted_from_allowlist": True,
+            "expires_at": allowlist_entry.get("expires_at"),
+            "operator_note": allowlist_entry.get("operator_note"),
+            "be_r": allowlist_entry.get("be_r"),
+            "trail_model": allowlist_entry.get("trail_model"),
+            "mode": allowlist_entry.get("mode"),
+        },
+    })
+    journal.append({
+        "kind": "adoption",
+        "ticket": pos["ticket"],
+        "symbol": pos.get("symbol"),
+        "magic": pos.get("magic", 0),
+        "expires_at": allowlist_entry.get("expires_at"),
+        "operator_note": allowlist_entry.get("operator_note"),
+    })
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
-    """One iteration: heartbeat + scan-and-manage. Bootstraps unknown
-    poc-magic positions, infers stage, then runs BE/Chandelier per row."""
+    """One iteration: heartbeat + scan-and-manage.
+
+    A position is managed if EITHER:
+      - its magic is in the poc-set (phase-1, journal-placement bootstrap), OR
+      - its ticket is in the manual-trade allowlist (phase-3, synthesized
+        placement bootstrap).
+
+    Anything else — including manual magic=0 not on the allowlist — is
+    left untouched, preserving the phase-1 invariant.
+    """
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
     positions = list_positions(cfg)
     if not positions:
         return
     account = _account_login(cfg)
     magics = poc_magics(cfg)
+    allowlist_path = _allowlist_path(cfg)
+    adopted = adopt.adopted_tickets(allowlist_path)
     for pos in positions:
-        if pos.get("magic") not in magics:
+        is_poc = pos.get("magic") in magics
+        is_adopted = pos.get("ticket") in adopted
+        if not (is_poc or is_adopted):
             continue
+        if is_adopted and not is_poc:
+            entry = adopt.lookup(allowlist_path, pos["ticket"])
+            if entry is not None:
+                _ensure_adopted_placement(cfg, pos, entry)
         bootstrap_position(cfg, db_path, pos, account=account)
         infer_stage_after_bootstrap(cfg, db_path, pos)
         manage_one(cfg, db_path, pos)
