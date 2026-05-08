@@ -328,36 +328,115 @@ def is_blackout_active(cfg: dict, pair: str) -> bool:
 
 Each gate test: set up state to make ONLY that gate fail, assert `attempt_autopilot_place` returns failure with the right `gate` reason in `autopilot_skip`, no `mt5 order ready-limit` call.
 
-- [ ] **Step 2: Implement** `attempt_autopilot_place(cfg, db_path, alert, consensus)`:
+- [ ] **Step 2: Implement** `attempt_autopilot_place(cfg, db_path, alert, consensus)`.
+
+**Codex1 BLOCKER #1 (must-have):** placement MUST use `mt5 order limit
+SYMBOL DIR --price <ENTRY> --sl <SL> --tp <TP> --volume <V> --magic <M>`
+with the EXACT levels stored on the alert (`alert['setup']['entry'/'sl'/'tp']`).
+The phase-1 path `mt5 order ready-limit` re-runs `sniper_poc()` and uses
+its own `final_entry/final_sl/final_tp` — that re-evaluation step
+violates the autopilot invariant "place only the deterministic levels
+the reviewers approved." `order limit` exists and accepts explicit
+levels (verified against `mt5 order limit --help`).
+
+Skeleton:
 
 ```python
 def attempt_autopilot_place(cfg, db_path, alert, consensus):
     ap = cfg["autopilot"]
-    # Gate 1
+    aid = alert["alert_id"]
+
+    # Gates 1-3 (config / kill / consensus)
     if not ap.get("enabled"):
-        journal.log_autopilot_skip(alert["alert_id"], "enabled", "off")
-        return None
-    # Gate 2
+        journal.log_autopilot_skip(aid, "enabled", "off"); return None
     if kill_switch_get(db_path) == "on":
-        journal.log_autopilot_skip(alert["alert_id"], "kill_switch", "on")
-        return None
-    # Gate 3
+        journal.log_autopilot_skip(aid, "kill_switch", "on"); return None
     if consensus.get("consensus") != "take":
-        journal.log_autopilot_skip(alert["alert_id"], "consensus", consensus.get("consensus_reason"))
-        return None
-    # ... gates 4-12 in order, each fail-fast
-    # On all-pass: place via mt5 order ready-limit at alert['setup'] levels
-    placement = _place(cfg, alert)
+        journal.log_autopilot_skip(aid, "consensus", consensus.get("consensus_reason")); return None
+
+    # Gate 4 — pair allowlist
+    if alert["pair"] not in (ap.get("pair_allowlist") or []):
+        journal.log_autopilot_skip(aid, "pair_allowlist", alert["pair"]); return None
+
+    # Gate 5 — alert age
+    if _alert_age_seconds(alert) > float(ap["max_alert_age_seconds"]):
+        journal.log_autopilot_skip(aid, "alert_age", "stale_setup"); return None
+
+    # Gate 6 — fingerprint or bounded drift against current setup
+    if not _fingerprint_or_drift_ok(cfg, alert, ap):
+        journal.log_autopilot_skip(aid, "fingerprint_or_drift", "stale_setup"); return None
+
+    # Gate 7 — live-intent (NEVER call broker without it)
+    if not cfg["mt5_cli"].get("live"):
+        journal.log_autopilot_skip(aid, "live", "not_live"); return None
+
+    # Gate 8 — spread cap (current quote)
+    spread = _current_spread(cfg, alert["pair"])
+    if spread is None or spread > float(cfg["manager"]["max_spread_points"]):
+        journal.log_autopilot_skip(aid, "spread_cap", f"spread={spread}"); return None
+
+    # Gate 9 — news blackout (fails closed when news_source is null)
+    if news.is_blackout_active(cfg, alert["pair"]):
+        journal.log_autopilot_skip(aid, "news_blackout", "active_or_unavailable"); return None
+
+    # Gate 10 — micro-lot only
+    if float(ap.get("lot_size", 0)) <= 0:
+        journal.log_autopilot_skip(aid, "lot_size", "invalid"); return None
+
+    # Gate 11 — daily caps (autopilot-only counts)
+    if not _within_caps(db_path, ap):
+        journal.log_autopilot_skip(aid, "daily_caps", "exceeded"); return None
+
+    # Gate 12 — one active strategy per (pair, magic)
+    if _already_active(cfg, alert):
+        journal.log_autopilot_skip(aid, "active_strategy", "already_open"); return None
+
+    # All 12 gates pass → place at the bot's ORIGINAL setup levels via
+    # `mt5 order limit` (NOT ready-limit which re-runs sniper_poc).
+    setup = alert["setup"]
+    magic = _derive_magic(f"{cfg['agent']['strategy_id_prefix']}-{alert['pair']}")
+    cmd = [
+        cfg["mt5_cli"]["command"], "--live", "--json",
+        "order", "limit", alert["pair"], alert["direction"],
+        "--price",  f"{setup['entry']}",
+        "--sl",     f"{setup['sl']}",
+        "--tp",     f"{setup['tp']}",
+        "--volume", f"{ap['lot_size']}",
+        "--magic",  str(magic),
+        "--strategy-id", f"{cfg['agent']['strategy_id_prefix']}-{alert['pair']}",
+    ]
+    placement = _run_cli_capture(cmd)
     if placement and placement.get("ok"):
         journal.log_autopilot_placement(
             pair=alert["pair"], placement=placement,
-            consensus_alert_id=alert["alert_id"],
-            reviewer_confidences=[v["confidence"] for v in consensus["votes"]],
+            consensus_alert_id=aid,
+            reviewer_confidences=[float(v["confidence"]) for v in consensus["votes"]],
         )
     return placement
 ```
 
-Helper `_check_fingerprint_or_drift(alert, current)` enforces gate #6. Helper `_within_caps(db_path, ap)` reads daily counters from `trades.jsonl`.
+Tests must verify:
+- The all-pass test asserts `cmd` includes `alert['setup']['entry'/'sl'/'tp']`
+  EXACTLY, even when a mocked current `sniper_poc` returns different levels.
+- A `decision="adjust"` verdict from one reviewer cannot reach this path
+  (consensus.evaluate already short-circuits) — but T9 itself must NEVER
+  read `verdict.adjusted_*` fields.
+- Each gate has its own fail-fast test that asserts NO `order limit` call
+  is made and `autopilot_skip` is journaled with the right `gate`/`reason`.
+- The live-intent gate (#7) is exercised BEFORE any broker call so a
+  `live=false` config never even touches the wire.
+
+Helper specs:
+- `_fingerprint_or_drift_ok(cfg, alert, ap)`: run `sniper_poc(pair)`. If
+  `current.setup_fingerprint == alert.setup_fingerprint` → True. Else if
+  same direction + same POI id + same structure event AND each of
+  `entry/sl/tp` differs from alert by ≤ `max_entry_drift_points` → True.
+  Else False.
+- `_within_caps(db_path, ap)`: count today's `kind=autopilot_placement`
+  rows joined to `kind=outcome` rows for autopilot_realized_loss_today
+  (autopilot-only — manual placements do NOT count).
+- `_already_active(cfg, alert)`: reuse `agent.active_strategies(cfg)`
+  which already includes pending orders + open positions.
 
 - [ ] **Step 3: Run, commit.**
 

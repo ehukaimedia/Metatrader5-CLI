@@ -350,9 +350,13 @@ def place_new_orders(cfg: dict) -> int:
                 "\n".join(body_lines),
                 tags=["bell"], priority=5,
             )
+            # Generate alert_id BEFORE log_ready_alert so the journal record
+            # carries it (Codex1 blocker #2: pair-only fallback was unsafe
+            # when multiple READYs fire on the same pair).
+            alert_id = f"{datetime.now(timezone.utc).isoformat(timespec='microseconds')}-{pair}"
+            data["alert_id"] = alert_id
             journal.log_ready_alert(pair, data)
             if a.get("review_enabled"):
-                alert_id = f"{datetime.now(timezone.utc).isoformat(timespec='microseconds')}-{pair}"
                 payload = {
                     "alert_id": alert_id,
                     "pair": pair,
@@ -470,21 +474,16 @@ def evaluate_pending_consensus(cfg: dict, db_path: Path | None = None) -> int:
     last_seen = state_db.cursor_get(db_path, cursor_name) or ""
 
     rows = journal.read_all()
-    # Group llm_verdicts by alert_id; capture each alert's setup_fingerprint
+    # Group llm_verdicts by alert_id; resolve each alert's setup_fingerprint
+    # and original setup by alert_id.
     verdicts_by_alert: dict[str, list[dict]] = {}
-    fp_by_alert: dict[str, str] = {}
+    alert_by_id: dict[str, dict] = {}
     for r in rows:
         kind = r.get("kind")
         if kind == "ready_alert":
             aid_match = r.get("alert_id")
-            fp = r.get("setup_fingerprint")
-            if fp:
-                if aid_match:
-                    fp_by_alert[aid_match] = fp
-                # Also record the most recent fingerprint for this pair so we
-                # can still match when alert_id wasn't stamped on ready_alert
-                # (alert_id is generated AFTER log_ready_alert in agent.py).
-                fp_by_alert.setdefault(f"_pair:{r.get('pair')}", fp)
+            if aid_match:
+                alert_by_id[aid_match] = r
         elif kind == "llm_verdict":
             aid = r.get("alert_id")
             if aid:
@@ -520,17 +519,22 @@ def evaluate_pending_consensus(cfg: dict, db_path: Path | None = None) -> int:
                 break
         if len(votes) < 2:
             continue
-        # Resolve the alert's setup_fingerprint: prefer the matching
-        # ready_alert record, fall back to the per-pair fingerprint, fall
-        # back to whatever the first verdict reviewed (so consensus can't
-        # silently match anything).
-        pair = aid.rsplit("-", 1)[-1] if "-" in aid else None
-        fp = fp_by_alert.get(aid) or fp_by_alert.get(f"_pair:{pair}") \
-             or votes[0]["reviewed_fingerprint"]
+        # Resolve the alert's setup_fingerprint by alert_id only — no pair
+        # fallback (Codex1 blocker #2). If the alert isn't in the journal
+        # (race during shutdown), refuse to compute consensus rather than
+        # match the wrong setup.
+        alert_record = alert_by_id.get(aid)
+        if not alert_record or not alert_record.get("setup_fingerprint"):
+            continue
+        fp = alert_record["setup_fingerprint"]
+        pair = alert_record.get("pair")
+        direction = alert_record.get("direction")
         result = _consensus.evaluate(votes, alert_fingerprint=fp,
                                      min_confidence=min_conf)
         journal.log_consensus_verdict({
             "alert_id": aid,
+            "pair": pair,
+            "direction": direction,
             "setup_fingerprint": fp,
             "reviewers": [v["reviewer"] for v in votes],
             "votes": votes,

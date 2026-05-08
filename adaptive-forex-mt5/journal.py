@@ -95,6 +95,10 @@ def log_ready_alert(pair: str, scan: dict) -> None:
     Same shape as a placement record minus the broker fields. Lets the
     dashboard distinguish 'bot would have placed this' from 'skipped'
     without polluting the placement count.
+
+    `alert_id` (if present in scan) is preserved so phase-2 autopilot can
+    retrieve the EXACT original setup by id (Codex1's blocker #2 — the
+    pair-fallback was unsafe when multiple READYs exist for the same pair).
     """
     scan = scan or {}
     setup = scan.get("setup") or {}
@@ -111,6 +115,8 @@ def log_ready_alert(pair: str, scan: dict) -> None:
     }
     if "setup_fingerprint" in scan:
         record["setup_fingerprint"] = scan["setup_fingerprint"]
+    if "alert_id" in scan:
+        record["alert_id"] = scan["alert_id"]
     append(record)
 
 
