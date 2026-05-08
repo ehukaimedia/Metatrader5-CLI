@@ -253,9 +253,40 @@ def compute_be_target(row: dict, cfg: dict, favorable_price: float) -> float | N
     return round(target, row.get("digits", 5))
 
 
+def compute_chandelier(bars: list[dict], *, direction: str, cfg: dict) -> float | None:
+    """Chandelier exit on a list of OHLC bars (oldest first).
+
+    bars: [{"high", "low", "close"}, ...] — closed bars only.
+    Returns: trail SL price, or None if not enough data.
+    """
+    m = cfg["manager"]
+    period = int(m.get("chandelier_atr_period", 22))
+    mult = float(m.get("chandelier_atr_multiplier", 3.0))
+    lookback = int(m.get("chandelier_extreme_lookback", 22))
+
+    # Need at least period+1 bars to take period TRs.
+    if len(bars) < period + 1:
+        return None
+    trs: list[float] = []
+    for i in range(1, len(bars)):
+        h = bars[i]["high"]
+        l = bars[i]["low"]
+        pc = bars[i - 1]["close"]
+        tr = max(h - l, abs(h - pc), abs(l - pc))
+        trs.append(tr)
+    atr = sum(trs[-period:]) / period
+
+    extremes_window = bars[-lookback:]
+    if direction == "buy":
+        highest_high = max(b["high"] for b in extremes_window)
+        return highest_high - mult * atr
+    lowest_low = min(b["low"] for b in extremes_window)
+    return lowest_low + mult * atr
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
     """One iteration: heartbeat + scan-and-manage. Subsequent tasks fill in
-    Chandelier / modify."""
+    modify state machine + integration."""
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
     list_positions(cfg)
 
