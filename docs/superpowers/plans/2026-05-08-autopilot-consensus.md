@@ -4,7 +4,7 @@
 
 **Goal:** Add a strict-2-of-2 consensus auto-trade lane on top of phase-1's review pipeline. Reviewers vote `take` / `skip` / `adjust` on the deterministic READY setup; both must vote `take` with `accepted_levels=true` and confidence >= threshold for the autopilot executor to place at the bot's original levels. Master flag defaults OFF; shadow consensus_verdict records run unconditionally so the operator can calibrate before flipping it on.
 
-**Architecture:** Adds a second persistent reviewer agent (`CodexReviewer`). On each READY, agent.py creates TWO `trade_review-*` tasks in parallel. The verdict poller joins both verdicts by `alert_id`, computes consensus, and journals `kind=consensus_verdict`. When `autopilot.enabled=true` and consensus is `take`, the autopilot executor runs a 12-gate parity check (alert age, fingerprint match or bounded drift, kill-switch, news blackout, per-pair allowlist, micro-lot, daily caps, etc.) and only on full pass calls `mt5 order ready-limit` at the bot's original entry/sl/tp.
+**Architecture:** Adds a second persistent reviewer agent (`CodexReviewer`). On each READY, agent.py creates TWO `trade_review-*` tasks in parallel. The verdict poller joins both verdicts by `alert_id`, computes consensus, and journals `kind=consensus_verdict`. When `autopilot.enabled=true` and consensus is `take`, the autopilot executor receives the EXACT original `ready_alert` payload (looked up by `alert_id`) and runs a 12-gate parity check (alert age, fingerprint match or bounded drift, kill-switch, news blackout, per-pair allowlist, micro-lot, daily caps, etc.). On full pass it calls `mt5 order limit` at `alert['setup'].entry/sl/tp` — the bot's original levels. `sniper_poc()` is only re-run inside the fingerprint/drift gate to verify the current market still matches; it is never used to build placement levels.
 
 **Tech Stack:** Same as phase 1 — Python 3.13, sqlite3, pytest, ehukaiconnect, MT5 CLI.
 
@@ -21,7 +21,7 @@
 | Path | Responsibility |
 |---|---|
 | `adaptive-forex-mt5/consensus.py` | Compute 2-of-2 consensus from a pair of phase-1 verdicts. Pure function. |
-| `adaptive-forex-mt5/autopilot.py` | The 12-gate executor + place call. Reads state.db, journal, current setup. |
+| `adaptive-forex-mt5/autopilot.py` | The 12-gate executor + place call. Reads state.db, journal, original ready_alert (by alert_id). Re-runs sniper_poc only inside the fingerprint/drift gate. |
 | `adaptive-forex-mt5/news.py` | News-blackout helper — `is_blackout_active(cfg, pair)`. Fails closed when `autopilot.news_source` is null. |
 | `.ehukaiconnect/skills/CodexReviewer/SKILL.md` | Second reviewer agent skill (mirrors ClaudeReviewer but writes `<alert_id>-codex.json`). |
 | `adaptive-forex-mt5/tests/test_consensus.py` | Strict-2-of-2 unit tests. |
@@ -326,7 +326,7 @@ def is_blackout_active(cfg: dict, pair: str) -> bool:
 11. daily_trade_cap exceeded blocks; daily_loss_cap exceeded blocks
 12. `(pair, magic)` already in `active_strategies` blocks
 
-Each gate test: set up state to make ONLY that gate fail, assert `attempt_autopilot_place` returns failure with the right `gate` reason in `autopilot_skip`, no `mt5 order ready-limit` call.
+Each gate test: set up state to make ONLY that gate fail, assert `attempt_autopilot_place` returns failure with the right `gate` reason in `autopilot_skip`, no `mt5 order limit` call.
 
 - [ ] **Step 2: Implement** `attempt_autopilot_place(cfg, db_path, alert, consensus)`.
 
@@ -450,7 +450,7 @@ Helper specs:
 
 - [ ] **Step 1: Failing test** — full happy path: 2 reviewer verdicts arrive, consensus=take, all 12 gates pass, autopilot.attempt_autopilot_place is called and journals `autopilot_placement`.
 
-- [ ] **Step 2: Implement** in `agent.poll_verdicts` (or a sibling function): after each `consensus_verdict` is journaled, if `autopilot.enabled` and `consensus=take`, re-run `sniper_poc(pair)` to get the current setup, then call `autopilot.attempt_autopilot_place(cfg, db_path, alert_with_current_levels, consensus)`.
+- [ ] **Step 2: Implement** in `agent.evaluate_pending_consensus` (or a sibling function): after each `consensus_verdict` is journaled, if `autopilot.enabled` and `consensus=take`, look up the ORIGINAL `ready_alert` record by `alert_id` (it carries `setup.entry/sl/tp`, `setup_fingerprint`, `pair`, `direction`), then call `autopilot.attempt_autopilot_place(cfg, db_path, original_alert, consensus)`. **Do not re-run `sniper_poc()` here to construct levels.** The autopilot executor's gate #6 will run `sniper_poc()` itself for fingerprint/drift verification — that's the only place re-evaluation is allowed.
 
 - [ ] **Step 3: Run, commit.**
 
