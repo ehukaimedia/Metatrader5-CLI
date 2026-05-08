@@ -37,6 +37,8 @@ def _pos_to_dict(pos) -> dict:
         "tp": pos.tp,
         "profit": pos.profit,
         "swap": pos.swap,
+        "magic": int(pos.magic) if hasattr(pos, "magic") else 0,
+        "comment": getattr(pos, "comment", "") or "",
     }
 
 
