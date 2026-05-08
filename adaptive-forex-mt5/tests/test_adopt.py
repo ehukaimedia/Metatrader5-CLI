@@ -13,8 +13,6 @@ def _entry(**overrides):
         "symbol": "GBPJPY",
         "account": 9999,
         "mode": "trail_only",
-        "be_r": 0.80,
-        "trail_model": "chandelier_atr22_3.0",
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
         "operator_note": "GBPJPY manual long",
     }
@@ -49,7 +47,7 @@ def test_load_filters_expired(tmp_path):
 def test_load_skips_entries_missing_required_fields(tmp_path):
     path = tmp_path / "managed_positions.json"
     path.write_text(json.dumps([
-        {"ticket": 1, "symbol": "GBPJPY"},  # missing account / be_r / trail_model
+        {"ticket": 1, "symbol": "GBPJPY"},  # missing account / mode / expiry / note
         _entry(ticket=2),
     ]))
     rows = adopt.load(path)

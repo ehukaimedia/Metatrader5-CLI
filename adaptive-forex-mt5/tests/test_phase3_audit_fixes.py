@@ -23,8 +23,6 @@ def _entry(*, ticket=204841232, symbol="GBPJPY", account=9999, mode="trail_only"
         "symbol": symbol,
         "account": account,
         "mode": mode,
-        "be_r": 0.80,
-        "trail_model": "chandelier_atr22_3.0",
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
         "operator_note": "test",
     }

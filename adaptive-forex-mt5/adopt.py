@@ -15,8 +15,6 @@ Schema (per spec § Phase 3):
     "symbol":         "GBPJPY",
     "account":        9999,
     "mode":           "trail_only" | "be_and_trail",
-    "be_r":           0.80,
-    "trail_model":    "chandelier_atr22_3.0",
     "expires_at":     "2026-05-15T00:00:00Z",
     "operator_note":  "GBPJPY manual long, hand to bot for trail"
   }
@@ -35,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-_REQUIRED_FIELDS = {"ticket", "symbol", "account", "mode", "be_r", "trail_model"}
+_REQUIRED_FIELDS = {"ticket", "symbol", "account", "mode", "expires_at", "operator_note"}
 
 
 def default_path() -> Path:

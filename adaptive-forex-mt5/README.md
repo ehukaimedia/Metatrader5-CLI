@@ -13,7 +13,7 @@ Auto-placement mode exists (`agent.alerts_only=false`) but is not the recommende
 ### 1. Setup
 
 ```powershell
-cd C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI\adaptive-forex-mt5
+cd <your-workspace>\Metatrader5-CLI\adaptive-forex-mt5
 copy config.example.json config.json
 ```
 
@@ -64,7 +64,7 @@ Install ntfy on your phone, subscribe to the topic in `config.json`. You'll get 
 | `bench_llm.py` | Latency + JSON-validity benchmark for candidate LLMs (Qwen 3.6, ehukai-gemma4) — used for evaluating LLM review options |
 | `test_e2e.py` | Real-broker round-trip test (gated by `--allow-live` flag) verifying outcome attribution, active-strategy guard, and magic-derivation parity |
 | `skills/trading.com/SKILL.md` | Broker-specific constraints (FOK, FIFO, 1:50 leverage) |
-| `config.example.json` | Default config (alerts_only: false) |
+| `config.example.json` | Default config (`agent.alerts_only: true`, `autopilot.enabled: false`) |
 | `config.json` | Operator config (gitignored) |
 | `logs/trades.jsonl` | Append-only journal (gitignored) |
 
@@ -218,7 +218,7 @@ Five rounds of code review during initial build (2026-05-07 / 2026-05-08), all i
 Project state is captured in auto-memory at `~/.claude/projects/.../memory/project_adaptive_forex_mt5.md`. New Claude Code sessions at the master path auto-load it.
 
 ```powershell
-cd C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI
+cd <your-workspace>\Metatrader5-CLI
 claude
 # then: "continue the adaptive-forex-mt5 work"
 ```
@@ -228,7 +228,7 @@ claude
 Three Python processes plus one persistent reviewer agent:
 
 ```powershell
-cd C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI\adaptive-forex-mt5
+cd <your-workspace>\Metatrader5-CLI\adaptive-forex-mt5
 Start-Process powershell -ArgumentList '-NoExit','-Command','python dashboard.py'
 Start-Process powershell -ArgumentList '-NoExit','-Command','python agent.py'
 Start-Process powershell -ArgumentList '-NoExit','-Command','python trade_manager.py'
@@ -447,10 +447,12 @@ Optional / audit-only: any other fields are recorded in the
 
 ### What the bot does to an adopted trade
 
-Same as a poc-magic trade — BE move at the configured `be_r`, then
-Chandelier trail with the configured `trail_model`. The operator's
-existing SL is the starting `initial_sl`; the manager only ever
-TIGHTENS, never loosens.
+For `mode=trail_only`, the bot skips the BE move and starts from the
+operator's current SL, then only applies the configured global Chandelier
+trail. For `mode=be_and_trail`, it behaves like a poc-magic trade:
+global BE trigger first, then global Chandelier trail. The operator's
+existing SL is the starting `initial_sl`; the manager only ever TIGHTENS,
+never loosens.
 
 ### Removing a trade from adoption
 
