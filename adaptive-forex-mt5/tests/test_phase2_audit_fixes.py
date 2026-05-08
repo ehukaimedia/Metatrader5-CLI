@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import autopilot
@@ -34,8 +35,9 @@ def test_autopilot_placement_visible_to_manager_bootstrap(tmp_path, monkeypatch)
     }
     journal.log_autopilot_placement(
         pair="USDJPY", alert=alert,
-        placement={"data": {"placement": {"ticket": 1234, "magic": 128461,
-                                          "volume": 0.001}}},
+        placement={"data": {"ticket": 1234, "magic": 128461, "volume": 0.001,
+                            "symbol": "USDJPY", "type": "buy",
+                            "price": 156.50, "sl": 156.30, "tp": 157.00}},
         consensus_alert_id="abc-USDJPY",
         reviewer_confidences=[0.84, 0.79],
         strategy_id="ehukai-poc-USDJPY",
@@ -55,12 +57,112 @@ def test_autopilot_placement_counted_in_folded_trades(tmp_path, monkeypatch):
     }
     journal.log_autopilot_placement(
         pair="USDJPY", alert=alert,
-        placement={"data": {"placement": {"ticket": 1234, "magic": 128461}}},
+        placement={"data": {"ticket": 1234, "magic": 128461, "volume": 0.001,
+                            "symbol": "USDJPY", "type": "buy",
+                            "price": 156.50, "sl": 156.30, "tp": 157.00}},
         consensus_alert_id="abc-USDJPY",
         reviewer_confidences=[0.84, 0.79],
     )
     rows = journal.folded_trades()
     assert any(r["ticket"] == 1234 for r in rows)
+
+
+def test_attempt_autopilot_place_journals_with_flat_response_shape(tmp_path, monkeypatch):
+    """End-to-end through attempt_autopilot_place: with the REAL flat
+    `mt5 order limit` response shape, the journaled placement record must
+    carry ticket/magic/volume/direction/entry/sl/tp so trade_manager
+    bootstrap can ticket-match the resulting position. This is the
+    Codex1 phase-2 fix-review regression."""
+    import news
+    news._SOURCES.clear()
+    news.register_source("t", lambda p: [])
+    db = tmp_path / "state.db"
+    state_db.init(db)
+    log = tmp_path / "logs" / "trades.jsonl"
+    log.parent.mkdir(parents=True)
+    monkeypatch.setattr(journal, "_LOG_PATH", log)
+
+    alert = {
+        "alert_id": "abc-USDJPY", "pair": "USDJPY", "direction": "buy",
+        "setup_fingerprint": "deadbeef",
+        "setup": {"entry": 156.50, "sl": 156.30, "tp": 157.00, "rr": 2.5},
+        "ts": (datetime.now(timezone.utc)).isoformat(),
+    }
+    cfg = {
+        "pairs": ["USDJPY"],
+        "agent": {"strategy_id_prefix": "ehukai-poc"},
+        "manager": {"max_spread_points": 100},
+        "autopilot": {
+            "enabled": True, "min_confidence": 0.75,
+            "pair_allowlist": ["USDJPY"],
+            "max_alert_age_seconds": 31536000,  # don't fail on age
+            "max_entry_drift_points": 30,
+            "lot_size": 0.001,
+            "daily_trade_cap": 5, "daily_loss_cap_usd": 5.00,
+            "news_source": "t",
+        },
+        "mt5_cli": {"command": "mt5", "live": True, "subprocess_timeout_seconds": 60},
+    }
+    consensus = {
+        "consensus": "take", "consensus_reason": "test",
+        "votes": [
+            {"reviewer": "claude", "confidence": 0.84},
+            {"reviewer": "codex",  "confidence": 0.79},
+        ],
+    }
+
+    def fake_run(cmd, **kwargs):
+        class R: pass
+        r = R(); r.returncode = 0; r.stderr = ""; r.stdout = "{}"
+        if "sniper-poc" in cmd or "analyze" in cmd:
+            r.stdout = json.dumps({"ok": True, "data": {
+                "status": "ready", "direction": "buy",
+                "setup": dict(alert["setup"]),
+                "poi": {"id": "FVG-1", "top": 156.52, "bottom": 156.48},
+                "structure": {"last_confirmed_event": {"type": "BOS",
+                              "level": {"time": "2026-05-08T12:00:00+00:00"}}},
+                "setup_fingerprint": "deadbeef",
+            }})
+        elif "market" in cmd and "info" in cmd:
+            r.stdout = json.dumps({"ok": True, "data": {
+                "bid": 156.499, "ask": 156.500, "spread": 10,
+                "digits": 3, "point": 0.001,
+            }})
+        elif "order" in cmd and "limit" in cmd:
+            # FLAT response shape — what the real mt5 order limit returns.
+            r.stdout = json.dumps({"ok": True, "data": {
+                "ticket": 5555, "magic": 128461, "volume": 0.001,
+                "symbol": "USDJPY", "type": "buy",
+                "price": 156.50, "sl": 156.30, "tp": 157.00,
+                "strategy_id": "ehukai-poc-USDJPY",
+            }})
+        elif "position" in cmd and "list" in cmd:
+            r.stdout = json.dumps({"ok": True, "data": []})
+        return r
+
+    with patch("autopilot.subprocess.run", side_effect=fake_run):
+        out = autopilot.attempt_autopilot_place(cfg, db, alert, consensus)
+
+    assert out is not None and out.get("ok"), out
+    rows = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+    placements = [r for r in rows if r["kind"] == "placement" and r.get("autopilot")]
+    assert len(placements) == 1
+    p = placements[0]
+    # CRITICAL: every field needed by manager bootstrap / outcome
+    # resolution / stats is present and non-None.
+    assert p["ticket"] == 5555
+    assert p["magic"] == 128461
+    assert p["volume"] == 0.001
+    assert p["direction"] == "buy"
+    assert p["entry"] == 156.50
+    assert p["sl"] == 156.30
+    assert p["tp"] == 157.00
+    assert p["strategy_id"]
+    # And it flows through the lifecycle:
+    folded = journal.folded_trades()
+    assert any(r["ticket"] == 5555 for r in folded)
+    open_placements = trade_manager._open_journal_placements()
+    assert any(r["ticket"] == 5555 for r in open_placements)
 
 
 def test_autopilot_placement_outcome_can_be_resolved(tmp_path, monkeypatch):
@@ -75,7 +177,9 @@ def test_autopilot_placement_outcome_can_be_resolved(tmp_path, monkeypatch):
     }
     journal.log_autopilot_placement(
         pair="USDJPY", alert=alert,
-        placement={"data": {"placement": {"ticket": 1234, "magic": 128461}}},
+        placement={"data": {"ticket": 1234, "magic": 128461, "volume": 0.001,
+                            "symbol": "USDJPY", "type": "buy",
+                            "price": 156.50, "sl": 156.30, "tp": 157.00}},
         consensus_alert_id="abc-USDJPY",
         reviewer_confidences=[0.84, 0.79],
     )

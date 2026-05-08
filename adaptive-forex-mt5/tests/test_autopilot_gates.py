@@ -119,8 +119,12 @@ def _passing_run_factory(cfg, alert):
                 "digits": 3, "point": 0.001,
             }})
         elif "order" in cmd and "limit" in cmd:
+            # Flat shape from `mt5 order limit` (per _finalize_order in
+            # metatrader5_cli/mt5/core/order.py).
             r.stdout = json.dumps({"ok": True, "data": {
-                "placement": {"ticket": 1234, "magic": 128461},
+                "ticket": 1234, "magic": 128461, "volume": 0.001,
+                "symbol": "USDJPY", "type": "buy",
+                "price": 156.50, "sl": 156.30, "tp": 157.00,
             }})
         elif "position" in cmd and "list" in cmd:
             r.stdout = json.dumps({"ok": True, "data": []})
@@ -289,8 +293,12 @@ def test_all_pass_places_at_alert_setup_levels_exactly(tmp_path, monkeypatch):
                 "digits": 3, "point": 0.001,
             }})
         elif "order" in cmd and "limit" in cmd:
+            # Flat shape from `mt5 order limit` (per _finalize_order in
+            # metatrader5_cli/mt5/core/order.py).
             r.stdout = json.dumps({"ok": True, "data": {
-                "placement": {"ticket": 1234, "magic": 128461},
+                "ticket": 1234, "magic": 128461, "volume": 0.001,
+                "symbol": "USDJPY", "type": "buy",
+                "price": 156.50, "sl": 156.30, "tp": 157.00,
             }})
         elif "position" in cmd and "list" in cmd:
             r.stdout = json.dumps({"ok": True, "data": []})
@@ -350,7 +358,11 @@ def test_executor_never_reads_reviewer_adjusted_fields(tmp_path, monkeypatch):
         elif "market" in cmd and "info" in cmd:
             r.stdout = json.dumps({"ok": True, "data": {"bid": 156.499, "ask": 156.500, "spread": 10}})
         elif "order" in cmd and "limit" in cmd:
-            r.stdout = json.dumps({"ok": True, "data": {"placement": {"ticket": 1234, "magic": 128461}}})
+            r.stdout = json.dumps({"ok": True, "data": {
+                "ticket": 1234, "magic": 128461, "volume": 0.001,
+                "symbol": "USDJPY", "type": "buy",
+                "price": 156.50, "sl": 156.30, "tp": 157.00,
+            }})
         elif "position" in cmd and "list" in cmd:
             r.stdout = json.dumps({"ok": True, "data": []})
         return r

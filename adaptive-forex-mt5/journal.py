@@ -225,7 +225,12 @@ def log_autopilot_placement(*, pair: str, alert: dict, placement: dict,
     manual / phase-1 placements.
     """
     data = placement.get("data") or {}
-    placement_data = data.get("placement") or {}
+    # `mt5 order limit` returns FLAT data ({ticket, symbol, type, volume,
+    # price, sl, tp, magic, strategy_id, ...}) per metatrader5_cli/.../order.py
+    # _finalize_order. Phase-1 `mt5 order ready-limit` nests it as
+    # data.placement. Support both shapes so this function works for either
+    # the autopilot path (flat) and any future ready-limit caller (nested).
+    placement_data = data.get("placement") or data
     setup = alert.get("setup") or {}
     append({
         "kind": "placement",
@@ -234,12 +239,16 @@ def log_autopilot_placement(*, pair: str, alert: dict, placement: dict,
         "ticket": placement_data.get("ticket"),
         "magic": placement_data.get("magic"),
         "direction": alert.get("direction"),
+        # Levels come from the alert.setup (the deterministic levels we
+        # asked the broker to place at), NOT a re-evaluated current setup.
+        # The flat response should echo the same values, but reading from
+        # the alert keeps the audit trail honest.
         "entry": setup.get("entry"),
         "sl": setup.get("sl"),
         "tp": setup.get("tp"),
         "rr": setup.get("rr"),
         "volume": placement_data.get("volume"),
-        "strategy_id": strategy_id,
+        "strategy_id": strategy_id or placement_data.get("strategy_id"),
         "reasoning": alert.get("reasoning") or {},
         "consensus_alert_id": consensus_alert_id,
         "reviewer_confidences": reviewer_confidences,

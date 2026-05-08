@@ -34,11 +34,16 @@ def test_log_autopilot_placement_writes_kind_placement_with_autopilot_flag(tmp_p
         "setup": {"entry": 156.50, "sl": 156.30, "tp": 157.00, "rr": 2.5},
         "reasoning": {"structure": {"last_confirmed_event": {"type": "BOS"}}},
     }
+    # `mt5 order limit` returns FLAT data shape per _finalize_order in
+    # metatrader5_cli/mt5/core/order.py — {data: {ticket, magic, volume, ...}}
+    # NOT {data: {placement: {...}}}.
     journal.log_autopilot_placement(
         pair="USDJPY",
         alert=alert,
-        placement={"data": {"placement": {"ticket": 99, "magic": 128461,
-                                          "volume": 0.001}}},
+        placement={"data": {"ticket": 99, "magic": 128461, "volume": 0.001,
+                            "symbol": "USDJPY", "type": "buy",
+                            "price": 156.50, "sl": 156.30, "tp": 157.00,
+                            "strategy_id": "ehukai-poc-USDJPY"}},
         consensus_alert_id="abc",
         reviewer_confidences=[0.84, 0.79],
         strategy_id="ehukai-poc-USDJPY",
