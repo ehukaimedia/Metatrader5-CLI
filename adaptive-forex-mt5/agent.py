@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import alerts
+import autopilot
 import consensus as _consensus
 import dispatch
 import fingerprint
@@ -543,6 +544,34 @@ def evaluate_pending_consensus(cfg: dict, db_path: Path | None = None) -> int:
         new_consensus += 1
         if aid > latest_aid:
             latest_aid = aid
+
+        # Phase-2 autopilot wiring: when enabled and consensus=take, hand
+        # the ORIGINAL ready_alert (looked up by alert_id) to the executor.
+        # No re-running sniper_poc here — gate #6 inside the executor
+        # handles fingerprint/drift verification.
+        if (cfg.get("autopilot") or {}).get("enabled") and result.get("consensus") == "take":
+            original_alert = {
+                "alert_id": aid,
+                "pair": pair,
+                "direction": direction,
+                "setup_fingerprint": fp,
+                "setup": {
+                    "entry": alert_record.get("entry"),
+                    "sl": alert_record.get("sl"),
+                    "tp": alert_record.get("tp"),
+                    "rr": alert_record.get("rr"),
+                },
+                "poi": (alert_record.get("reasoning") or {}).get("poi"),
+                "reasoning": alert_record.get("reasoning"),
+                "ts": alert_record.get("ts"),
+            }
+            try:
+                autopilot.attempt_autopilot_place(
+                    cfg, db_path, original_alert,
+                    {**result, "votes": votes},
+                )
+            except Exception as e:
+                journal.log_error("agent", "attempt_autopilot_place", str(e))
     if latest_aid and latest_aid != last_seen:
         state_db.cursor_set(db_path, cursor_name, latest_aid)
     return new_consensus
