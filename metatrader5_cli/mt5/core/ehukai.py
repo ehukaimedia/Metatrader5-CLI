@@ -86,6 +86,35 @@ def _classify_swings(swings: list[dict]) -> list[dict]:
     return classified
 
 
+def _detect_pivots(
+    rows: list[dict],
+    *,
+    pivot: int,
+    start: int,
+    stop: int,
+) -> list[dict]:
+    swings: list[dict] = []
+    for i in range(max(pivot, start), min(stop, len(rows) - pivot)):
+        high = float(rows[i]["high"])
+        low = float(rows[i]["low"])
+        is_high = True
+        is_low = True
+        for j in range(i - pivot, i + pivot + 1):
+            if j == i:
+                continue
+            if high <= float(rows[j]["high"]):
+                is_high = False
+            if low >= float(rows[j]["low"]):
+                is_low = False
+            if not is_high and not is_low:
+                break
+        if is_high:
+            swings.append({"time": rows[i]["time"], "price": high, "is_high": True, "side": "high", "index": i})
+        if is_low:
+            swings.append({"time": rows[i]["time"], "price": low, "is_high": False, "side": "low", "index": i})
+    return _classify_swings(swings)
+
+
 def _signal_index(rows: list[dict], pivot: int) -> int:
     """Use the last closed bar for structure decisions.
 
@@ -153,17 +182,27 @@ def _structure_bias(
     return "NEUTRAL / RANGE", None
 
 
-def _internal_structure(swings: list[dict], signal_close: float, buffer: float) -> dict:
+def _internal_structure(
+    rows: list[dict],
+    *,
+    signal_index: int,
+    internal_pivot_bars: int,
+    lookback: int,
+    signal_close: float,
+    buffer: float,
+) -> dict:
     """Compact internal read inspired by the elite market-structure video.
 
-    The full lesson separates swing, internal, and fractal structure. This
-    engine keeps the visual contract practical by making internal structure the
-    latest close-confirmed pressure inside the swing range, while marking
-    unresolved fractal flips as early signals rather than trade permission.
+    Internal structure is its own pivot sequence. It is not a slice of the
+    slower swing pivots; MQL5 uses a separate internal pivot length, and the
+    Python mirror does the same so chart and JSON can agree on iBOS/CHOCH.
     """
-    recent = swings[-8:]
-    highs = [s for s in recent if s["is_high"]]
-    lows = [s for s in recent if not s["is_high"]]
+    pivot = max(1, int(internal_pivot_bars))
+    start = max(pivot, signal_index - max(20, int(lookback)))
+    stop = signal_index - pivot + 1
+    internal_swings = _detect_pivots(rows, pivot=pivot, start=start, stop=stop)
+    highs = [s for s in internal_swings if s["is_high"]]
+    lows = [s for s in internal_swings if not s["is_high"]]
     last_high = highs[-1] if highs else None
     last_low = lows[-1] if lows else None
     bias, event = _structure_bias(
@@ -177,22 +216,32 @@ def _internal_structure(swings: list[dict], signal_close: float, buffer: float) 
 
     weak_side = None
     strong_side = None
+    weak_level = None
+    strong_level = None
     if direction == "bullish":
         weak_side = "high"
         strong_side = "low"
+        weak_level = last_high
+        strong_level = last_low
     elif direction == "bearish":
         weak_side = "low"
         strong_side = "high"
+        weak_level = last_low
+        strong_level = last_high
 
     return {
         "bias": bias.replace("BULLISH", "Bullish").replace("BEARISH", "Bearish").replace("NEUTRAL", "Neutral"),
         "direction": direction,
         "stage": "i" + stage if stage in {"BOS", "CHOCH"} else stage,
         "last_event": {**event, "type": "i" + event["type"]} if event else None,
+        "pivot_bars": pivot,
+        "swings": internal_swings[-8:],
         "dealing_high": last_high,
         "dealing_low": last_low,
         "weak_side": weak_side,
+        "weak_level": weak_level,
         "strong_side": strong_side,
+        "strong_level": strong_level,
         "early_signal": stage == "CHOCH" and event is not None,
     }
 
@@ -218,28 +267,7 @@ def market_structure(
     lookback = min(bars, len(rows))
     start = max(pivot, len(rows) - lookback)
     stop = len(rows) - pivot
-    swings: list[dict] = []
-
-    for i in range(start, stop):
-        high = float(rows[i]["high"])
-        low = float(rows[i]["low"])
-        is_high = True
-        is_low = True
-        for j in range(i - pivot, i + pivot + 1):
-            if j == i:
-                continue
-            if high <= float(rows[j]["high"]):
-                is_high = False
-            if low >= float(rows[j]["low"]):
-                is_low = False
-            if not is_high and not is_low:
-                break
-        if is_high:
-            swings.append({"time": rows[i]["time"], "price": high, "is_high": True, "side": "high", "index": i})
-        if is_low:
-            swings.append({"time": rows[i]["time"], "price": low, "is_high": False, "side": "low", "index": i})
-
-    swings = _classify_swings(swings)
+    swings = _detect_pivots(rows, pivot=pivot, start=start, stop=stop)
     signal = _signal_index(rows, pivot)
     signal_time = rows[signal]["time"]
     signal_close = float(rows[signal]["close"])
@@ -258,7 +286,14 @@ def market_structure(
     stage = _stage_from_bias(bias)
     swing_highs = [s for s in swings if s["is_high"]]
     swing_lows = [s for s in swings if not s["is_high"]]
-    internal = _internal_structure(decision_swings, signal_close, buffer)
+    internal = _internal_structure(
+        rows,
+        signal_index=signal,
+        internal_pivot_bars=3,
+        lookback=lookback,
+        signal_close=signal_close,
+        buffer=buffer,
+    )
 
     return {
         "ok": True,

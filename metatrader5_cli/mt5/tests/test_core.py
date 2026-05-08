@@ -1843,6 +1843,56 @@ class TestAnalyze:
         assert result["data"]["timeframes"]["H1"]["structure_engine_version"] == "elite-v1"
         assert result["data"]["bias"] == "bullish"
 
+    def test_ehukai_market_structure_uses_last_closed_bar_for_breaks(self, monkeypatch):
+        from metatrader5_cli.mt5.core import ehukai
+
+        rows = self._structure_bars("bullish")
+        rows[-2]["close"] = 1.30
+        rows[-1]["close"] = 2.00
+        monkeypatch.setattr(ehukai.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": rows})
+
+        result = ehukai.market_structure("EURUSD", "H1", bars=50, pivot_bars=8)
+
+        assert result["ok"] is True
+        assert result["data"]["signal_bar"]["index"] == len(rows) - 2
+        assert result["data"]["signal_bar"]["close"] == 1.30
+        assert result["data"]["last_event"] is None
+        assert result["data"]["bias"] == "BULLISH HH/HL"
+
+    def test_ehukai_internal_structure_uses_internal_pivots_for_ibos(self, monkeypatch):
+        from metatrader5_cli.mt5.core import ehukai
+
+        rows = []
+        for i in range(70):
+            rows.append({
+                "time": f"2024-02-{i + 1:02d}T00:00:00+00:00",
+                "open": 1.10,
+                "high": 1.12,
+                "low": 1.09,
+                "close": 1.10,
+                "tick_volume": 100,
+            })
+        for idx, price in [(44, 0.90), (52, 1.00), (60, 1.08)]:
+            rows[idx]["low"] = price
+        for idx, price in [(48, 1.14), (56, 1.20)]:
+            rows[idx]["high"] = price
+        rows[-2]["close"] = 1.23
+        rows[-1]["close"] = 1.11
+        monkeypatch.setattr(ehukai.rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": rows})
+
+        result = ehukai.market_structure("EURUSD", "M15", bars=70, pivot_bars=8)
+
+        assert result["ok"] is True
+        internal = result["data"]["internal"]
+        assert internal["pivot_bars"] == 3
+        assert internal["stage"] == "iBOS"
+        assert internal["last_event"]["type"] == "iBOS"
+        assert internal["direction"] == "bullish"
+        assert internal["strong_side"] == "low"
+        assert internal["strong_level"]["index"] == 60
+        assert internal["weak_side"] == "high"
+        assert internal["weak_level"]["index"] == 56
+
     def test_topdown_confluence_score_unanimous(self, monkeypatch):
         import pytest
         from metatrader5_cli.mt5.core import analyze

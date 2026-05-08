@@ -29,6 +29,7 @@ input int      InpInternalPivotBars = 3;            // Internal pivot bars
 input int      InpFractalPivotBars  = 1;            // Fractal CHOCH pivot bars
 input int      InpMaxSwings         = 10;           // Max swing labels to show
 input int      InpExtendBars        = 60;           // Extend structure levels right by bars
+input double   InpBreakBufferPips   = 0.2;          // BOS/CHOCH close buffer
 input bool     InpShowSwingLabels   = true;         // Show HH/HL/LH/LL labels
 input bool     InpShowMarkers       = true;         // Show swing markers
 input bool     InpShowLevels        = true;         // Show latest swing high/low levels
@@ -343,12 +344,19 @@ bool LatestSwing(const SwingPoint &swings[], const int swing_count,
 //+------------------------------------------------------------------+
 string StructureBias(const SwingPoint &last_high, const bool have_high,
                      const SwingPoint &last_low, const bool have_low,
-                     const double last_close)
+                     const double signal_close)
   {
-   if(have_high && last_close > last_high.price)
-      return "BULLISH BOS";
-   if(have_low && last_close < last_low.price)
-      return "BEARISH BOS";
+   double buffer = PipsToPrice(InpBreakBufferPips);
+   if(have_high && signal_close > last_high.price + buffer)
+     {
+      bool prior_bearish = have_low && last_high.kind == "LH" && last_low.kind == "LL";
+      return prior_bearish ? "BULLISH CHOCH" : "BULLISH BOS";
+     }
+   if(have_low && signal_close < last_low.price - buffer)
+     {
+      bool prior_bullish = have_high && last_high.kind == "HH" && last_low.kind == "HL";
+      return prior_bullish ? "BEARISH CHOCH" : "BEARISH BOS";
+     }
    if(have_high && have_low && last_high.kind == "HH" && last_low.kind == "HL")
       return "BULLISH HH/HL";
    if(have_high && have_low && last_high.kind == "LH" && last_low.kind == "LL")
@@ -1032,7 +1040,8 @@ void RenderStructure(const double &high[], const double &low[],
    SwingPoint last_low;
    bool have_high = LatestSwing(swings, swing_count, true, last_high);
    bool have_low = LatestSwing(swings, swing_count, false, last_low);
-   string bias = StructureBias(last_high, have_high, last_low, have_low, close[rates_total - 1]);
+   int signal_index = MathMax(0, rates_total - 2);
+   string bias = StructureBias(last_high, have_high, last_low, have_low, close[signal_index]);
 
    int shown = 0;
    for(int i = swing_count - 1; i >= 0 && shown < InpMaxSwings; i--)
@@ -1057,7 +1066,7 @@ void RenderStructure(const double &high[], const double &low[],
      }
 
    DrawBiasPanel(bias, last_high, have_high, last_low, have_low);
-   DrawBreakLabel(bias, time[rates_total - 1], close[rates_total - 1]);
+   DrawBreakLabel(bias, time[signal_index], close[signal_index]);
    DrawEliteOverlays(elite_state, elite_events, elite_event_count, chart_end, close[rates_total - 1]);
    ChartRedraw(0);
   }
