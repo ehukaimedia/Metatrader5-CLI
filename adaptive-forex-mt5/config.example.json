@@ -6,6 +6,7 @@
     "outcome_poll_seconds": 30,
     "volume": 0.001,
     "strategy_id_prefix": "ehukai-poc",
+    "alerts_only": false,
     "min_quality_score": 0.85,
     "min_rr": 3.0,
     "min_stop_points": 80,

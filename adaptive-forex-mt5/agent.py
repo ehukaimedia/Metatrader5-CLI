@@ -299,6 +299,36 @@ def place_new_orders(cfg: dict) -> int:
             journal.log_skip(pair, data)
             continue
 
+        # Alerts-only mode: push the full trade idea to ntfy and journal it,
+        # but do NOT place an order. Operator decides whether to take it.
+        if a.get("alerts_only"):
+            setup = data.get("setup") or {}
+            direction = (data.get("direction") or "").upper()
+            digits = 3 if pair.endswith("JPY") else 5
+            pip = 0.01 if pair.endswith("JPY") else 0.0001
+            entry = setup.get("entry")
+            sl = setup.get("sl")
+            tp = setup.get("tp")
+            rr = setup.get("rr")
+            sl_pips = abs(float(entry) - float(sl)) / pip if (entry and sl) else None
+            tp_pips = abs(float(entry) - float(tp)) / pip if (entry and tp) else None
+            why = (data.get("explain") or [""])[0]
+            body_lines = [
+                f"Entry: {entry:.{digits}f}" if entry is not None else "Entry: ?",
+                f"SL: {sl:.{digits}f} ({sl_pips:.1f}p)" if sl is not None and sl_pips is not None else "SL: ?",
+                f"TP: {tp:.{digits}f} ({tp_pips:.1f}p)" if tp is not None and tp_pips is not None else "TP: ?",
+                f"R:R {rr:.2f}  Quality {quality:.2f}" if rr is not None else f"Quality {quality:.2f}",
+                why,
+            ]
+            push(
+                cfg,
+                f"{pair} {direction} idea",
+                "\n".join(body_lines),
+                tags=["bell"], priority=5,
+            )
+            journal.log_ready_alert(pair, data)
+            continue
+
         placement = place_ready_limit(cfg, pair)
         if placement and placement.get("ok"):
             journal.log_placement(pair, placement)

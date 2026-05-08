@@ -90,6 +90,28 @@ def log_skip(pair: str, scan: dict | None) -> None:
     })
 
 
+def log_ready_alert(pair: str, scan: dict) -> None:
+    """Record a setup that went READY but was NOT placed (alerts-only mode).
+
+    Same shape as a placement record minus the broker fields. Lets the
+    dashboard distinguish 'bot would have placed this' from 'skipped'
+    without polluting the placement count.
+    """
+    scan = scan or {}
+    setup = scan.get("setup") or {}
+    append({
+        "kind": "ready_alert",
+        "pair": pair,
+        "direction": scan.get("direction"),
+        "entry": setup.get("entry"),
+        "sl": setup.get("sl"),
+        "tp": setup.get("tp"),
+        "rr": setup.get("rr"),
+        "quality_score": scan.get("quality_score"),
+        "reasoning": _reasoning(scan),
+    })
+
+
 def log_outcome(ticket: int, outcome: dict) -> None:
     """Record close / TP-hit / SL-hit / cancel for a placed ticket."""
     append({
