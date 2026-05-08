@@ -418,10 +418,73 @@ def attempt_modify(cfg: dict, db_path: Path, pos: dict, *,
     _issue_modify(cfg, db_path, pos, row, new_sl_rounded, reason, stage_to)
 
 
+def _account_login(cfg: dict) -> int:
+    out = _run(cfg, ["account", "info"])
+    if out and out.get("ok"):
+        return int((out.get("data") or {}).get("login") or 0)
+    return 0
+
+
+def _recent_bars(cfg: dict, symbol: str, timeframe: str, count: int) -> list[dict]:
+    out = _run(cfg, ["rates", symbol, timeframe, str(count)])
+    if not out or not out.get("ok"):
+        return []
+    return out.get("data") or []
+
+
+def _favorable_price(direction: str, pos: dict) -> float:
+    """For a buy: max-favorable price = current bid. For sell: current ask.
+
+    Falls back to open_price if quote unavailable.
+    """
+    bid = float(pos.get("bid") or pos.get("price_current") or pos.get("open_price"))
+    ask = float(pos.get("ask") or pos.get("price_current") or pos.get("open_price"))
+    return bid if direction == "buy" else ask
+
+
+def manage_one(cfg: dict, db_path: Path, pos: dict) -> None:
+    row = state_db.get_managed_position(db_path, pos["ticket"])
+    if row is None or row.get("stage") == "closed":
+        return
+    favorable = _favorable_price(row["direction"], pos)
+    # Stage 1: BE move (only when stage == 'init')
+    if row["stage"] == "init":
+        target = compute_be_target(row, cfg, favorable)
+        if target is not None:
+            attempt_modify(cfg, db_path, pos, new_sl=target,
+                           reason="be_r", stage_to="be_armed")
+            return
+    # Stage 2: Chandelier trail (when stage in {be_armed, trailing})
+    if row["stage"] in {"be_armed", "trailing"}:
+        bars = _recent_bars(
+            cfg, pos["symbol"],
+            cfg["manager"].get("chandelier_timeframe", "M5"),
+            int(cfg["manager"].get("chandelier_extreme_lookback", 22)) + 5,
+        )
+        if not bars:
+            return
+        new_sl = compute_chandelier(bars, direction=row["direction"], cfg=cfg)
+        if new_sl is None:
+            return
+        attempt_modify(cfg, db_path, pos, new_sl=new_sl,
+                       reason="chandelier", stage_to="trailing")
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
-    """One iteration: heartbeat + scan-and-manage. Final integration in T15."""
+    """One iteration: heartbeat + scan-and-manage. Bootstraps unknown
+    poc-magic positions, infers stage, then runs BE/Chandelier per row."""
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
-    list_positions(cfg)
+    positions = list_positions(cfg)
+    if not positions:
+        return
+    account = _account_login(cfg)
+    magics = poc_magics(cfg)
+    for pos in positions:
+        if pos.get("magic") not in magics:
+            continue
+        bootstrap_position(cfg, db_path, pos, account=account)
+        infer_stage_after_bootstrap(cfg, db_path, pos)
+        manage_one(cfg, db_path, pos)
 
 
 def run() -> None:
