@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import alerts
+import fingerprint
 import journal
 
 
@@ -320,6 +321,18 @@ def place_new_orders(cfg: dict) -> int:
                 f"R:R {rr:.2f}  Quality {quality:.2f}" if rr is not None else f"Quality {quality:.2f}",
                 why,
             ]
+            # Stamp the deterministic setup fingerprint so reviewers + the
+            # phase-2 autopilot executor can pin verdicts to THIS setup,
+            # not a fresh cousin a few bars later.
+            data["setup_fingerprint"] = fingerprint.compute({
+                "pair": pair,
+                "direction": direction.lower(),
+                "setup": setup,
+                "poi": data.get("poi"),
+                "reasoning": data.get("reasoning"),
+                "bar_time": (data.get("reasoning") or {}).get("bar_time"),
+                "digits": digits,
+            })
             push(
                 cfg,
                 f"{pair} {direction} idea",
