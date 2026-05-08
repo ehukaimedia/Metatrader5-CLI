@@ -300,12 +300,27 @@ flips the flag after weeks of shadow data prove the consensus reliable.
 
 ### Two reviewers (different model families)
 
+The reviewer skill templates live in the repo at `docs/skills/`:
+
+- `docs/skills/ClaudeReviewer-SKILL.md`
+- `docs/skills/CodexReviewer-SKILL.md`
+
+Install them into your local workspace state directory (which is NOT
+checked into the repo — it lives at `<workspace>/.ehukaiconnect/`) and
+register the agents:
+
 ```powershell
-ehukaiconnect agent create CodexReviewer --skill .ehukaiconnect/skills/CodexReviewer/SKILL.md
+mkdir -p .ehukaiconnect/skills/ClaudeReviewer
+copy docs/skills/ClaudeReviewer-SKILL.md .ehukaiconnect/skills/ClaudeReviewer/SKILL.md
+mkdir -p .ehukaiconnect/skills/CodexReviewer
+copy docs/skills/CodexReviewer-SKILL.md .ehukaiconnect/skills/CodexReviewer/SKILL.md
+
+ehukaiconnect agent create ClaudeReviewer --skill .ehukaiconnect/skills/ClaudeReviewer/SKILL.md
+ehukaiconnect agent create CodexReviewer  --skill .ehukaiconnect/skills/CodexReviewer/SKILL.md
 ```
 
-Plus the existing `ClaudeReviewer`. Run each in its own terminal so the
-ehukaiconnect dispatcher can wake both on every `trade_review-*` task.
+Run each agent in its own terminal so the ehukaiconnect dispatcher can
+wake both on every `trade_review-*` task.
 
 ### What happens on a READY alert (autopilot OFF — current default)
 
@@ -374,8 +389,8 @@ The dashboard shows the kill-switch state with a red pill when on.
 ## Phase-3: Manual-trade adoption (allowlist)
 
 By default the trade manager only touches positions whose magic is in the
-poc-set (phase-1 invariant). To hand a manual-magic-0 position to the bot
-for BE+Chandelier trail, add it to `managed_positions.json`:
+poc-set (phase-1 invariant). To hand a manual-magic-0 position to the bot,
+add it to `managed_positions.json`:
 
 ```json
 [
@@ -384,8 +399,6 @@ for BE+Chandelier trail, add it to `managed_positions.json`:
     "symbol": "GBPJPY",
     "account": 9999,
     "mode": "trail_only",
-    "be_r": 0.80,
-    "trail_model": "chandelier_atr22_3.0",
     "expires_at": "2026-05-15T00:00:00Z",
     "operator_note": "GBPJPY manual long, hand to bot for trail"
   }
@@ -394,6 +407,31 @@ for BE+Chandelier trail, add it to `managed_positions.json`:
 
 See `managed_positions.example.json` for the full schema. The actual file
 is gitignored.
+
+### Required fields
+
+- `ticket` — MT5 ticket of the live position
+- `symbol` — must match the live position's symbol (fail closed otherwise)
+- `account` — must match the current `mt5 account info` login
+  (fail closed otherwise)
+- `mode` — `trail_only` (skip BE move, go straight to Chandelier trail) or
+  `be_and_trail` (BE move first, then Chandelier — same as phase-1 bot trades)
+- `expires_at` — ISO-8601 timestamp; entries past expiry are silently filtered
+- `operator_note` — free-text audit field
+
+Optional / audit-only: any other fields are recorded in the
+`kind=adoption` journal event but do not change runtime behavior.
+
+### Safety invariants (Codex1 phase-3 audit)
+
+- Allowlist match requires **ticket AND symbol AND account** all to align.
+  Mismatch on any one → `adoption_skip` journaled, position untouched.
+- Live position with `sl <= 0` (no protective stop) → `adoption_skip
+  reason=no_protective_sl`, position untouched. The bot needs a real
+  initial-risk anchor to compute BE/Chandelier targets.
+- `_account_login()` returning 0 (MT5 account info unavailable) → all
+  adoption attempts fail closed with `adoption_skip
+  reason=account_lookup_failed`.
 
 ### Behavior
 

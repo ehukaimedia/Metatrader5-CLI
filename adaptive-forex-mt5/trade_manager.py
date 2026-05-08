@@ -162,13 +162,17 @@ def _match_placement(pos: dict, placements: list[dict]) -> dict | None:
 _UNMANAGED_WARN_INTERVAL_SECONDS = 60
 
 
-def bootstrap_position(cfg: dict, db_path: Path, pos: dict, *, account: int) -> dict | None:
+def _bootstrap_position(cfg: dict, db_path: Path, pos: dict, *, account: int) -> dict | None:
     """Match an MT5 position to a journal placement and seed managed_position.
 
-    Returns the seeded row dict on success, None on fail-closed (no match
-    or ambiguous). The caller (loop_once) gatekeeps which positions are
-    eligible for management — this function only enforces the
-    journal-match requirement.
+    **Caller contract (Codex1 phase-3 audit hardening):** the caller is
+    responsible for enforcing eligibility (poc-magic membership OR
+    allowlist match with verified ticket+symbol+account+SL). This
+    function performs NO eligibility check — pass it any position you've
+    already authorized.
+
+    Returns the seeded row dict on success, None on fail-closed (no
+    journal match, ambiguous match, or already-closed-in-journal).
     """
     existing = state_db.get_managed_position(db_path, pos["ticket"])
     if existing and existing.get("stage") != "closed":
@@ -556,36 +560,89 @@ def _ensure_adopted_placement(cfg: dict, pos: dict, allowlist_entry: dict) -> No
     })
 
 
+# Public alias retained for tests and external callers — the canonical
+# name is _bootstrap_position to flag that the caller owns the gate.
+bootstrap_position = _bootstrap_position
+
+
+def _adoption_eligible(cfg: dict, pos: dict, entry: dict, account: int) -> tuple[bool, str]:
+    """Verify an allowlisted ticket is eligible for adoption per the spec
+    invariants (ticket + symbol + account match) and has a real protective
+    SL on the live position. Returns (ok, reason).
+
+    Codex1 phase-3 audit blockers #1 + #2 enforced here.
+    """
+    # P1 #1: ticket+symbol+account match
+    if int(entry.get("account") or 0) != int(account or 0):
+        return False, f"account_mismatch (allowlist={entry.get('account')}, live={account})"
+    if str(entry.get("symbol")) != str(pos.get("symbol")):
+        return False, f"symbol_mismatch (allowlist={entry.get('symbol')}, live={pos.get('symbol')})"
+    # P1 #2: must have a protective SL to anchor BE/Chandelier on
+    sl = float(pos.get("sl") or 0)
+    if sl <= 0:
+        return False, "no_protective_sl"
+    return True, "ok"
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
     """One iteration: heartbeat + scan-and-manage.
 
     A position is managed if EITHER:
       - its magic is in the poc-set (phase-1, journal-placement bootstrap), OR
-      - its ticket is in the manual-trade allowlist (phase-3, synthesized
-        placement bootstrap).
+      - its ticket is in the manual-trade allowlist AND the allowlist entry's
+        symbol+account match the live position AND the position has a real
+        protective SL (phase-3 invariants per Codex1's audit).
 
-    Anything else — including manual magic=0 not on the allowlist — is
-    left untouched, preserving the phase-1 invariant.
+    Anything else — including manual magic=0 not on the allowlist, or
+    allowlisted with mismatched symbol/account/sl — is left untouched,
+    preserving the phase-1 invariant.
     """
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
     positions = list_positions(cfg)
     if not positions:
         return
     account = _account_login(cfg)
+    if account == 0:
+        # Account lookup failed — fail closed on adoption (poc-magic path
+        # still works because it doesn't depend on account match).
+        journal.append({"kind": "adoption_skip", "reason": "account_lookup_failed"})
     magics = poc_magics(cfg)
     allowlist_path = _allowlist_path(cfg)
     adopted = adopt.adopted_tickets(allowlist_path)
     for pos in positions:
         is_poc = pos.get("magic") in magics
-        is_adopted = pos.get("ticket") in adopted
-        if not (is_poc or is_adopted):
+        is_adopted_ticket = pos.get("ticket") in adopted
+        if not (is_poc or is_adopted_ticket):
             continue
-        if is_adopted and not is_poc:
+        if is_adopted_ticket and not is_poc:
             entry = adopt.lookup(allowlist_path, pos["ticket"])
-            if entry is not None:
-                _ensure_adopted_placement(cfg, pos, entry)
-        bootstrap_position(cfg, db_path, pos, account=account)
+            if entry is None:
+                continue
+            if account == 0:
+                continue  # account lookup failed; already journaled above
+            ok, reason = _adoption_eligible(cfg, pos, entry, account)
+            if not ok:
+                journal.append({
+                    "kind": "adoption_skip",
+                    "ticket": pos.get("ticket"),
+                    "symbol": pos.get("symbol"),
+                    "reason": reason,
+                })
+                continue
+            _ensure_adopted_placement(cfg, pos, entry)
+        _bootstrap_position(cfg, db_path, pos, account=account)
         infer_stage_after_bootstrap(cfg, db_path, pos)
+        # Phase-3 mode handling: trail_only adoption skips the BE move and
+        # goes straight to Chandelier trail. Implementation: promote stage
+        # to be_armed immediately after bootstrap with last_sl_set=current.
+        if is_adopted_ticket and not is_poc:
+            row = state_db.get_managed_position(db_path, pos["ticket"])
+            if row and row.get("stage") == "init":
+                entry = adopt.lookup(allowlist_path, pos["ticket"])
+                if entry and entry.get("mode") == "trail_only":
+                    row["stage"] = "be_armed"
+                    row["last_sl_set"] = float(pos.get("sl") or row["initial_sl"])
+                    state_db.upsert_managed_position(db_path, row)
         manage_one(cfg, db_path, pos)
 
 

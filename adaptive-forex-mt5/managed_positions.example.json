@@ -4,8 +4,6 @@
     "symbol": "GBPJPY",
     "account": 9999,
     "mode": "trail_only",
-    "be_r": 0.80,
-    "trail_model": "chandelier_atr22_3.0",
     "expires_at": "2026-05-15T00:00:00Z",
     "operator_note": "GBPJPY manual long, hand to bot for trail"
   },
@@ -13,10 +11,8 @@
     "ticket": 204841320,
     "symbol": "USDJPY",
     "account": 9999,
-    "mode": "trail_only",
-    "be_r": 0.80,
-    "trail_model": "chandelier_atr22_3.0",
+    "mode": "be_and_trail",
     "expires_at": "2026-05-15T00:00:00Z",
-    "operator_note": "USDJPY manual short — adopt for break-even + trail only"
+    "operator_note": "USDJPY manual short — adopt for break-even + trail"
   }
 ]
