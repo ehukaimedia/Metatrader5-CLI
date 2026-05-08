@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import alerts
+import dispatch
 import fingerprint
 import journal
 
@@ -340,6 +341,28 @@ def place_new_orders(cfg: dict) -> int:
                 tags=["bell"], priority=5,
             )
             journal.log_ready_alert(pair, data)
+            if a.get("review_enabled"):
+                alert_id = f"{datetime.now(timezone.utc).isoformat(timespec='microseconds')}-{pair}"
+                payload = {
+                    "alert_id": alert_id,
+                    "pair": pair,
+                    "direction": direction.lower(),
+                    "setup_fingerprint": data["setup_fingerprint"],
+                    "setup": setup,
+                    "poi": data.get("poi"),
+                    "reasoning": data.get("reasoning"),
+                    "explain": data.get("explain"),
+                    "rr": rr,
+                }
+                task_id = dispatch.create_review_task(
+                    payload,
+                    alerts_dir=dispatch.alerts_dir_default(),
+                    reviewer=a.get("reviewer_agent", "ClaudeReviewer"),
+                )
+                if task_id:
+                    journal.log_review_request(
+                        alert_id=alert_id, task_id=task_id, pair=pair,
+                    )
             continue
 
         placement = place_ready_limit(cfg, pair)
