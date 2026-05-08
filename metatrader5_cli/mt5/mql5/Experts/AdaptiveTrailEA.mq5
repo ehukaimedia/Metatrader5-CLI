@@ -2,7 +2,7 @@
 //|                                             AdaptiveTrailEA.mq5   |
 //|                                      Copyright 2026, Ehukai       |
 //|                                      https://github.com/ehukai    |
-//|                                      Version 1.0                  |
+//|                                      Version 1.1                  |
 //| Broker- and instrument-agnostic post-fill trade manager: BE move  |
 //| + Chandelier trail, magic-scoped                                  |
 //+------------------------------------------------------------------+
@@ -31,7 +31,7 @@
 #property strict
 #property copyright "Copyright 2026, Ehukai"
 #property link      "https://github.com/ehukai"
-#property version   "1.0"
+#property version   "1.1"
 #property description "Broker- and instrument-agnostic post-fill trade manager: BE move + Chandelier trail, magic-scoped"
 
 input group "Magic Scope"
@@ -40,7 +40,9 @@ input bool                    Allow_Manual_Magic_0         = false;             
 input string                  Manual_Magic_0_Symbols       = "";                // Comma-separated symbols allowed for magic 0
 
 input group "Breakeven"
-input int                     BE_Trigger_Points            = 80;                // Profit in points that triggers the BE move
+input bool                    Use_R_Based_BE               = true;              // Trigger BE from initial risk instead of fixed points
+input double                  BE_Trigger_R                 = 0.80;              // Move to BE after this many R in profit
+input int                     BE_Trigger_Points            = 80;                // Fallback fixed-point BE trigger when risk cannot be read
 input int                     BE_Buffer_Points             = 5;                 // Points beyond entry where SL parks at BE
 
 input group "Chandelier"
@@ -164,7 +166,8 @@ void OnTick()
       const double profit_points = PositionProfitInPoints(symbol, position_type, entry_price);
       if(stage == STAGE_PRE_BE)
         {
-         if(profit_points < (double)BE_Trigger_Points)
+         const double be_trigger_points = BreakevenTriggerPoints(position_type, entry_price, current_sl, point);
+         if(profit_points < be_trigger_points)
             continue;
 
          const double raw_be_sl = BreakevenSL(position_type, entry_price, point);
@@ -174,17 +177,18 @@ void OnTick()
          if(TryUpdateSL(ticket, symbol, position_type, current_sl, current_tp, proposed_sl, STAGE_BE_MOVE))
            {
             g_states[state_index].stage = STAGE_CHANDELIER;
-            if(Verbose)
-               PrintFormat("[#%I64u %s] BE armed, SL -> %s (entry %s %s %d pts)",
-                           ticket,
-                           symbol,
-                           PriceLabel(symbol, proposed_sl),
-                           PriceLabel(symbol, entry_price),
-                           (position_type == POSITION_TYPE_BUY ? "+" : "-"),
-                           BE_Buffer_Points);
-           }
-         continue;
-        }
+             if(Verbose)
+                PrintFormat("[#%I64u %s] BE armed, SL -> %s (entry %s %s %d pts, trigger %.1f pts)",
+                            ticket,
+                            symbol,
+                            PriceLabel(symbol, proposed_sl),
+                            PriceLabel(symbol, entry_price),
+                            (position_type == POSITION_TYPE_BUY ? "+" : "-"),
+                            BE_Buffer_Points,
+                            be_trigger_points);
+            }
+          continue;
+         }
 
       if(ShouldRemoveTP(symbol, position_type, stage, managed_tp))
         {
@@ -618,6 +622,24 @@ double BreakevenSL(const ENUM_POSITION_TYPE position_type,
       return(entry_price + ((double)BE_Buffer_Points * point));
 
    return(entry_price - ((double)BE_Buffer_Points * point));
+  }
+
+double BreakevenTriggerPoints(const ENUM_POSITION_TYPE position_type,
+                              const double entry_price,
+                              const double current_sl,
+                              const double point)
+  {
+   const double fallback = (double)MathMax(1, BE_Trigger_Points);
+   if(!Use_R_Based_BE || BE_Trigger_R <= 0.0 || point <= 0.0 || current_sl <= 0.0)
+      return(fallback);
+
+   const double risk_points = (position_type == POSITION_TYPE_BUY)
+                              ? (entry_price - current_sl) / point
+                              : (current_sl - entry_price) / point;
+   if(risk_points <= 0.0)
+      return(fallback);
+
+   return(MathMax(1.0, risk_points * BE_Trigger_R));
   }
 
 bool ShouldRemoveTP(const string symbol,
