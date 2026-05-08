@@ -1083,6 +1083,7 @@ def place_ready_limit(
             "strategy_id": strategy_id,
             "initial_setup": initial_data,
             "final_setup": final_data,
+            "drift_points": round(drift_points, 2),
             "dryrun": immediate_dryrun["data"],
             "placement": placement["data"],
             "safety": {

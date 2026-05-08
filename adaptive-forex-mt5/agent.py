@@ -195,75 +195,84 @@ def push(cfg: dict, title: str, body: str, tags: list[str] | None = None, priori
     alerts.push(base_url=n["url"], topic=n["topic"], title=title, body=body, tags=tags, priority=priority)
 
 
-def scan_once(cfg: dict) -> None:
+def resolve_outcomes(cfg: dict) -> int:
+    """Resolve outcomes for journal placements whose position has closed.
+
+    Read-only with respect to broker state — never places orders. Returns
+    the number of outcomes newly logged. Safe for tests to call.
+    """
     a = cfg["agent"]
-
-    # Resolve outcomes for closed positions. Match closing deals by
-    # (magic, symbol, time>placement_time, profit!=0) — the deal.order on a
-    # closing deal is the close-order ticket, NOT the original placement.
     open_records = open_journal_records()
-    if open_records:
-        live_tickets = {p.get("ticket") for p in list_positions(cfg)}
-        closed_records = [r for r in open_records if r.get("ticket") not in live_tickets]
-        if closed_records:
-            deals = recent_deals(cfg, days=3)
-            for r in closed_records:
-                ticket = r["ticket"]
-                # Prefer magic stored at placement time. Fall back to local
-                # derivation only if older journal entries pre-date this fix.
-                magic = r.get("magic")
-                if not isinstance(magic, int):
-                    strategy_id = r.get("strategy_id") or f"{a['strategy_id_prefix']}-{r.get('pair','')}"
-                    magic = derive_magic(strategy_id)
-                direction = (r.get("direction") or "").lower()
-                deal = find_close_deal(deals, placement_ticket=ticket, magic=magic, symbol=r.get("pair","").upper(), direction=direction)
-                if deal:
-                    profit = float(deal.get("profit") or 0)
-                    swap = float(deal.get("swap") or 0)
-                    commission = float(deal.get("commission") or 0)
-                    net = profit + swap + commission
-                    result = "tp" if profit > 0 else ("sl" if profit < 0 else "even")
+    if not open_records:
+        return 0
+    live_tickets = {p.get("ticket") for p in list_positions(cfg)}
+    closed_records = [r for r in open_records if r.get("ticket") not in live_tickets]
+    if not closed_records:
+        return 0
+    deals = recent_deals(cfg, days=3)
+    resolved = 0
+    for r in closed_records:
+        ticket = r["ticket"]
+        # Prefer magic stored at placement time. Fall back to local
+        # derivation only if older journal entries pre-date this fix.
+        magic = r.get("magic")
+        if not isinstance(magic, int):
+            strategy_id = r.get("strategy_id") or f"{a['strategy_id_prefix']}-{r.get('pair','')}"
+            magic = derive_magic(strategy_id)
+        direction = (r.get("direction") or "").lower()
+        deal = find_close_deal(deals, placement_ticket=ticket, magic=magic, symbol=r.get("pair","").upper(), direction=direction)
+        if not deal:
+            continue
+        profit = float(deal.get("profit") or 0)
+        swap = float(deal.get("swap") or 0)
+        commission = float(deal.get("commission") or 0)
+        net = profit + swap + commission
+        result = "tp" if profit > 0 else ("sl" if profit < 0 else "even")
 
-                    # Realized R: how many SL-distances of profit (in price terms) we got.
-                    realized_r = None
-                    entry = r.get("entry"); sl = r.get("sl"); close = deal.get("price")
-                    if all(isinstance(v, (int, float)) for v in (entry, sl, close)):
-                        sl_distance = abs(float(entry) - float(sl))
-                        if sl_distance > 0:
-                            sign = 1 if r.get("direction") == "buy" else -1
-                            realized_r = round(sign * (float(close) - float(entry)) / sl_distance, 2)
+        # Realized R: signed fraction of SL-distance captured (in price units).
+        realized_r = None
+        entry = r.get("entry"); sl = r.get("sl"); close = deal.get("price")
+        if all(isinstance(v, (int, float)) for v in (entry, sl, close)):
+            sl_distance = abs(float(entry) - float(sl))
+            if sl_distance > 0:
+                sign = 1 if r.get("direction") == "buy" else -1
+                realized_r = round(sign * (float(close) - float(entry)) / sl_distance, 2)
 
-                    journal.log_outcome(ticket, {
-                        "profit": profit,
-                        "swap": swap,
-                        "commission": commission,
-                        "net": round(net, 2),
-                        "close_price": deal.get("price"),
-                        "close_time": deal.get("time"),
-                        "result": result,
-                        "deal_id": deal.get("ticket"),
-                        "magic": magic,
-                        "planned_rr": r.get("rr"),
-                        "realized_r": realized_r,
-                    })
-                    push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f} net {net:+.2f} R={realized_r}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
+        journal.log_outcome(ticket, {
+            "profit": profit,
+            "swap": swap,
+            "commission": commission,
+            "net": round(net, 2),
+            "close_price": deal.get("price"),
+            "close_time": deal.get("time"),
+            "result": result,
+            "deal_id": deal.get("ticket"),
+            "magic": magic,
+            "planned_rr": r.get("rr"),
+            "realized_r": realized_r,
+        })
+        push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f} net {net:+.2f} R={realized_r}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
+        resolved += 1
+    return resolved
 
+
+def place_new_orders(cfg: dict) -> int:
+    """Scan pairs and place new orders where READY. Returns count placed."""
+    a = cfg["agent"]
     # Concurrency caps — count BOTH open positions and pending limit orders
     # against max_concurrent_positions, otherwise pending limits across pairs
     # accumulate beyond the cap before any position appears.
     active = active_strategies(cfg)
     if len(active) >= a["max_concurrent_positions"]:
-        return
+        return 0
     if trades_today() >= a["max_trades_per_day"]:
-        return
+        return 0
 
-    # One active strategy per (symbol, magic): if we already have a pending
-    # limit OR open position with our magic on this pair, don't fire another
-    # placement until it resolves.
-    placed_this_cycle = 0
-
+    placed = 0
     for pair in cfg["pairs"]:
-        if (len(active) + placed_this_cycle) >= a["max_concurrent_positions"]:
+        # `active` is mutated in-place each iteration when a placement fires,
+        # so its size IS the running concurrent count. No separate counter.
+        if len(active) >= a["max_concurrent_positions"]:
             break
         if trades_today() >= a["max_trades_per_day"]:
             break
@@ -298,7 +307,7 @@ def scan_once(cfg: dict) -> None:
             placed_magic = placement_data.get("magic")
             if isinstance(placed_magic, int):
                 active.add((pair.upper(), placed_magic))
-            placed_this_cycle += 1
+            placed += 1
             push(
                 cfg,
                 f"{pair} placed {data.get('direction')}",
@@ -308,6 +317,13 @@ def scan_once(cfg: dict) -> None:
         else:
             err = (placement or {}).get("error") or {"code": "NO_PLACEMENT"}
             journal.log_error(pair, "ready_limit", err)
+    return placed
+
+
+def scan_once(cfg: dict) -> None:
+    """One full scan cycle: resolve outcomes, then place new orders."""
+    resolve_outcomes(cfg)
+    place_new_orders(cfg)
 
 
 def run() -> None:

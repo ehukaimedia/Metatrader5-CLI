@@ -92,7 +92,12 @@ async function refresh() {
     addStat('wins', st.wins, 'win');
     addStat('losses', st.losses, 'loss');
     addStat('win rate', (st.win_rate * 100).toFixed(0) + '%');
-    addStat('total P/L', (st.total_profit >= 0 ? '+' : '') + fmt(st.total_profit, 2), st.total_profit >= 0 ? 'win' : 'loss');
+    const netVal = st.total_net !== undefined ? st.total_net : (st.total_profit || 0);
+    addStat('net P/L', (netVal >= 0 ? '+' : '') + fmt(netVal, 2), netVal >= 0 ? 'win' : 'loss');
+    if (st.total_realized_r !== undefined) {
+      addStat('total R', (st.total_realized_r >= 0 ? '+' : '') + fmt(st.total_realized_r, 2), st.total_realized_r >= 0 ? 'win' : 'loss');
+      addStat('avg R', (st.avg_realized_r >= 0 ? '+' : '') + fmt(st.avg_realized_r, 2));
+    }
 
     const bp = document.getElementById('bypair');
     bp.replaceChildren();
@@ -104,8 +109,13 @@ async function refresh() {
       const card = el('div', 'pair-card');
       card.appendChild(el('div', 'p', pair));
       card.appendChild(el('div', 'meta', b.wins + 'W / ' + b.losses + 'L · ' + b.total + ' total'));
-      const pl = el('div', 'pl ' + (b.profit >= 0 ? 'pos' : 'neg'), (b.profit >= 0 ? '+' : '') + fmt(b.profit, 2));
+      const n = b.net !== undefined ? b.net : (b.profit || 0);
+      const pl = el('div', 'pl ' + (n >= 0 ? 'pos' : 'neg'), (n >= 0 ? '+' : '') + fmt(n, 2));
       card.appendChild(pl);
+      if (b.realized_r_sum !== undefined && b.total > 0) {
+        const rr = b.realized_r_sum;
+        card.appendChild(el('div', 'meta', 'R: ' + (rr >= 0 ? '+' : '') + fmt(rr, 2)));
+      }
       bp.appendChild(card);
     }
 

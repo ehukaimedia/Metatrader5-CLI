@@ -138,30 +138,61 @@ def folded_trades() -> list[dict]:
 
 
 def stats() -> dict:
+    """Aggregate stats. Uses NET P/L (profit + swap + commission) for totals.
+
+    realized_r aggregates capture how much of the planned R was actually
+    achieved per trade, summed and averaged across closed trades.
+    """
     rows = folded_trades()
     closed = [r for r in rows if r.get("outcome")]
     open_ct = len(rows) - len(closed)
-    wins = [r for r in closed if (r["outcome"].get("result") == "tp" or (r["outcome"].get("profit") or 0) > 0)]
-    losses = [r for r in closed if (r["outcome"].get("result") == "sl" or (r["outcome"].get("profit") or 0) < 0)]
+
+    def net_of(r: dict) -> float:
+        oc = r.get("outcome") or {}
+        # Prefer net (which includes swap+commission); fall back to profit
+        # for legacy outcome records without those fields.
+        if oc.get("net") is not None:
+            return float(oc["net"])
+        return float(oc.get("profit") or 0)
+
+    wins = [r for r in closed if net_of(r) > 0]
+    losses = [r for r in closed if net_of(r) < 0]
+    breakeven = [r for r in closed if net_of(r) == 0]
     win_rate = (len(wins) / len(closed)) if closed else 0.0
+    realized_rs = [r["outcome"].get("realized_r") for r in closed if isinstance(r["outcome"].get("realized_r"), (int, float))]
+    total_realized_r = sum(realized_rs) if realized_rs else 0
+    avg_realized_r = (total_realized_r / len(realized_rs)) if realized_rs else 0
+
     by_pair: dict[str, dict] = {}
     for r in closed:
         p = r.get("pair", "?")
-        bucket = by_pair.setdefault(p, {"wins": 0, "losses": 0, "total": 0, "profit": 0.0})
+        bucket = by_pair.setdefault(p, {"wins": 0, "losses": 0, "total": 0, "net": 0.0, "realized_r_sum": 0.0})
         bucket["total"] += 1
-        profit = (r["outcome"].get("profit") or 0)
-        bucket["profit"] += profit
-        if profit > 0 or r["outcome"].get("result") == "tp":
+        n = net_of(r)
+        bucket["net"] += n
+        rr = r["outcome"].get("realized_r")
+        if isinstance(rr, (int, float)):
+            bucket["realized_r_sum"] += rr
+        if n > 0:
             bucket["wins"] += 1
-        elif profit < 0 or r["outcome"].get("result") == "sl":
+        elif n < 0:
             bucket["losses"] += 1
+
+    # Round per-pair fields for display
+    for b in by_pair.values():
+        b["net"] = round(b["net"], 2)
+        b["realized_r_sum"] = round(b["realized_r_sum"], 2)
+
     return {
         "total": len(rows),
         "open": open_ct,
         "closed": len(closed),
         "wins": len(wins),
         "losses": len(losses),
+        "breakeven": len(breakeven),
         "win_rate": round(win_rate, 3),
-        "total_profit": round(sum((r["outcome"].get("profit") or 0) for r in closed), 2),
+        "total_net": round(sum(net_of(r) for r in closed), 2),
+        "total_realized_r": round(total_realized_r, 2),
+        "avg_realized_r": round(avg_realized_r, 2),
         "by_pair": by_pair,
     }
