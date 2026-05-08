@@ -11,6 +11,7 @@ sniper-poc gates pick high-ROI setups; we just orchestrate scanning.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -20,6 +21,11 @@ from pathlib import Path
 
 import alerts
 import journal
+
+
+def derive_magic(strategy_id: str) -> int:
+    """Match metatrader5_cli/mt5/core/risk.py::resolve_magic auto-derivation."""
+    return int(hashlib.sha256(strategy_id.encode()).hexdigest()[:8], 16) % 80000 + 100000
 
 ROOT = Path(__file__).parent
 
@@ -98,20 +104,27 @@ def recent_deals(cfg: dict, days: int = 3) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def find_close_deal(deals: list[dict], order_ticket: int) -> dict | None:
-    """Find the closing deal for a position. Match deal.order == placed order ticket.
+def find_close_deal(deals: list[dict], *, magic: int, symbol: str, after_time: str) -> dict | None:
+    """Find the closing deal for a netting position.
 
-    On Trading.com (netting), a position open + close share an order chain.
-    The closing deal has profit != 0 (or matches by order/symbol/time).
+    The closing-deal record has its own order ticket (NOT the placement ticket),
+    so matching by deal.order == placement_ticket misses closures. Trading.com
+    netting + FIFO guarantees at most one position per (symbol, magic) at a time,
+    so the closing deal is the first deal with profit != 0 on that strategy
+    after the placement time.
     """
-    matches = [d for d in deals if d.get("order") == order_ticket]
+    if not magic:
+        return None
+    matches = [
+        d for d in deals
+        if d.get("magic") == magic
+        and (d.get("symbol") or "").upper() == symbol.upper()
+        and (d.get("time") or "") > after_time
+        and (d.get("profit") or 0) != 0
+    ]
     if not matches:
         return None
-    # Pick the latest with non-zero profit, or just the latest
-    closing = [d for d in matches if (d.get("profit") or 0) != 0]
-    if closing:
-        return max(closing, key=lambda d: d.get("time", ""))
-    return max(matches, key=lambda d: d.get("time", ""))
+    return min(matches, key=lambda d: d.get("time", ""))
 
 
 def trades_today() -> int:
@@ -131,6 +144,11 @@ def open_journal_tickets() -> set[int]:
     return out
 
 
+def open_journal_records() -> list[dict]:
+    """Return placement records that have no recorded outcome yet."""
+    return [r for r in journal.folded_trades() if not r.get("outcome") and r.get("ticket") is not None]
+
+
 def push(cfg: dict, title: str, body: str, tags: list[str] | None = None, priority: int | None = None) -> None:
     n = cfg["ntfy"]
     alerts.push(base_url=n["url"], topic=n["topic"], title=title, body=body, tags=tags, priority=priority)
@@ -139,26 +157,39 @@ def push(cfg: dict, title: str, body: str, tags: list[str] | None = None, priori
 def scan_once(cfg: dict) -> None:
     a = cfg["agent"]
 
-    # Resolve outcomes for closed positions
-    open_tickets = open_journal_tickets()
-    if open_tickets:
+    # Resolve outcomes for closed positions. Match closing deals by
+    # (magic, symbol, time>placement_time, profit!=0) — the deal.order on a
+    # closing deal is the close-order ticket, NOT the original placement.
+    open_records = open_journal_records()
+    if open_records:
         live_tickets = {p.get("ticket") for p in list_positions(cfg)}
-        closed = open_tickets - live_tickets
-        if closed:
+        closed_records = [r for r in open_records if r.get("ticket") not in live_tickets]
+        if closed_records:
             deals = recent_deals(cfg, days=3)
-            for ticket in closed:
-                deal = find_close_deal(deals, ticket)
+            for r in closed_records:
+                ticket = r["ticket"]
+                strategy_id = r.get("strategy_id") or f"{a['strategy_id_prefix']}-{r.get('pair','')}"
+                magic = derive_magic(strategy_id)
+                placement_time = r.get("ts") or "1970-01-01"
+                deal = find_close_deal(deals, magic=magic, symbol=r.get("pair","").upper(), after_time=placement_time)
                 if deal:
                     profit = float(deal.get("profit") or 0)
+                    swap = float(deal.get("swap") or 0)
+                    commission = float(deal.get("commission") or 0)
+                    net = profit + swap + commission
                     result = "tp" if profit > 0 else ("sl" if profit < 0 else "even")
                     journal.log_outcome(ticket, {
                         "profit": profit,
+                        "swap": swap,
+                        "commission": commission,
+                        "net": round(net, 2),
                         "close_price": deal.get("price"),
                         "close_time": deal.get("time"),
                         "result": result,
                         "deal_id": deal.get("ticket"),
+                        "magic": magic,
                     })
-                    push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
+                    push(cfg, f"Trade closed {result.upper()}", f"ticket {ticket} profit {profit:+.2f} net {net:+.2f}", tags=["heavy_check_mark"] if profit > 0 else ["x"])
 
     # Concurrency cap
     open_now = len(list_positions(cfg))
