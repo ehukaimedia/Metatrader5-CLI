@@ -216,9 +216,46 @@ def infer_stage_after_bootstrap(cfg: dict, db_path: Path, pos: dict) -> None:
         state_db.upsert_managed_position(db_path, row)
 
 
+def compute_be_target(row: dict, cfg: dict, favorable_price: float) -> float | None:
+    """Return the BE-move SL target if R-trigger met, else None.
+
+    For a buy: favorable_price > entry. We require
+    `(favorable_price - entry) / initial_risk_price >= be_trigger_r`.
+    Target SL = entry + be_buffer_points * point.
+    Mirror for sell.
+    """
+    m = cfg["manager"]
+    trigger_r = float(m.get("be_trigger_r", 0.80))
+    buffer_points = float(m.get("be_buffer_points", 5))
+    fallback_points = float(m.get("be_trigger_points_fallback", 80))
+    point = row["point"]
+    entry = row["entry_price"]
+    risk_price = row["initial_risk_price"]
+    if row["direction"] == "buy":
+        favorable_distance = favorable_price - entry
+        target = entry + buffer_points * point
+    else:
+        favorable_distance = entry - favorable_price
+        target = entry - buffer_points * point
+    if favorable_distance <= 0:
+        return None
+    # Float-tolerant compares — 0.16 / 0.20 lands at 0.79999... so a strict
+    # < check would miss exactly-at-threshold cases.
+    eps = 1e-9
+    if risk_price > 0:
+        achieved_r = favorable_distance / risk_price
+        if achieved_r + eps < trigger_r:
+            return None
+    else:
+        achieved_points = favorable_distance / point if point else 0
+        if achieved_points + eps < fallback_points:
+            return None
+    return round(target, row.get("digits", 5))
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
     """One iteration: heartbeat + scan-and-manage. Subsequent tasks fill in
-    BE / Chandelier / modify."""
+    Chandelier / modify."""
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
     list_positions(cfg)
 
