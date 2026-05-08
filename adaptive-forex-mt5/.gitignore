@@ -5,6 +5,7 @@ state/
 state.db
 state.db-wal
 state.db-shm
+managed_positions.json
 logs/
 __pycache__/
 *.pyc
