@@ -88,7 +88,7 @@ Example:
 ```json
 {
   "server": "Trading.comMarkets-MT5",
-  "login": 105112007,
+  "login": 12345678,
   "live": false,
   "magic": 88888,
   "deviation": 20,

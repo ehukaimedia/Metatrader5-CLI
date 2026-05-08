@@ -41,13 +41,13 @@ class TestBridge:
 
     def test_connect_without_password_uses_bare_initialize(self, mt5m):
         """Regression: MT5 rejects password=None; logged-in terminals use bare initialize()."""
-        bridge.connect(105112007, None, "Trading.comMarkets-MT5")
+        bridge.connect(12345678, None, "Trading.comMarkets-MT5")
         mt5m.initialize.assert_called_once_with()
 
     def test_reconnect_without_password_uses_bare_initialize(self, mt5m):
         """Regression: reconnect_once follows the same bare-initialize path."""
         result = bridge.reconnect_once({
-            "login": 105112007,
+            "login": 12345678,
             "password": None,
             "server": "Trading.comMarkets-MT5",
             "timeout": 10000,
@@ -1124,7 +1124,7 @@ class TestMarket:
             "current_title",
             lambda **kwargs: {
                 "ok": True,
-                "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
+                "data": {"hwnd": 101, "title": "12345678 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
             },
         )
 
@@ -1185,7 +1185,7 @@ class TestMarket:
                 "data": {
                     "symbol": symbol,
                     "timeframe": kwargs["timeframe"],
-                    "title": f"105112007 - Trading.comMarkets-MT5 - [{symbol},{kwargs['timeframe']}]",
+                    "title": f"12345678 - Trading.comMarkets-MT5 - [{symbol},{kwargs['timeframe']}]",
                 },
             }
 
@@ -1255,7 +1255,7 @@ class TestMarket:
                 "data": {
                     "symbol": symbol,
                     "timeframe": None,
-                    "title": f"105112007 - Trading.comMarkets-MT5 - [{symbol},H1]",
+                    "title": f"12345678 - Trading.comMarkets-MT5 - [{symbol},H1]",
                 },
             }
 
@@ -3549,10 +3549,10 @@ class TestChart:
             monkeypatch,
             chart_module,
             [
-                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
-                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
-                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
-                self._Win("105112007 - Trading.comMarkets-MT5 - [USDJPY,H1]"),
+                self._Win("12345678 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
+                self._Win("12345678 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
+                self._Win("12345678 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"),
+                self._Win("12345678 - Trading.comMarkets-MT5 - [USDJPY,H1]"),
             ],
             sleep_calls,
         )
@@ -3567,7 +3567,7 @@ class TestChart:
     def test_switch_tf_timeframe_verify_failure_keeps_error_shape(self, monkeypatch):
         from metatrader5_cli.mt5.core import chart as chart_module
 
-        stale_title = "105112007 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"
+        stale_title = "12345678 - Trading.comMarkets-MT5 - [USDJPY,Monthly]"
         sleep_calls = []
         self._patch_switch_tf_win32(
             monkeypatch,
@@ -3659,7 +3659,7 @@ class TestChart:
             "current_title",
             lambda _window, **_kw: {
                 "ok": True,
-                "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
+                "data": {"hwnd": 101, "title": "12345678 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
             },
         )
 
@@ -3689,7 +3689,7 @@ class TestChart:
             "current_title",
             lambda _window, **_kw: {
                 "ok": True,
-                "data": {"hwnd": 101, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,H1]"},
+                "data": {"hwnd": 101, "title": "12345678 - Trading.comMarkets-MT5 - [USDJPY,H1]"},
             },
         )
 
@@ -3725,7 +3725,7 @@ class TestChart:
             "current_title",
             lambda _window, **_kw: {
                 "ok": True,
-                "data": {"hwnd": 10, "title": "105112007 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
+                "data": {"hwnd": 10, "title": "12345678 - Trading.comMarkets-MT5 - [USDJPY,M15]"},
             },
         )
 
@@ -3751,7 +3751,7 @@ class TestChart:
 
         sent_text = []
         activated = []
-        match = chart_module.WindowMatch(10, "105112007 - Trading.comMarkets-MT5 - [GBPUSD,M15]")
+        match = chart_module.WindowMatch(10, "12345678 - Trading.comMarkets-MT5 - [GBPUSD,M15]")
         children = [
             chart_module.ChartWindow(101, "[GBPUSD,M15]", "GBPUSD", "M15", "AfxFrameOrView140", True),
             chart_module.ChartWindow(202, "[EURUSD,H1]", "EURUSD", "H1", "AfxFrameOrView140", False),
@@ -3781,7 +3781,7 @@ class TestChart:
     def test_symbol_verify_failure_lists_detected_child_charts(self, monkeypatch):
         from metatrader5_cli.mt5.core import chart as chart_module
 
-        match = chart_module.WindowMatch(10, "105112007 - Trading.comMarkets-MT5 - [GBPUSD,M15]")
+        match = chart_module.WindowMatch(10, "12345678 - Trading.comMarkets-MT5 - [GBPUSD,M15]")
         children = [
             chart_module.ChartWindow(101, "[GBPUSD,M15]", "GBPUSD", "M15", "AfxFrameOrView140", True),
         ]

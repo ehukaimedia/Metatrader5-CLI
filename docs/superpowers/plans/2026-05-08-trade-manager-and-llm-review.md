@@ -2801,7 +2801,7 @@ Append to `adaptive-forex-mt5/README.md`:
 Three Python processes plus one persistent reviewer agent:
 
 ```powershell
-cd C:\Users\arsen\OneDrive\Desktop\AI-Applications\Metatrader5-CLI\adaptive-forex-mt5
+cd <workspace>\Metatrader5-CLI\adaptive-forex-mt5
 Start-Process powershell -ArgumentList '-NoExit','-Command','python dashboard.py'
 Start-Process powershell -ArgumentList '-NoExit','-Command','python agent.py'
 Start-Process powershell -ArgumentList '-NoExit','-Command','python trade_manager.py'

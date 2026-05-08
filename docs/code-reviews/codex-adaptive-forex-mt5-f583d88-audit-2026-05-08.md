@@ -9,7 +9,7 @@
 ## Verified
 
 - `metatrader5_cli/mt5/core/risk.py:56` and `adaptive-forex-mt5/agent.py:26` currently produce the same auto-derived magics for the unconfigured `ehukai-poc-{PAIR}` strategy IDs.
-- `C:\Users\arsen\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Experts\AdaptiveTrailEA.set:1` now contains the expected 11 magics: `128461,128648,137163,140360,143861,146145,159469,171860,172432,174473,176879`.
+- `%APPDATA%\MetaQuotes\Terminal\<TERMINAL_ID>\MQL5\Experts\AdaptiveTrailEA.set:1` now contains the expected 11 magics: `128461,128648,137163,140360,143861,146145,159469,171860,172432,174473,176879`.
 - `adaptive-forex-mt5/config.json:23` now binds the dashboard to `127.0.0.1`.
 - `python -m py_compile adaptive-forex-mt5\agent.py adaptive-forex-mt5\journal.py adaptive-forex-mt5\dashboard.py` passed.
 
