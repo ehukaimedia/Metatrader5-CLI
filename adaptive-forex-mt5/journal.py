@@ -10,9 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-LOGS = ROOT / "logs"
-LOGS.mkdir(exist_ok=True)
-TRADES_FILE = LOGS / "trades.jsonl"
+_LOG_PATH = ROOT / "logs" / "trades.jsonl"
 
 
 def _ts() -> str:
@@ -21,7 +19,8 @@ def _ts() -> str:
 
 def append(record: dict) -> None:
     record.setdefault("ts", _ts())
-    with open(TRADES_FILE, "a", encoding="utf-8") as f:
+    _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, default=str) + "\n")
 
 
@@ -99,7 +98,7 @@ def log_ready_alert(pair: str, scan: dict) -> None:
     """
     scan = scan or {}
     setup = scan.get("setup") or {}
-    append({
+    record = {
         "kind": "ready_alert",
         "pair": pair,
         "direction": scan.get("direction"),
@@ -109,7 +108,10 @@ def log_ready_alert(pair: str, scan: dict) -> None:
         "rr": setup.get("rr"),
         "quality_score": scan.get("quality_score"),
         "reasoning": _reasoning(scan),
-    })
+    }
+    if "setup_fingerprint" in scan:
+        record["setup_fingerprint"] = scan["setup_fingerprint"]
+    append(record)
 
 
 def log_outcome(ticket: int, outcome: dict) -> None:
@@ -131,15 +133,63 @@ def log_error(pair: str, where: str, error: dict | str) -> None:
 
 
 def read_all() -> list[dict]:
-    if not TRADES_FILE.exists():
+    if not _LOG_PATH.exists():
         return []
     out = []
-    for line in TRADES_FILE.read_text(encoding="utf-8").splitlines():
+    for line in _LOG_PATH.read_text(encoding="utf-8").splitlines():
         try:
             out.append(json.loads(line))
         except Exception:
             pass
     return out
+
+
+def log_llm_verdict(pair: str, verdict: dict) -> None:
+    """Record a reviewer-agent verdict joined back from the dispatcher pipeline."""
+    append({"kind": "llm_verdict", "pair": pair, **verdict})
+
+
+def log_manage_action(ticket: int, stage_from: str, stage_to: str,
+                      old_sl: float, new_sl: float, trigger: str) -> None:
+    """Record a confirmed BE move or trail tighten."""
+    append({
+        "kind": "manage_action",
+        "ticket": ticket,
+        "stage_from": stage_from,
+        "stage_to": stage_to,
+        "old_sl": old_sl,
+        "new_sl": new_sl,
+        "trigger": trigger,
+    })
+
+
+def log_manage_skip(ticket: int, reason: str, detail: dict | None = None) -> None:
+    """Record a guard-rejected modify (rate-limited at call site)."""
+    rec = {"kind": "manage_skip", "ticket": ticket, "reason": reason}
+    if detail:
+        rec["detail"] = detail
+    append(rec)
+
+
+def log_unmanaged_poc_position(ticket: int, symbol: str, magic: int, reason: str) -> None:
+    """Record a poc-magic position the manager cannot bootstrap (rate-limited at call site)."""
+    append({
+        "kind": "unmanaged_poc_position",
+        "ticket": ticket,
+        "symbol": symbol,
+        "magic": magic,
+        "reason": reason,
+    })
+
+
+def log_review_request(alert_id: str, task_id: str, pair: str) -> None:
+    """Record that agent.py created a trade_review task for this alert."""
+    append({
+        "kind": "review_request",
+        "alert_id": alert_id,
+        "task_id": task_id,
+        "pair": pair,
+    })
 
 
 def folded_trades() -> list[dict]:
