@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>adaptive-forex-mt5 — codebase architecture</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: #111827;
+    --panel-2: #1f2937;
+    --border: #1f2937;
+    --ink: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #5eead4;
+    --warn: #f87171;
+    --good: #5eead4;
+
+    --node-stroke: #475569;
+    --node-text: #f1f5f9;
+
+    --layer-entry: #fef3c7;     /* amber-100 */
+    --layer-review: #f3e8ff;    /* purple-100 */
+    --layer-trade: #dcfce7;     /* green-100 */
+    --layer-state: #fce7f3;     /* pink-100 */
+    --layer-ui: #dbeafe;        /* blue-100 */
+    --layer-external: #e2e8f0;  /* slate-200 */
+
+    --conn-data: #3b82f6;
+    --conn-tool: #10b981;
+    --conn-event: #ef4444;
+    --conn-skill: #f97316;
+    --conn-dep: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+               font-family: -apple-system, system-ui, sans-serif; height: 100%; }
+  body { display: grid; grid-template-columns: 320px 1fr; height: 100vh; gap: 0; }
+  aside { background: var(--panel); border-right: 1px solid var(--border);
+          padding: 14px; overflow: auto; }
+  main { display: grid; grid-template-rows: 1fr auto; min-width: 0; }
+  .canvas-wrap { background: #060a12; overflow: auto; position: relative; }
+  .canvas-wrap svg { display: block; }
+  h1 { font-size: 14px; font-weight: 600; margin: 0 0 12px; color: var(--ink);
+       letter-spacing: 0.3px; }
+  h2 { font-size: 11px; font-weight: 600; color: var(--muted);
+       text-transform: uppercase; letter-spacing: 1px; margin: 18px 0 8px; }
+  .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  button.preset {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--ink);
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 11px;
+    text-align: left; font-family: inherit;
+  }
+  button.preset:hover { border-color: var(--accent); color: var(--accent); }
+  button.preset.active { border-color: var(--accent); color: var(--accent);
+                         background: rgba(94, 234, 212, 0.05); }
+  label.toggle {
+    display: flex; align-items: center; gap: 8px; padding: 4px 0;
+    font-size: 12px; cursor: pointer; user-select: none;
+  }
+  label.toggle input { accent-color: var(--accent); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .conn-row { display: flex; align-items: center; gap: 8px; font-size: 11px;
+              padding: 3px 0; cursor: pointer; }
+  .conn-row .line { width: 28px; height: 2px; }
+  .legend { font-size: 11px; color: var(--muted); padding: 10px;
+            background: rgba(11, 15, 23, 0.85); border-radius: 6px;
+            position: absolute; bottom: 16px; left: 16px;
+            border: 1px solid var(--border); }
+  .legend .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .zoom { position: absolute; top: 16px; right: 16px; display: flex; gap: 4px;
+          background: rgba(11, 15, 23, 0.85); padding: 4px;
+          border-radius: 6px; border: 1px solid var(--border); }
+  .zoom button { background: transparent; border: 0; color: var(--ink);
+                 width: 26px; height: 26px; border-radius: 4px; cursor: pointer;
+                 font-size: 14px; }
+  .zoom button:hover { background: var(--panel-2); }
+  .comments { font-size: 11px; }
+  .comment {
+    background: var(--panel-2); border-left: 3px solid var(--accent);
+    padding: 6px 8px; margin-bottom: 6px; border-radius: 4px;
+  }
+  .comment .meta { color: var(--muted); font-size: 10px; margin-bottom: 4px;
+                   display: flex; justify-content: space-between; }
+  .comment .body { color: var(--ink); }
+  .comment .del {
+    color: var(--warn); cursor: pointer; background: transparent; border: 0;
+    font-size: 14px; padding: 0; line-height: 1;
+  }
+  .empty { color: var(--muted); font-style: italic; }
+
+  .prompt-bar {
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .prompt-bar .row { display: flex; gap: 12px; align-items: flex-start; }
+  .prompt {
+    flex: 1; background: #060a12; border: 1px solid var(--border);
+    color: var(--ink); padding: 10px 12px; border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;
+    white-space: pre-wrap; max-height: 130px; overflow: auto;
+  }
+  button.copy {
+    background: var(--accent); border: 0; color: #042f2e; font-weight: 600;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    height: 36px; align-self: center;
+  }
+  button.copy:hover { filter: brightness(1.1); }
+  button.copy.ok { background: #10b981; color: white; }
+
+  /* Modal */
+  .modal-back {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-back.show { display: flex; }
+  .modal {
+    background: var(--panel); padding: 18px; border-radius: 8px;
+    border: 1px solid var(--border); width: 460px; max-width: 90vw;
+  }
+  .modal h3 { margin: 0 0 4px; font-size: 14px; }
+  .modal .file { color: var(--muted); font-size: 11px;
+                 font-family: ui-monospace, SFMono-Regular, monospace;
+                 margin-bottom: 10px; }
+  .modal textarea {
+    width: 100%; min-height: 100px; background: #060a12; color: var(--ink);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+    font-family: inherit; font-size: 12px; resize: vertical;
+  }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end;
+                    margin-top: 10px; }
+  .modal button {
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--ink); padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 12px;
+  }
+  .modal button.primary { background: var(--accent); color: #042f2e;
+                          border-color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<aside>
+  <h1>adaptive-forex-mt5 architecture</h1>
+
+  <h2>Phase preset</h2>
+  <div class="presets" id="presets"></div>
+
+  <h2>Layers</h2>
+  <div id="layer-toggles"></div>
+
+  <h2>Connection types</h2>
+  <div id="conn-toggles"></div>
+
+  <h2>Comments (<span id="cn">0</span>)</h2>
+  <div class="comments" id="comments">
+    <div class="empty">Click a node to leave a note</div>
+  </div>
+</aside>
+
+<main>
+  <div class="canvas-wrap" id="canvasWrap">
+    <svg id="svg" width="1400" height="900" viewBox="0 0 1400 900">
+      <defs>
+        <marker id="arrow-data" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#3b82f6"/>
+        </marker>
+        <marker id="arrow-tool" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#10b981"/>
+        </marker>
+        <marker id="arrow-event" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#ef4444"/>
+        </marker>
+        <marker id="arrow-skill" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f97316"/>
+        </marker>
+        <marker id="arrow-dep" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#6b7280"/>
+        </marker>
+      </defs>
+      <g id="connections"></g>
+      <g id="nodes"></g>
+    </svg>
+    <div class="zoom">
+      <button onclick="zoom(0.85)">−</button>
+      <button onclick="zoomReset()">⌂</button>
+      <button onclick="zoom(1.15)">+</button>
+    </div>
+    <div class="legend">
+      <div class="row"><span class="swatch" style="background:#fef3c7"></span>Entry</div>
+      <div class="row"><span class="swatch" style="background:#f3e8ff"></span>Review</div>
+      <div class="row"><span class="swatch" style="background:#dcfce7"></span>Trade</div>
+      <div class="row"><span class="swatch" style="background:#fce7f3"></span>State</div>
+      <div class="row"><span class="swatch" style="background:#dbeafe"></span>UI</div>
+      <div class="row"><span class="swatch" style="background:#e2e8f0"></span>External</div>
+    </div>
+  </div>
+
+  <div class="prompt-bar">
+    <div class="row">
+      <div class="prompt" id="prompt">Open the playground and click a component to leave feedback.</div>
+      <button class="copy" id="copyBtn" onclick="copyPrompt()">Copy</button>
+    </div>
+  </div>
+</main>
+
+<div class="modal-back" id="modalBack">
+  <div class="modal">
+    <h3 id="modalTitle">Component</h3>
+    <div class="file" id="modalFile">file.py</div>
+    <textarea id="modalText" placeholder="What would you change here?"></textarea>
+    <div class="actions">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveComment()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ----- Codebase model ----------------------------------------------------
+
+  const NODES = [
+    // Entry layer
+    { id: 'agent', label: 'agent.py', subtitle: 'scan_once', x: 70, y: 60, w: 140, h: 50, layer: 'entry', phases: ['p1','p2','p3'] },
+    { id: 'place', label: 'place_new_orders', subtitle: 'agent.py', x: 240, y: 60, w: 160, h: 50, layer: 'entry', phases: ['p1','p2','p3'] },
+    { id: 'fingerprint', label: 'fingerprint.compute', subtitle: 'fingerprint.py', x: 430, y: 60, w: 160, h: 50, layer: 'state', phases: ['p1','p2','p3'] },
+    { id: 'ntfy', label: 'ntfy push', subtitle: 'alerts.py → ntfy.sh', x: 620, y: 60, w: 140, h: 50, layer: 'external', phases: ['p1','p2','p3'] },
+
+    // Review layer
+    { id: 'dispatch', label: 'dispatch.create_review_task', subtitle: 'dispatch.py', x: 240, y: 160, w: 220, h: 50, layer: 'review', phases: ['p1','p2'] },
+    { id: 'ehukai', label: 'ehukaiconnect', subtitle: 'CLI binary', x: 490, y: 160, w: 130, h: 50, layer: 'external', phases: ['p1','p2'] },
+    { id: 'claude-rev', label: 'ClaudeReviewer', subtitle: '.ehukaiconnect/skills/', x: 660, y: 130, w: 160, h: 45, layer: 'review', phases: ['p1','p2'] },
+    { id: 'codex-rev', label: 'CodexReviewer', subtitle: '.ehukaiconnect/skills/', x: 660, y: 185, w: 160, h: 45, layer: 'review', phases: ['p2'] },
+
+    { id: 'poll', label: 'agent.poll_verdicts', subtitle: 'agent.py', x: 240, y: 260, w: 180, h: 50, layer: 'review', phases: ['p1','p2'] },
+    { id: 'consensus', label: 'evaluate_pending_consensus', subtitle: 'agent.py', x: 460, y: 260, w: 230, h: 50, layer: 'review', phases: ['p2'] },
+    { id: 'consensus-pure', label: 'consensus.evaluate', subtitle: 'consensus.py', x: 720, y: 260, w: 180, h: 50, layer: 'review', phases: ['p2'] },
+
+    // Trade layer
+    { id: 'autopilot', label: 'autopilot.attempt_autopilot_place', subtitle: '12-gate executor', x: 320, y: 360, w: 280, h: 55, layer: 'trade', phases: ['p2'] },
+    { id: 'kill', label: 'kill_switch + bus listener', subtitle: 'autopilot.py', x: 70, y: 360, w: 220, h: 50, layer: 'trade', phases: ['p2'] },
+    { id: 'news', label: 'news.is_blackout_active', subtitle: 'news.py', x: 630, y: 360, w: 200, h: 50, layer: 'trade', phases: ['p2'] },
+
+    { id: 'trade-mgr', label: 'trade_manager.py', subtitle: 'loop_once (1s)', x: 320, y: 460, w: 200, h: 50, layer: 'trade', phases: ['p1','p2','p3'] },
+    { id: 'bootstrap', label: '_bootstrap_position', subtitle: 'trade_manager.py', x: 70, y: 460, w: 220, h: 50, layer: 'trade', phases: ['p1','p3'] },
+    { id: 'manage', label: 'manage_one (BE → Chandelier)', subtitle: 'trade_manager.py', x: 540, y: 460, w: 250, h: 50, layer: 'trade', phases: ['p1'] },
+    { id: 'adopt', label: 'adopt.py', subtitle: 'managed_positions.json', x: 70, y: 540, w: 220, h: 50, layer: 'state', phases: ['p3'] },
+
+    { id: 'mt5', label: 'mt5 CLI', subtitle: 'order limit / position move-sl', x: 540, y: 540, w: 250, h: 50, layer: 'external', phases: ['p1','p2','p3'] },
+
+    // State layer
+    { id: 'journal', label: 'journal.py', subtitle: 'logs/trades.jsonl (append-only)', x: 320, y: 640, w: 240, h: 50, layer: 'state', phases: ['p1','p2','p3'] },
+    { id: 'state-db', label: 'state_db.py', subtitle: 'state.db (SQLite WAL)', x: 600, y: 640, w: 220, h: 50, layer: 'state', phases: ['p1','p2','p3'] },
+
+    // UI layer
+    { id: 'dashboard', label: 'dashboard.py', subtitle: '127.0.0.1:8765 + tailscale', x: 880, y: 640, w: 220, h: 50, layer: 'ui', phases: ['p1','p2','p3'] },
+  ];
+
+  const CONNECTIONS = [
+    // Phase-1 entry path
+    { from: 'agent', to: 'place', type: 'data', label: 'every 60s' },
+    { from: 'place', to: 'fingerprint', type: 'tool', label: 'on READY' },
+    { from: 'place', to: 'ntfy', type: 'tool', label: 'trade idea' },
+    { from: 'place', to: 'journal', type: 'data', label: 'kind=ready_alert' },
+
+    // Review pipeline
+    { from: 'place', to: 'dispatch', type: 'tool' },
+    { from: 'dispatch', to: 'ehukai', type: 'tool', label: 'task create' },
+    { from: 'ehukai', to: 'claude-rev', type: 'skill', label: 'dispatch_wake' },
+    { from: 'ehukai', to: 'codex-rev', type: 'skill', label: 'dispatch_wake' },
+    { from: 'claude-rev', to: 'poll', type: 'data', label: 'verdict json' },
+    { from: 'codex-rev', to: 'poll', type: 'data', label: 'verdict json' },
+    { from: 'poll', to: 'consensus', type: 'data' },
+    { from: 'consensus', to: 'consensus-pure', type: 'dep' },
+    { from: 'poll', to: 'journal', type: 'data', label: 'kind=llm_verdict' },
+    { from: 'consensus', to: 'journal', type: 'data', label: 'kind=consensus_verdict' },
+
+    // Phase-2 autopilot
+    { from: 'consensus', to: 'autopilot', type: 'data', label: 'on take' },
+    { from: 'autopilot', to: 'news', type: 'dep', label: 'gate 9' },
+    { from: 'autopilot', to: 'kill', type: 'event', label: 'gate 2' },
+    { from: 'autopilot', to: 'mt5', type: 'tool', label: 'order limit (alert.setup)' },
+    { from: 'autopilot', to: 'journal', type: 'data', label: 'kind=placement (autopilot=true)' },
+
+    // Phase-3 adoption
+    { from: 'adopt', to: 'trade-mgr', type: 'dep', label: 'allowlist' },
+    { from: 'trade-mgr', to: 'bootstrap', type: 'tool' },
+    { from: 'bootstrap', to: 'journal', type: 'data', label: 'placement match' },
+    { from: 'trade-mgr', to: 'manage', type: 'tool' },
+    { from: 'manage', to: 'mt5', type: 'tool', label: 'position move-sl' },
+    { from: 'trade-mgr', to: 'state-db', type: 'data', label: 'managed_position upsert' },
+
+    // Bus abort + read flow
+    { from: 'agent', to: 'kill', type: 'event', label: 'AUTOPILOT ABORT' },
+
+    // State imports (deps)
+    { from: 'journal', to: 'state-db', type: 'dep' },
+
+    // Dashboard reads
+    { from: 'dashboard', to: 'journal', type: 'dep', label: 'read trades.jsonl' },
+    { from: 'dashboard', to: 'state-db', type: 'dep', label: 'read state.db' },
+  ];
+
+  const LAYERS = {
+    entry:    { label: 'Entry (scan)',  color: 'var(--layer-entry)',    on: true },
+    review:   { label: 'Review',        color: 'var(--layer-review)',   on: true },
+    trade:    { label: 'Trade',         color: 'var(--layer-trade)',    on: true },
+    state:    { label: 'State',         color: 'var(--layer-state)',    on: true },
+    ui:       { label: 'UI',            color: 'var(--layer-ui)',       on: true },
+    external: { label: 'External CLI',  color: 'var(--layer-external)', on: true },
+  };
+
+  const CONN_TYPES = {
+    data:  { label: 'Data flow',   color: '#3b82f6', dash: '',     on: true },
+    tool:  { label: 'Tool / CLI',  color: '#10b981', dash: '6,3',  on: true },
+    event: { label: 'Event',       color: '#ef4444', dash: '4,4',  on: true },
+    skill: { label: 'Dispatcher wake', color: '#f97316', dash: '8,4', on: true },
+    dep:   { label: 'Dependency',  color: '#6b7280', dash: '2,3',  on: true },
+  };
+
+  const PRESETS = {
+    'Full system': { phases: ['p1','p2','p3'], layers: Object.keys(LAYERS), conns: Object.keys(CONN_TYPES) },
+    'Phase 1 (foundation)': { phases: ['p1'], layers: ['entry','review','trade','state','external'], conns: ['data','tool','dep'] },
+    'Phase 2 (autopilot)':  { phases: ['p2'], layers: ['entry','review','trade','state','external'], conns: ['data','tool','event','skill','dep'] },
+    'Phase 3 (adoption)':   { phases: ['p3'], layers: ['entry','trade','state','external'], conns: ['data','tool','dep'] },
+    'Data flow only':       { phases: ['p1','p2','p3'], layers: Object.keys(LAYERS), conns: ['data'] },
+    'External CLIs':        { phases: ['p1','p2','p3'], layers: ['entry','review','trade','external'], conns: ['tool','skill'] },
+  };
+
+  // ----- State -------------------------------------------------------------
+
+  const state = {
+    layers: Object.fromEntries(Object.entries(LAYERS).map(([k,v]) => [k, v.on])),
+    conns:  Object.fromEntries(Object.entries(CONN_TYPES).map(([k,v]) => [k, v.on])),
+    phases: ['p1','p2','p3'],
+    activePreset: 'Full system',
+    comments: [],
+    pendingNode: null,
+    zoom: 1,
+  };
+
+  // ----- Render: presets, toggles, comments -------------------------------
+
+  function renderPresets() {
+    const c = document.getElementById('presets');
+    c.replaceChildren();
+    Object.keys(PRESETS).forEach(name => {
+      const b = document.createElement('button');
+      b.className = 'preset' + (state.activePreset === name ? ' active' : '');
+      b.textContent = name;
+      b.onclick = () => applyPreset(name);
+      c.appendChild(b);
+    });
+  }
+  function applyPreset(name) {
+    const p = PRESETS[name];
+    state.activePreset = name;
+    state.phases = [...p.phases];
+    Object.keys(LAYERS).forEach(k => state.layers[k] = p.layers.includes(k));
+    Object.keys(CONN_TYPES).forEach(k => state.conns[k] = p.conns.includes(k));
+    updateAll();
+  }
+
+  function renderLayerToggles() {
+    const c = document.getElementById('layer-toggles');
+    c.replaceChildren();
+    Object.entries(LAYERS).forEach(([k, v]) => {
+      const lbl = document.createElement('label');
+      lbl.className = 'toggle';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = state.layers[k];
+      cb.onchange = () => { state.layers[k] = cb.checked; state.activePreset = 'custom'; renderPresets(); updateAll(); };
+      const sw = document.createElement('span');
+      sw.className = 'swatch'; sw.style.background = v.color;
+      lbl.append(cb, sw, document.createTextNode(' ' + v.label));
+      c.appendChild(lbl);
+    });
+  }
+
+  function renderConnToggles() {
+    const c = document.getElementById('conn-toggles');
+    c.replaceChildren();
+    Object.entries(CONN_TYPES).forEach(([k, v]) => {
+      const row = document.createElement('label');
+      row.className = 'conn-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = state.conns[k];
+      cb.onchange = () => { state.conns[k] = cb.checked; state.activePreset = 'custom'; renderPresets(); updateAll(); };
+      const line = document.createElement('span');
+      line.className = 'line';
+      line.style.background = v.color;
+      if (v.dash) line.style.background =
+        `repeating-linear-gradient(to right, ${v.color} 0 6px, transparent 6px 9px)`;
+      row.append(cb, line, document.createTextNode(v.label));
+      c.appendChild(row);
+    });
+  }
+
+  function renderComments() {
+    const c = document.getElementById('comments');
+    document.getElementById('cn').textContent = state.comments.length;
+    c.replaceChildren();
+    if (state.comments.length === 0) {
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = 'Click a node to leave a note';
+      c.appendChild(e);
+      return;
+    }
+    state.comments.forEach(cm => {
+      const div = document.createElement('div');
+      div.className = 'comment';
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const who = document.createElement('span');
+      who.textContent = cm.targetLabel + ' · ' + cm.targetFile;
+      const del = document.createElement('button');
+      del.className = 'del'; del.textContent = '×';
+      del.onclick = () => {
+        state.comments = state.comments.filter(x => x.id !== cm.id);
+        updateAll();
+      };
+      meta.append(who, del);
+      const body = document.createElement('div');
+      body.className = 'body'; body.textContent = cm.text;
+      div.append(meta, body);
+      c.appendChild(div);
+    });
+  }
+
+  // ----- Render: SVG canvas -----------------------------------------------
+
+  function visibleNode(n) {
+    if (!state.layers[n.layer]) return false;
+    return n.phases.some(p => state.phases.includes(p));
+  }
+
+  function nodeById(id) { return NODES.find(n => n.id === id); }
+
+  function renderDiagram() {
+    const gNodes = document.getElementById('nodes');
+    const gConns = document.getElementById('connections');
+    gNodes.replaceChildren();
+    gConns.replaceChildren();
+
+    const visible = new Set(NODES.filter(visibleNode).map(n => n.id));
+
+    // Connections first (under nodes)
+    CONNECTIONS.forEach(c => {
+      if (!state.conns[c.type]) return;
+      if (!visible.has(c.from) || !visible.has(c.to)) return;
+      const a = nodeById(c.from), b = nodeById(c.to);
+      const x1 = a.x + a.w / 2, y1 = a.y + a.h / 2;
+      const x2 = b.x + b.w / 2, y2 = b.y + b.h / 2;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const dx = (x2 - x1) * 0.2, dy = (y2 - y1) * 0.2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const cx1 = x1 + dx, cy1 = y1 + dy * 2;
+      const cx2 = x2 - dx, cy2 = y2 - dy * 2;
+      path.setAttribute('d', `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`);
+      const t = CONN_TYPES[c.type];
+      path.setAttribute('stroke', t.color);
+      path.setAttribute('stroke-width', '1.6');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('opacity', '0.75');
+      if (t.dash) path.setAttribute('stroke-dasharray', t.dash);
+      path.setAttribute('marker-end', `url(#arrow-${c.type})`);
+      gConns.appendChild(path);
+      if (c.label) {
+        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        lbl.setAttribute('x', mx); lbl.setAttribute('y', my - 4);
+        lbl.setAttribute('text-anchor', 'middle');
+        lbl.setAttribute('fill', t.color);
+        lbl.setAttribute('font-size', '10');
+        lbl.setAttribute('font-family', 'ui-monospace, monospace');
+        lbl.textContent = c.label;
+        gConns.appendChild(lbl);
+      }
+    });
+
+    // Nodes
+    NODES.forEach(n => {
+      if (!visibleNode(n)) return;
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('transform', `translate(${n.x}, ${n.y})`);
+      g.style.cursor = 'pointer';
+      g.onclick = () => openModal(n);
+
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('width', n.w); rect.setAttribute('height', n.h);
+      rect.setAttribute('rx', 6);
+      rect.setAttribute('fill', `var(--layer-${n.layer})`);
+      const hasComment = state.comments.some(c => c.target === n.id);
+      rect.setAttribute('stroke', hasComment ? '#5eead4' : '#475569');
+      rect.setAttribute('stroke-width', hasComment ? 2.5 : 1);
+      g.appendChild(rect);
+
+      const t1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      t1.setAttribute('x', n.w / 2); t1.setAttribute('y', n.h / 2 - 3);
+      t1.setAttribute('text-anchor', 'middle');
+      t1.setAttribute('fill', '#0f172a');
+      t1.setAttribute('font-size', '12');
+      t1.setAttribute('font-weight', '600');
+      t1.setAttribute('font-family', 'ui-monospace, monospace');
+      t1.textContent = n.label;
+      g.appendChild(t1);
+
+      const t2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      t2.setAttribute('x', n.w / 2); t2.setAttribute('y', n.h / 2 + 12);
+      t2.setAttribute('text-anchor', 'middle');
+      t2.setAttribute('fill', '#475569');
+      t2.setAttribute('font-size', '10');
+      t2.setAttribute('font-family', 'ui-monospace, monospace');
+      t2.textContent = n.subtitle;
+      g.appendChild(t2);
+
+      if (hasComment) {
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', n.w - 8); dot.setAttribute('cy', 8);
+        dot.setAttribute('r', 4); dot.setAttribute('fill', '#5eead4');
+        g.appendChild(dot);
+      }
+
+      gNodes.appendChild(g);
+    });
+  }
+
+  // ----- Modal -------------------------------------------------------------
+
+  function openModal(node) {
+    state.pendingNode = node;
+    document.getElementById('modalTitle').textContent = node.label;
+    document.getElementById('modalFile').textContent = node.subtitle;
+    const ta = document.getElementById('modalText');
+    const existing = state.comments.find(c => c.target === node.id);
+    ta.value = existing ? existing.text : '';
+    document.getElementById('modalBack').classList.add('show');
+    setTimeout(() => ta.focus(), 50);
+  }
+  function closeModal() {
+    document.getElementById('modalBack').classList.remove('show');
+    state.pendingNode = null;
+  }
+  function saveComment() {
+    const node = state.pendingNode;
+    const text = document.getElementById('modalText').value.trim();
+    if (!node) return;
+    state.comments = state.comments.filter(c => c.target !== node.id);
+    if (text) {
+      state.comments.push({
+        id: Date.now(),
+        target: node.id,
+        targetLabel: node.label,
+        targetFile: node.subtitle,
+        text,
+      });
+    }
+    closeModal();
+    updateAll();
+  }
+  document.getElementById('modalBack').addEventListener('click', e => {
+    if (e.target.id === 'modalBack') closeModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // ----- Zoom --------------------------------------------------------------
+
+  function zoom(factor) {
+    state.zoom *= factor;
+    state.zoom = Math.max(0.5, Math.min(2.5, state.zoom));
+    applyZoom();
+  }
+  function zoomReset() { state.zoom = 1; applyZoom(); }
+  function applyZoom() {
+    const svg = document.getElementById('svg');
+    svg.style.transform = `scale(${state.zoom})`;
+    svg.style.transformOrigin = '0 0';
+  }
+
+  // ----- Prompt ------------------------------------------------------------
+
+  function updatePrompt() {
+    const phaseLabels = {p1:'Phase 1 (foundation)', p2:'Phase 2 (autopilot)', p3:'Phase 3 (adoption)'};
+    const visiblePhases = state.phases.map(p => phaseLabels[p]).filter(Boolean);
+    const visibleLayers = Object.entries(state.layers).filter(([_,v]) => v).map(([k]) => LAYERS[k].label);
+
+    let header = `This is the adaptive-forex-mt5 architecture`;
+    if (visiblePhases.length === 3) header += `, full system`;
+    else header += `, focused on ${visiblePhases.join(' + ')}`;
+    if (visibleLayers.length < Object.keys(LAYERS).length) {
+      header += ` (layers: ${visibleLayers.join(', ')})`;
+    }
+    header += '.';
+
+    let body = '';
+    if (state.comments.length > 0) {
+      body = '\n\nFeedback on specific components:\n';
+      state.comments.forEach(c => {
+        body += `\n**${c.targetLabel}** (${c.targetFile}):\n${c.text}\n`;
+      });
+    } else {
+      body = '\n\n(No component-level feedback yet — click a node to add one.)';
+    }
+
+    document.getElementById('prompt').textContent = header + body;
+  }
+
+  function copyPrompt() {
+    const btn = document.getElementById('copyBtn');
+    navigator.clipboard.writeText(document.getElementById('prompt').textContent).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('ok');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1200);
+    });
+  }
+
+  // ----- Wire it up --------------------------------------------------------
+
+  function updateAll() {
+    renderDiagram();
+    renderComments();
+    renderPresets();
+    updatePrompt();
+  }
+
+  renderPresets();
+  renderLayerToggles();
+  renderConnToggles();
+  applyZoom();
+  updateAll();
+</script>
+</body>
+</html>

@@ -182,6 +182,27 @@ Range: `[100000, 180000)`. The 11 POC magics are pinned in MT5's `AdaptiveTrailE
 
 ---
 
+## Architecture playground
+
+An interactive diagram of the codebase lives at
+[`docs/playgrounds/architecture.html`](docs/playgrounds/architecture.html).
+Open it in any browser (single self-contained HTML file, no external
+dependencies) to:
+
+- Step through the alert → review → consensus → autopilot → trade-manager
+  pipeline with phase-by-phase presets (full system, phase-1, phase-2,
+  phase-3, data-flow-only, external-CLIs-only).
+- Toggle layers (Entry / Review / Trade / State / UI / External CLI) and
+  connection types (data / tool / event / dispatcher-wake / dependency)
+  to focus on one slice.
+- Click any node to leave a comment on that file/function. Comments
+  accumulate into a copy-able prompt at the bottom for handing back to
+  Claude when you want changes there.
+
+The diagram covers all 14 production modules and the two external CLIs
+(`mt5`, `ehukaiconnect`). It is **read-only** — clicking a node opens a
+modal for inline notes; nothing in the playground modifies the codebase.
+
 ## Test infrastructure
 
 ```powershell
