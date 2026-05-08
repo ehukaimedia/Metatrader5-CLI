@@ -289,3 +289,84 @@ The reviewer wakes, runs `mt5 --json analyze topdown` + `mt5 --json rates`
 
 **Reviewer verdicts are advisory.** They never modify orders directly. Phase 2
 adds a two-of-two consensus auto-trade lane on top of this foundation.
+
+## Phase-2: Autopilot consensus mode
+
+**Status:** infrastructure built; master flag `autopilot.enabled` defaults
+**OFF**. The pipeline runs in shadow mode whenever review is enabled — both
+reviewers vote on every alert and `kind=consensus_verdict` is journaled
+for calibration — but no trades are placed until the operator explicitly
+flips the flag after weeks of shadow data prove the consensus reliable.
+
+### Two reviewers (different model families)
+
+```powershell
+ehukaiconnect agent create CodexReviewer --skill .ehukaiconnect/skills/CodexReviewer/SKILL.md
+```
+
+Plus the existing `ClaudeReviewer`. Run each in its own terminal so the
+ehukaiconnect dispatcher can wake both on every `trade_review-*` task.
+
+### What happens on a READY alert (autopilot OFF — current default)
+
+1. agent.py stamps `setup_fingerprint` and `alert_id`, journals
+   `kind=ready_alert`, writes payload to `.ehukaiconnect/shared/files/alerts/`.
+2. Two `trade_review-*` tasks are created in parallel — one for each
+   reviewer agent.
+3. Each reviewer wakes, runs `mt5 --json analyze topdown` etc., writes a
+   verdict to `.ehukaiconnect/shared/files/verdicts/<alert_id>-{claude,codex}.json`,
+   closes the task.
+4. agent.py polls done tasks, journals `kind=llm_verdict` and pushes
+   enriched ntfy.
+5. agent.evaluate_pending_consensus joins by `alert_id`, computes
+   strict 2-of-2 consensus, journals `kind=consensus_verdict`.
+6. Because `autopilot.enabled=false`, that's it. No broker action.
+
+### What changes when you flip `autopilot.enabled=true`
+
+After step 5, the executor runs 12 fail-fast gates:
+
+1. autopilot.enabled
+2. kill_switch != on
+3. consensus.consensus == take
+4. pair in autopilot.pair_allowlist
+5. alert age <= max_alert_age_seconds
+6. setup_fingerprint matches OR each level drift <= max_entry_drift_points
+7. cfg.mt5_cli.live (no broker call without it)
+8. spread <= max_spread_points
+9. news.is_blackout_active is False (fails closed when news_source is null)
+10. lot_size > 0
+11. daily_trade_cap not exceeded; daily_loss_cap_usd not exceeded
+   (counts AUTOPILOT placements only — manual trades don't count)
+12. (pair, magic) not already in active_strategies
+
+On all-pass it places via:
+
+```
+mt5 --live --json order limit <PAIR> <DIR> --price <ENTRY> --sl <SL> --tp <TP> --volume <V> --magic <M>
+```
+
+Crucially, `<ENTRY>`, `<SL>`, `<TP>` are the EXACT levels stored on the
+ready_alert when it fired — never re-evaluated, never reviewer-adjusted.
+
+### Kill-switch
+
+To halt autopilot from anywhere:
+
+```
+ehukaiconnect send-to 0 --from operator "AUTOPILOT ABORT"
+```
+
+agent.py polls the bus each scan; on detection it flips
+`state.db.cursor.autopilot_kill = "on"` and journals `autopilot_kill`.
+The dashboard shows the kill-switch state with a red pill when on.
+
+### Pre-flight before flipping `autopilot.enabled` to true
+
+- Wire a real news source (the default `news_source: null` fails ALL
+  autopilot gates by design).
+- Confirm shadow `consensus_verdict` records show `consensus=take` rate
+  matching your expectations on the dashboard.
+- Verify `cfg.mt5_cli.live=true` AND points at a DEMO account first.
+- Set `pair_allowlist` to the single pair you want to test on.
+- Confirm `daily_trade_cap`, `daily_loss_cap_usd`, `lot_size`.
