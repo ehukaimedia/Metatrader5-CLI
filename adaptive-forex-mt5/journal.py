@@ -192,6 +192,57 @@ def log_review_request(alert_id: str, task_id: str, pair: str) -> None:
     })
 
 
+# --- Phase 2 (autopilot consensus) ----------------------------------------
+
+def log_consensus_verdict(record: dict) -> None:
+    """Record a 2-of-2 consensus result (joined from two reviewer verdicts).
+
+    Whether or not autopilot.enabled is True, every joined verdict pair is
+    recorded — this is the shadow-mode calibration data the operator needs
+    before flipping the master flag.
+    """
+    append({"kind": "consensus_verdict", **record})
+
+
+def log_autopilot_placement(*, pair: str, placement: dict,
+                            consensus_alert_id: str,
+                            reviewer_confidences: list[float]) -> None:
+    """Record a successful autopilot auto-placement. Distinct from
+    `kind=placement` so the dashboard can split manual / agent / autopilot.
+    """
+    data = placement.get("data") or {}
+    placement_data = data.get("placement") or {}
+    append({
+        "kind": "autopilot_placement",
+        "pair": pair,
+        "ticket": placement_data.get("ticket"),
+        "magic": placement_data.get("magic"),
+        "consensus_alert_id": consensus_alert_id,
+        "reviewer_confidences": reviewer_confidences,
+    })
+
+
+def log_autopilot_skip(alert_id: str, gate: str, reason: str) -> None:
+    """Record an autopilot gate failure. `gate` is the failing gate name
+    (e.g. 'enabled', 'kill_switch', 'consensus', 'news_blackout', ...)."""
+    append({
+        "kind": "autopilot_skip",
+        "alert_id": alert_id,
+        "gate": gate,
+        "reason": reason,
+    })
+
+
+def log_autopilot_kill(prev: str, new: str, source: str) -> None:
+    """Record a kill-switch state change. `source` is 'bus' or 'dashboard'."""
+    append({
+        "kind": "autopilot_kill",
+        "prev": prev,
+        "new": new,
+        "source": source,
+    })
+
+
 def folded_trades() -> list[dict]:
     """One row per ticket: placement + outcome merged."""
     by_ticket: dict[int, dict] = {}
