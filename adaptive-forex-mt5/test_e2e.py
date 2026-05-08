@@ -206,6 +206,40 @@ def test_outcome_attribution(cfg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+def test_managed_lifecycle(cfg: dict) -> None:
+    """Open a 0.001 buy on USDJPY with a poc-magic, run trade_manager.loop_once
+    a few times, confirm state.db tracks it, then close. Live-only."""
+    import trade_manager
+    import state_db
+
+    sym = "USDJPY"
+    db = trade_manager.DB_PATH
+    state_db.init(db)
+    magic = agent.derive_magic(f"{cfg['agent']['strategy_id_prefix']}-{sym}")
+
+    print(f"managed_lifecycle: opening 0.001 buy on {sym} magic={magic}")
+    res = run_cli(cfg, [
+        "order", "market", sym, "buy", "0.001",
+        "--magic", str(magic),
+    ])
+    assert res.get("ok"), res
+    placement = res
+    journal.log_placement(sym, placement)
+    ticket = ((placement.get("data") or {}).get("placement") or {}).get("ticket")
+    assert ticket, "no ticket from order market"
+
+    try:
+        for i in range(3):
+            trade_manager.loop_once(cfg, db)
+            time.sleep(1)
+        rows = state_db.list_managed_positions(db, only_active=True)
+        managed = [r for r in rows if r["ticket"] == ticket]
+        assert managed, f"expected managed_position row for ticket {ticket}, got {rows}"
+        ok(f"managed_lifecycle: ticket={ticket} stage={managed[0]['stage']}")
+    finally:
+        run_cli(cfg, ["position", "close", "--ticket", str(ticket)])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -213,6 +247,12 @@ def main() -> None:
         help=("REQUIRED. This script places real orders on whatever account "
               "config.json's mt5_cli.live points at. Pass this flag explicitly "
               "to acknowledge."),
+    )
+    ap.add_argument(
+        "--managed", action="store_true",
+        help=("Run only the managed-position lifecycle scenario "
+              "(opens + closes one 0.001 micro-lot to exercise trade_manager). "
+              "Requires --allow-live."),
     )
     args = ap.parse_args()
 
@@ -230,6 +270,11 @@ def main() -> None:
     print()
     print("Tests will issue real broker calls. Continuing in 3 seconds (Ctrl-C to abort)...")
     time.sleep(3)
+
+    if args.managed:
+        test_managed_lifecycle(cfg)
+        print(f"\n{GREEN}managed_lifecycle test passed.{RESET}")
+        return
 
     test_magic_parity(cfg)
     test_active_strategy_guard(cfg)
