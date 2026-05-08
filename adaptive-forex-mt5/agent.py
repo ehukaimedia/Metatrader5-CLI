@@ -23,6 +23,7 @@ import alerts
 import dispatch
 import fingerprint
 import journal
+import state_db
 
 
 def derive_magic(strategy_id: str) -> int:
@@ -386,10 +387,66 @@ def place_new_orders(cfg: dict) -> int:
     return placed
 
 
+def _state_db_path() -> Path:
+    return Path(__file__).resolve().parent / "state.db"
+
+
+def poll_verdicts(cfg: dict, db_path: Path | None = None) -> int:
+    """Poll closed trade_review tasks since last_verdict_seen cursor.
+
+    For each new closed task: read its verdict file, append a llm_verdict
+    record to the journal, push an enriched ntfy. Advances the cursor to
+    the latest task's `updated_at` (unix ts as string).
+
+    Returns the count of verdicts processed.
+    """
+    if db_path is None:
+        db_path = _state_db_path()
+    cursor_name = "last_verdict_seen"
+    since = state_db.cursor_get(db_path, cursor_name)
+    tasks = dispatch.list_done_review_tasks(since=since)
+    if not tasks:
+        return 0
+    last_ts = since
+    count = 0
+    for task in tasks:
+        verdict_path_str = task.get("description")
+        if not verdict_path_str:
+            continue
+        try:
+            verdict = json.loads(Path(verdict_path_str).read_text(encoding="utf-8"))
+        except Exception as e:
+            journal.log_error("agent", "poll_verdicts_read", str(e))
+            continue
+        alert_id = verdict.get("alert_id") or ""
+        # alert_id format: "<iso-ts>-<pair>" — pair is the trailing token
+        pair = alert_id.rsplit("-", 1)[-1] if "-" in alert_id else ""
+        verdict["task_id"] = task.get("id")
+        verdict["task_updated_at"] = task.get("updated_at")
+        journal.log_llm_verdict(pair, verdict)
+        body = (
+            f"{(verdict.get('decision') or '?').upper()} conf={verdict.get('confidence','?')}\n"
+            f"{verdict.get('reasoning_summary','')}"
+        )
+        push(cfg, f"Reviewer verdict: {pair}", body, tags=["robot"])
+        ts = task.get("updated_at")
+        if ts is not None:
+            last_ts = str(ts)
+        count += 1
+    if last_ts and last_ts != since:
+        state_db.cursor_set(db_path, cursor_name, last_ts)
+    return count
+
+
 def scan_once(cfg: dict) -> None:
     """One full scan cycle: resolve outcomes, then place new orders."""
     resolve_outcomes(cfg)
     place_new_orders(cfg)
+    if cfg.get("agent", {}).get("review_enabled"):
+        try:
+            poll_verdicts(cfg)
+        except Exception as e:
+            journal.log_error("agent", "poll_verdicts", str(e))
 
 
 def run() -> None:
