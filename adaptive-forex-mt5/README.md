@@ -370,3 +370,52 @@ The dashboard shows the kill-switch state with a red pill when on.
 - Verify `cfg.mt5_cli.live=true` AND points at a DEMO account first.
 - Set `pair_allowlist` to the single pair you want to test on.
 - Confirm `daily_trade_cap`, `daily_loss_cap_usd`, `lot_size`.
+
+## Phase-3: Manual-trade adoption (allowlist)
+
+By default the trade manager only touches positions whose magic is in the
+poc-set (phase-1 invariant). To hand a manual-magic-0 position to the bot
+for BE+Chandelier trail, add it to `managed_positions.json`:
+
+```json
+[
+  {
+    "ticket": 204841232,
+    "symbol": "GBPJPY",
+    "account": 9999,
+    "mode": "trail_only",
+    "be_r": 0.80,
+    "trail_model": "chandelier_atr22_3.0",
+    "expires_at": "2026-05-15T00:00:00Z",
+    "operator_note": "GBPJPY manual long, hand to bot for trail"
+  }
+]
+```
+
+See `managed_positions.example.json` for the full schema. The actual file
+is gitignored.
+
+### Behavior
+
+- Missing file = no adoptions (safe default).
+- `expires_at` in the past = entry filtered out.
+- Missing required fields, malformed JSON, or non-list root = silently
+  ignored (operator can fix and reload).
+- Each adoption logs `kind=adoption` (audit) and synthesizes a
+  `kind=placement` (with `adopted=true`) so the existing trade-manager
+  bootstrap path can ticket-match without an agent placement record.
+- Synthesis is **idempotent** — re-running the manager loop on the same
+  allowlisted ticket does NOT duplicate the placement.
+
+### What the bot does to an adopted trade
+
+Same as a poc-magic trade — BE move at the configured `be_r`, then
+Chandelier trail with the configured `trail_model`. The operator's
+existing SL is the starting `initial_sl`; the manager only ever
+TIGHTENS, never loosens.
+
+### Removing a trade from adoption
+
+Either set `expires_at` to a past time, or delete the entry from
+`managed_positions.json` and restart `trade_manager.py`. The state.db row
+becomes a no-op once the position closes (manual or by trailed SL hit).
