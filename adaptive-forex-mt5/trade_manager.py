@@ -284,9 +284,142 @@ def compute_chandelier(bars: list[dict], *, direction: str, cfg: dict) -> float 
     return lowest_low + mult * atr
 
 
+def _idempotency_key(ticket: int, sl: float, stage_to: str | None) -> str:
+    raw = f"{ticket}|{sl}|{stage_to or ''}".encode()
+    return hashlib.blake2b(raw, digest_size=8).hexdigest()
+
+
+def _is_tightening(direction: str, current_sl: float, new_sl: float) -> bool:
+    return new_sl > current_sl if direction == "buy" else new_sl < current_sl
+
+
+def _read_position_sl(cfg: dict, ticket: int) -> float | None:
+    out = _run(cfg, ["position", "list"])
+    if not out or not out.get("ok"):
+        return None
+    for p in out.get("data") or []:
+        if p["ticket"] == ticket:
+            return float(p["sl"])
+    return None
+
+
+def _promote(db_path: Path, row: dict, sl: float,
+             stage_to: str | None, reason: str) -> None:
+    stage_from = row["stage"]  # snapshot BEFORE update
+    old_sl = row.get("last_sl_set") or row["initial_sl"]
+    row["last_sl_set"] = sl
+    if stage_to:
+        row["stage"] = stage_to
+    row["pending_action"] = None
+    row["requested_sl"] = None
+    row["idempotency_key"] = None
+    state_db.upsert_managed_position(db_path, row)
+    journal.log_manage_action(
+        ticket=row["ticket"], stage_from=stage_from,
+        stage_to=stage_to or stage_from, old_sl=old_sl, new_sl=sl,
+        trigger=reason,
+    )
+
+
+def _issue_modify(cfg: dict, db_path: Path, pos: dict, row: dict,
+                  new_sl: float, reason: str, stage_to: str | None,
+                  *, existing_key: str | None = None) -> None:
+    digits = row["digits"]
+    eps = 10 ** -(digits + 1)
+    key = existing_key or _idempotency_key(pos["ticket"], new_sl, stage_to)
+    row["pending_action"] = "modify_sl"
+    row["requested_sl"] = new_sl
+    row["idempotency_key"] = key
+    row["last_action_ts"] = datetime.now(timezone.utc).isoformat()
+    state_db.upsert_managed_position(db_path, row)
+
+    _run(cfg, ["position", "move-sl", str(pos["ticket"]),
+               "--sl", f"{new_sl:.{digits}f}"])
+    confirmed = _read_position_sl(cfg, pos["ticket"])
+    if confirmed is not None and abs(confirmed - new_sl) < eps:
+        _promote(db_path, row, new_sl, stage_to, reason)
+        return
+    journal.log_manage_skip(ticket=pos["ticket"], reason="unconfirmed",
+                            detail={"requested_sl": new_sl, "current_sl": confirmed})
+
+
+def attempt_modify(cfg: dict, db_path: Path, pos: dict, *,
+                   new_sl: float, reason: str,
+                   stage_to: str | None = None) -> None:
+    """Stage → call → confirm → promote with cooldown retry on unknown result.
+
+    Codex1's must-fixes (NO-GO unless explicit):
+    1. Live-gated: cfg.mt5_cli.live=False → not_live skip BEFORE any broker call.
+    2. Confirm-existing-without-broker-call: pending_action set with same
+       requested_sl + MT5 already at that SL → promote, no `move-sl` call.
+    3. Cooldown-elapsed retry uses the SAME idempotency_key.
+    """
+    row = state_db.get_managed_position(db_path, pos["ticket"])
+    if row is None:
+        return
+
+    # 1. Live gate (no broker call when live=false)
+    if not cfg["mt5_cli"].get("live"):
+        journal.log_manage_skip(ticket=pos["ticket"], reason="not_live")
+        return
+
+    m = cfg["manager"]
+    point = row["point"]
+    digits = row["digits"]
+    new_sl_rounded = round(new_sl, digits)
+    eps = 10 ** -(digits + 1)
+    cooldown_seconds = float(m.get("modify_cooldown_seconds", 5))
+
+    # 2. Confirm-existing path (no broker call yet)
+    if row.get("pending_action") == "modify_sl":
+        requested = row.get("requested_sl")
+        if requested is not None and abs(float(requested) - new_sl_rounded) < eps:
+            confirmed = _read_position_sl(cfg, pos["ticket"])
+            if confirmed is not None and abs(confirmed - float(requested)) < eps:
+                _promote(db_path, row, float(requested), stage_to, reason)
+                return
+            last_ts = row.get("last_action_ts")
+            if last_ts:
+                try:
+                    last_dt = datetime.fromisoformat(last_ts)
+                    elapsed = (datetime.now(last_dt.tzinfo or timezone.utc) - last_dt).total_seconds()
+                    if elapsed < cooldown_seconds:
+                        journal.log_manage_skip(ticket=pos["ticket"], reason="cooldown")
+                        return
+                except ValueError:
+                    pass
+            # 3. Cooldown elapsed → retry with SAME idempotency key
+            _issue_modify(cfg, db_path, pos, row, new_sl_rounded, reason,
+                          stage_to, existing_key=row.get("idempotency_key"))
+            return
+
+    # 4. Spread guard
+    spread = float(pos.get("spread") or 0)
+    max_spread = float(m.get("max_spread_points", 100))
+    if max_spread > 0 and spread > max_spread:
+        journal.log_manage_skip(ticket=pos["ticket"], reason="spread_cap",
+                                detail={"spread": spread, "cap": max_spread})
+        return
+
+    # 5. Tightening + min_improvement
+    current_sl = float(pos.get("sl") or row.get("last_sl_set") or row["initial_sl"])
+    if not _is_tightening(row["direction"], current_sl, new_sl_rounded):
+        journal.log_manage_skip(ticket=pos["ticket"], reason="not_tightening")
+        return
+    min_improvement = float(m.get("min_sl_improvement_points", 5))
+    improvement_points = abs(new_sl_rounded - current_sl) / point if point else 0
+    if improvement_points + 1e-9 < min_improvement:
+        journal.log_manage_skip(ticket=pos["ticket"], reason="min_improvement",
+                                detail={"points": improvement_points,
+                                        "floor": min_improvement})
+        return
+
+    # 6. Fresh modify with new idempotency key
+    _issue_modify(cfg, db_path, pos, row, new_sl_rounded, reason, stage_to)
+
+
 def loop_once(cfg: dict, db_path: Path = DB_PATH) -> None:
-    """One iteration: heartbeat + scan-and-manage. Subsequent tasks fill in
-    modify state machine + integration."""
+    """One iteration: heartbeat + scan-and-manage. Final integration in T15."""
     state_db.heartbeat_upsert(db_path, "manager", pid=os.getpid())
     list_positions(cfg)
 
