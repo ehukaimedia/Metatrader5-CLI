@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                             EhukaiTDAOverlay.mq5  |
 //|                  Ehukai Trading - Unified TDA Visual Overlay      |
-//|                  v1.23 - Canonical elite-v1 structure map         |
+//|                  v1.24 - Live setup-contract guide                |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.23"
+#property version   "1.24"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -32,9 +32,9 @@ enum ENUM_TDA_MODE
    TDA_SNIPER           = 2  // Sniper
   };
 
-input ENUM_TDA_MODE InpMode               = TDA_MANUAL_ANALYSIS;  // Visual mode
+input ENUM_TDA_MODE InpMode               = TDA_SNIPER;           // Visual mode
 input int           InpLookbackBars       = 300;                  // Lookback bars
-input int           InpExtendBars         = 48;                   // Extend active objects
+input int           InpExtendBars         = 24;                   // Extend active objects
 input bool          InpCleanAgentScreenshot = false;              // Agent mode: clean chart
 input bool          InpCleanLegacyEhukaiObjects = true;           // Agent mode: clear old Ehukai objects
 input bool          InpShowStructure      = true;                 // Show structure
@@ -71,6 +71,7 @@ input int           InpFastLiquidityLookback = 5;                 // M1/M5 liqui
 input int           InpMaxLiquidityPools  = 4;                    // Max liquidity pools
 input bool          InpShowSweptLiquidity = true;                 // Include swept pools
 input double        InpMaxLiquidityDistancePips = 120.0;          // Max liquidity distance
+input double        InpBehindZoneTolerancePips = 15.0;            // Trap liquidity tolerance
 input int           InpMaxSweepMarkerAgeBars = 40;                // Max sweep marker age
 input bool          InpFillSmallZones     = false;                // Fill small zones
 input double        InpMaxFillPips        = 25.0;                 // Max filled-zone size
@@ -85,8 +86,8 @@ input bool          InpAlertOnArmed       = false;                // Alert on ar
 input bool          InpAlertOnTrigger     = true;                 // Alert on trigger state
 input int           InpLabelFontSize      = 8;                    // Label size
 input double        InpLabelOffsetPips    = 3.0;                  // Label offset
-input color         InpBullColor          = clrLimeGreen;         // Bullish color
-input color         InpBearColor          = clrTomato;            // Bearish color
+input color         InpBullColor          = C'134,239,172';       // Bullish color
+input color         InpBearColor          = C'248,113,113';       // Bearish color
 input color         InpNeutralColor       = clrSilver;            // Neutral color
 input color         InpLevelColor         = clrDodgerBlue;        // Structure level color
 input color         InpEQColor            = C'100,116,139';       // Elite range EQ color
@@ -201,6 +202,12 @@ struct SetupContext
    bool   bear_poi_touched;
    bool   buy_liquidity_swept;
    bool   sell_liquidity_swept;
+   bool   buy_opposing_liquidity_front;
+   bool   sell_opposing_liquidity_front;
+   bool   buy_liquidity_behind_zone;
+   bool   sell_liquidity_behind_zone;
+   bool   buy_poi_trap_risk;
+   bool   sell_poi_trap_risk;
    double nearest_bull_poi_pips;
    double nearest_bear_poi_pips;
    double bull_poi_upper;
@@ -353,6 +360,12 @@ void InitSetupContext(SetupContext &ctx)
    ctx.bear_poi_touched = false;
    ctx.buy_liquidity_swept = false;
    ctx.sell_liquidity_swept = false;
+   ctx.buy_opposing_liquidity_front = false;
+   ctx.sell_opposing_liquidity_front = false;
+   ctx.buy_liquidity_behind_zone = false;
+   ctx.sell_liquidity_behind_zone = false;
+   ctx.buy_poi_trap_risk = false;
+   ctx.sell_poi_trap_risk = false;
    ctx.nearest_bull_poi_pips = DBL_MAX;
    ctx.nearest_bear_poi_pips = DBL_MAX;
    ctx.bull_poi_upper = 0.0;
@@ -403,15 +416,35 @@ void TrackFVGContext(SetupContext &ctx, const FVGZone &zone, const double curren
      }
   }
 
-void TrackLiquidityContext(SetupContext &ctx, const bool buy_side, const bool swept)
+void TrackLiquidityContext(SetupContext &ctx, const bool buy_side, const bool swept,
+                           const double level, const double current_price)
   {
-   if(!swept)
-      return;
+   double behind_tolerance = PipsToPrice(InpBehindZoneTolerancePips);
 
    if(buy_side)
-      ctx.buy_liquidity_swept = true;
+     {
+      if(swept)
+         ctx.buy_liquidity_swept = true;
+      if(ctx.bear_poi_upper > 0.0 && ctx.bear_poi_lower > 0.0)
+        {
+         if(level >= current_price && level <= ctx.bear_poi_upper)
+            ctx.sell_opposing_liquidity_front = true;
+         if(level >= ctx.bear_poi_upper && level <= ctx.bear_poi_upper + behind_tolerance)
+            ctx.sell_liquidity_behind_zone = true;
+        }
+     }
    else
-      ctx.sell_liquidity_swept = true;
+     {
+      if(swept)
+         ctx.sell_liquidity_swept = true;
+      if(ctx.bull_poi_upper > 0.0 && ctx.bull_poi_lower > 0.0)
+        {
+         if(level >= ctx.bull_poi_lower && level <= current_price)
+            ctx.buy_opposing_liquidity_front = true;
+         if(level <= ctx.bull_poi_lower && level >= ctx.bull_poi_lower - behind_tolerance)
+            ctx.buy_liquidity_behind_zone = true;
+        }
+     }
   }
 
 void InitLiquidityCandidate(LiquidityCandidate &candidate)
@@ -813,7 +846,7 @@ void DrawBiasPanel(const string bias, const SwingPoint &last_high, const bool ha
       string hi = have_high ? StringFormat("H %s %.3f", last_high.kind, last_high.price) : "H n/a";
       string lo = have_low ? StringFormat("L %s %.3f", last_low.kind, last_low.price) : "L n/a";
       ObjectSetString(0, name, OBJPROP_TEXT,
-                      StringFormat("TDA v1.23 %s: %s | %s | %s", TimeframeLabel(), bias, hi, lo));
+                      StringFormat("TDA v1.24 %s: %s | %s | %s", TimeframeLabel(), bias, hi, lo));
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
@@ -836,7 +869,7 @@ void DrawTopDownPanel()
    DrawPanelBackground(base + "_BG", CORNER_LEFT_UPPER, x, y, 205, 112,
                        InpGuideBgColor, C'55,65,81', 8);
    DrawPanelLine(base + "_T", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 8,
-                 "TDA v1.23 TOP-DOWN", InpGuideTextColor, true, 9);
+                 "TDA v1.24 TOP-DOWN", InpGuideTextColor, true, 9);
 
    ENUM_TIMEFRAMES frames[5] = {PERIOD_D1, PERIOD_H4, PERIOD_M15, PERIOD_M5, PERIOD_M1};
    for(int i = 0; i < 5; i++)
@@ -986,7 +1019,7 @@ void DrawEliteStatePanel(const EliteState &state, const double last_close)
    bool display_seeded = state.internal_seeded || (state.internal_dir == 0 && display_dir != 0 && state.has_range);
    string event_text = state.last_event == "" ? EliteBiasText(state.swing_dir) : state.last_event;
    string signal_text = state.early_signal == "" ? "Waiting for fCHOCH / iBOS" : state.early_signal;
-   string text = StringFormat("TDA v1.23 | %s | Swing %s\nInternal %s | %s\n%s",
+   string text = StringFormat("TDA v1.24 | %s | Swing %s\nInternal %s | %s\n%s",
                               TimeframeLabel(), event_text,
                               EliteInternalText(display_dir, display_seeded),
                               EliteZoneText(last_close, state), signal_text);
@@ -1881,8 +1914,8 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
    int start = MathMax(length, rates_total - lookback);
    int stop = rates_total - length;
    datetime future_time = FutureTime(time, rates_total);
-   double current_price = close[rates_total - 1];
    int signal_index = SignalBarIndex(rates_total);
+   double current_price = close[signal_index];
    int drawn = 0;
    int sweep_markers = 0;
    LiquidityCandidate best_buy;
@@ -1903,7 +1936,7 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          bool swept = FindSweep(true, i, top, bottom, high, low, close, time, signal_index, swept_time);
          double distance = LiquidityDistancePips(top, bottom, current_price);
           if(InpUseLiquidityContext)
-             TrackLiquidityContext(ctx, true, swept);
+             TrackLiquidityContext(ctx, true, swept, top, current_price);
           if(!draw_liquidity && swept && count > 0 && sweep_markers < 2
              && RecentSweepMarker(swept_time, time, rates_total)
              && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
@@ -1941,7 +1974,7 @@ void RenderLiquidity(const double &open[], const double &high[], const double &l
          bool swept = FindSweep(false, i, top, bottom, high, low, close, time, signal_index, swept_time);
          double distance = LiquidityDistancePips(top, bottom, current_price);
           if(InpUseLiquidityContext)
-             TrackLiquidityContext(ctx, false, swept);
+             TrackLiquidityContext(ctx, false, swept, bottom, current_price);
           if(!draw_liquidity && swept && count > 0 && sweep_markers < 2
              && RecentSweepMarker(swept_time, time, rates_total)
              && (InpMaxLiquidityDistancePips <= 0 || distance <= InpMaxLiquidityDistancePips))
@@ -2026,6 +2059,11 @@ void EvaluateSetupState(SetupContext &ctx)
    if(ctx.buy_liquidity_swept)
       sell_score += 20;
 
+   if(ctx.buy_opposing_liquidity_front)
+      buy_score += 10;
+   if(ctx.sell_opposing_liquidity_front)
+      sell_score += 10;
+
    if(ctx.bull_bos || ctx.bull_choch)
       buy_score += 20;
    if(ctx.bear_bos || ctx.bear_choch)
@@ -2041,6 +2079,13 @@ void EvaluateSetupState(SetupContext &ctx)
 
    bool buy_has_poi = ctx.bull_poi_near;
    bool sell_has_poi = ctx.bear_poi_near;
+   ctx.buy_poi_trap_risk = ctx.buy_liquidity_behind_zone && !ctx.buy_opposing_liquidity_front;
+   ctx.sell_poi_trap_risk = ctx.sell_liquidity_behind_zone && !ctx.sell_opposing_liquidity_front;
+   if(ctx.buy_poi_trap_risk)
+      buy_score = MathMax(0, buy_score - 25);
+   if(ctx.sell_poi_trap_risk)
+      sell_score = MathMax(0, sell_score - 25);
+
    bool buy_armed = ctx.bull_poi_touched || ctx.sell_liquidity_swept;
    bool sell_armed = ctx.bear_poi_touched || ctx.buy_liquidity_swept;
    bool buy_trigger = buy_armed && (ctx.bull_bos || ctx.bull_choch);
@@ -2050,15 +2095,21 @@ void EvaluateSetupState(SetupContext &ctx)
      {
       ctx.score = buy_score;
       ctx.direction = "BUY";
-      if(buy_trigger && buy_score >= InpMinTDAScore)
+      if(ctx.buy_poi_trap_risk)
         {
-         ctx.state = "TRIGGER_BUY";
+         ctx.state = "NO_TRADE";
+         ctx.direction = "-";
+         ctx.reason = "Bull POI trap risk: SSL behind zone";
+        }
+      else if(buy_trigger && buy_score >= InpMinTDAScore)
+        {
+         ctx.state = "READY_BUY";
          ctx.reason = ctx.bull_choch ? "Bullish close-confirmed CHOCH after POI/sweep"
                                      : "Bullish close-confirmed BOS after POI/sweep";
         }
       else if(buy_armed && buy_score >= InpMinTDAScore)
         {
-         ctx.state = "ARMED_BUY";
+         ctx.state = "WATCH_BUY";
          ctx.reason = "Bullish POI/sell-side sweep active";
         }
       else if(buy_has_poi && buy_score >= 50)
@@ -2077,15 +2128,21 @@ void EvaluateSetupState(SetupContext &ctx)
      {
       ctx.score = sell_score;
       ctx.direction = "SELL";
-      if(sell_trigger && sell_score >= InpMinTDAScore)
+      if(ctx.sell_poi_trap_risk)
         {
-         ctx.state = "TRIGGER_SELL";
+         ctx.state = "NO_TRADE";
+         ctx.direction = "-";
+         ctx.reason = "Bear POI trap risk: BSL behind zone";
+        }
+      else if(sell_trigger && sell_score >= InpMinTDAScore)
+        {
+         ctx.state = "READY_SELL";
          ctx.reason = ctx.bear_choch ? "Bearish close-confirmed CHOCH after POI/sweep"
                                      : "Bearish close-confirmed BOS after POI/sweep";
         }
       else if(sell_armed && sell_score >= InpMinTDAScore)
         {
-         ctx.state = "ARMED_SELL";
+         ctx.state = "WATCH_SELL";
          ctx.reason = "Bearish POI/buy-side sweep active";
         }
       else if(sell_has_poi && sell_score >= 50)
@@ -2117,6 +2174,8 @@ color GuideActionColor(const string action)
       return InpNeutralColor;
    if(StringFind(action, "WAIT") >= 0)
       return InpStrongColor;
+   if(StringFind(action, "READY") >= 0)
+      return InpGuideTextColor;
    if(StringFind(action, "BUY") >= 0)
       return InpBullColor;
    if(StringFind(action, "SELL") >= 0)
@@ -2160,7 +2219,11 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
      {
       bool has_poi = ctx.bull_poi_upper > 0.0 && ctx.bull_poi_lower > 0.0;
       bool poi_below_support = has_poi && ctx.support_level > 0.0 && ctx.bull_poi_upper < ctx.support_level;
-      if(ctx.bull_poi_touched)
+      if(ctx.state == "READY_BUY")
+         action = "READY BUY - DRY-RUN ONLY";
+      else if(ctx.buy_poi_trap_risk)
+         action = "NO TRADE - BULL POI TRAP";
+      else if(ctx.bull_poi_touched)
          action = "WATCH BUY - IN BULL FVG";
       else if(has_poi && ctx.nearest_bull_poi_pips <= InpGuideEntryProximityPips)
          action = "WATCH BUY - FVG CLOSE";
@@ -2171,7 +2234,12 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
       else
          action = "WAIT - BULLISH, NO BULL FVG";
 
-      step1 = ctx.sell_liquidity_swept ? "Sweep: SSL taken" : "Sweep: none required yet";
+      if(ctx.buy_poi_trap_risk)
+         step1 = "Liquidity: SSL behind POI, wait";
+      else if(ctx.buy_opposing_liquidity_front)
+         step1 = "Liquidity: SSL in front/cleared";
+      else
+         step1 = ctx.sell_liquidity_swept ? "Sweep: SSL taken" : "Liquidity: no front clue";
       step2 = GuidePOIText(true, ctx);
       step3 = GuideInvalidationText(true, ctx);
      }
@@ -2179,7 +2247,11 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
      {
       bool has_poi = ctx.bear_poi_upper > 0.0 && ctx.bear_poi_lower > 0.0;
       bool poi_above_resistance = has_poi && ctx.resistance_level > 0.0 && ctx.bear_poi_lower > ctx.resistance_level;
-      if(ctx.bear_poi_touched)
+      if(ctx.state == "READY_SELL")
+         action = "READY SELL - DRY-RUN ONLY";
+      else if(ctx.sell_poi_trap_risk)
+         action = "NO TRADE - BEAR POI TRAP";
+      else if(ctx.bear_poi_touched)
          action = "WATCH SELL - IN BEAR FVG";
       else if(has_poi && ctx.nearest_bear_poi_pips <= InpGuideEntryProximityPips)
          action = "WATCH SELL - FVG CLOSE";
@@ -2190,13 +2262,18 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
       else
          action = "WAIT - BEARISH, NO BEAR FVG";
 
-      step1 = ctx.buy_liquidity_swept ? "Sweep: BSL taken" : "Sweep: none required yet";
+      if(ctx.sell_poi_trap_risk)
+         step1 = "Liquidity: BSL behind POI, wait";
+      else if(ctx.sell_opposing_liquidity_front)
+         step1 = "Liquidity: BSL in front/cleared";
+      else
+         step1 = ctx.buy_liquidity_swept ? "Sweep: BSL taken" : "Liquidity: no front clue";
       step2 = GuidePOIText(false, ctx);
       step3 = GuideInvalidationText(false, ctx);
      }
 
    if(ctx.state != "NO_TRADE")
-      step1 = StringFormat("%s | Score %d", ctx.state, ctx.score);
+      step1 = StringFormat("%s | Score %d | %s", ctx.state, ctx.score, step1);
 
    string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_TRADE_GUIDE";
    int x = 14;
@@ -2243,9 +2320,7 @@ void MaybeAlertSniperState(const SetupContext &ctx, const datetime signal_time)
    bool enabled = false;
    if(StringFind(ctx.state, "WATCH") >= 0)
       enabled = InpAlertOnWatch;
-   else if(StringFind(ctx.state, "ARMED") >= 0)
-      enabled = InpAlertOnArmed;
-   else if(StringFind(ctx.state, "TRIGGER") >= 0)
+   else if(StringFind(ctx.state, "READY") >= 0)
       enabled = InpAlertOnTrigger;
 
    if(!enabled)
