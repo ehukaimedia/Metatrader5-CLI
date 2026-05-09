@@ -1467,6 +1467,87 @@ class TestMarket:
         assert data["data"]["source"] == "EhukaiLiquiditySwings"
         assert data["data"]["pools"][0]["visual_label"] == "BSL LIQ OPEN C2 V100"
 
+    def test_ehukai_volume_profile_returns_poc_and_value_area(self, monkeypatch):
+        from metatrader5_cli.mt5.core import ehukai
+        from metatrader5_cli.mt5.core import rates as rates_module
+
+        rows = []
+        for i in range(30):
+            rows.append({
+                "time": f"2026-05-05T03:{i:02d}:00+00:00",
+                "open": 1.1000,
+                "high": 1.1010,
+                "low": 1.0990,
+                "close": 1.1005,
+                "tick_volume": 10,
+            })
+        for i in range(10, 20):
+            rows[i].update({
+                "open": 1.1050,
+                "high": 1.1060,
+                "low": 1.1040,
+                "close": 1.1055,
+                "tick_volume": 100,
+            })
+        rows[-1]["close"] = 1.1070
+        rows[-1].update({
+            "open": 1.1800,
+            "high": 1.1810,
+            "low": 1.1790,
+            "close": 1.1805,
+            "tick_volume": 10000,
+        })
+
+        monkeypatch.setattr(rates_module, "fetch", lambda *a, **kw: {"ok": True, "data": rows})
+
+        result = ehukai.volume_profile("EURUSD", "M5", bars=30, rows=16, value_area_pct=70)
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["source"] == "EhukaiVolumeProfilePOC"
+        assert data["object_prefix"] == "EVP_"
+        assert 1.104 <= data["poc"] <= 1.1065
+        assert data["bars"] == 29
+        assert data["current_price"] == 1.1005
+        assert data["value_area_low"] <= data["poc"] <= data["value_area_high"]
+        assert data["price_context"] == "below_value_area"
+        assert data["visual_contract"]["indicator"] == "EhukaiVolumeProfilePOC"
+        assert data["high_volume_nodes"][0]["is_poc"] is True
+
+    def test_cli_ehukai_volume_profile_json(self, monkeypatch, tmp_path):
+        import json
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import ehukai as ehukai_module, project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        for var in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER", "MT5_LIVE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(
+            ehukai_module,
+            "volume_profile",
+            lambda symbol, timeframe, **kw: {
+                "ok": True,
+                "data": {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "source": "EhukaiVolumeProfilePOC",
+                    "poc": 1.105,
+                },
+            },
+        )
+
+        result = CliRunner().invoke(
+            mt5_cli.main,
+            ["--json", "ehukai", "volume-profile", "EURUSD", "M5", "--rows", "16"],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["source"] == "EhukaiVolumeProfilePOC"
+        assert data["data"]["poc"] == 1.105
+
     def test_market_search_auto_wraps_bare_pattern(self, mt5m):
         from metatrader5_cli.mt5.core import market
         mt5m.symbols_get.return_value = []

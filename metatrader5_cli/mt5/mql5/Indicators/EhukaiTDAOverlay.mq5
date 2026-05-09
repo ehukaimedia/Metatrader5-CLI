@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                             EhukaiTDAOverlay.mq5  |
 //|                  Ehukai Trading - Unified TDA Visual Overlay      |
-//|                  v1.24 - Live setup-contract guide                |
+//|                  v1.26 - VP / POC guide confluence                |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.24"
+#property version   "1.26"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -36,7 +36,7 @@ input ENUM_TDA_MODE InpMode               = TDA_SNIPER;           // Visual mode
 input int           InpLookbackBars       = 300;                  // Lookback bars
 input int           InpExtendBars         = 24;                   // Extend active objects
 input bool          InpCleanAgentScreenshot = false;              // Agent mode: clean chart
-input bool          InpCleanLegacyEhukaiObjects = true;           // Agent mode: clear old Ehukai objects
+input bool          InpCleanLegacyEhukaiObjects = true;           // Clear old standalone Ehukai objects
 input bool          InpShowStructure      = true;                 // Show structure
 input bool          InpShowEliteStructure = true;                 // Show elite structure state
 input bool          InpShowEliteEvents    = false;                // Show elite event history
@@ -53,6 +53,13 @@ input bool          InpShowFVGTextLabels  = false;                // Label FVG z
 input bool          InpShowLiquidity      = false;                // Draw liquidity pools
 input bool          InpUseLiquidityContext = true;                // Use liquidity in setup context
 input bool          InpShowSweepMarkers   = true;                 // Show subtle sweep markers
+input bool          InpUseVolumeProfileContext = true;            // Use VP/POC confluence
+input bool          InpShowVolumeProfilePOC = true;               // Show compact POC rail
+input bool          InpShowVolumeProfileValueArea = false;        // Show VAH/VAL rails
+input int           InpVolumeProfileBars  = 120;                  // VP closed-bar lookback
+input int           InpVolumeProfileRows  = 40;                   // VP price rows
+input double        InpVolumeProfileValueAreaPct = 70.0;          // VP value area percent
+input int           InpVolumeProfileScoreWeight = 8;              // VP score confluence
 input int           InpPivotBars          = 8;                    // Structure pivot bars
 input int           InpInternalPivotBars  = 3;                    // Internal pivot bars
 input int           InpFractalPivotBars   = 1;                    // Fractal CHOCH pivot bars
@@ -85,6 +92,7 @@ input bool          InpAlertOnWatch       = false;                // Alert on wa
 input bool          InpAlertOnTrigger     = true;                 // Alert on trigger state
 input int           InpLabelFontSize      = 8;                    // Label size
 input double        InpLabelOffsetPips    = 3.0;                  // Label offset
+input bool          InpUseCompactLabels   = true;                 // Use short anti-collision labels
 input color         InpBullColor          = C'134,239,172';       // Bullish color
 input color         InpBearColor          = C'248,113,113';       // Bearish color
 input color         InpNeutralColor       = clrSilver;            // Neutral color
@@ -98,6 +106,8 @@ input color         InpGuideBgColor       = C'15,23,42';          // Guide panel
 input color         InpGuideTextColor     = clrWhite;             // Guide panel text
 input color         InpLiquidityBuyColor  = clrDeepPink;          // Buy-side liquidity
 input color         InpLiquiditySellColor = clrTeal;              // Sell-side liquidity
+input color         InpVolumeProfilePOCColor = clrMagenta;        // VP POC rail
+input color         InpVolumeProfileVAColor = C'56,189,248';      // VP VAH/VAL rails
 
 string g_prefix = "ETDA_";
 double g_point;
@@ -209,6 +219,17 @@ struct SetupContext
    bool   bear_sweep_in_zone_creation;
    bool   buy_poi_trap_risk;
    bool   sell_poi_trap_risk;
+   bool   vp_ready;
+   double vp_poc;
+   double vp_vah;
+   double vp_val;
+   double vp_distance_pips;
+   string vp_context;
+   string vp_read;
+   int    vp_buy_score;
+   int    vp_sell_score;
+   bool   vp_buy_block;
+   bool   vp_sell_block;
    double nearest_bull_poi_pips;
    double nearest_bear_poi_pips;
    double bull_poi_upper;
@@ -246,6 +267,15 @@ double PipsToPrice(const double pips)
    if(g_digits == 3 || g_digits == 5)
       return pips * g_point * 10.0;
    return pips * g_point;
+  }
+
+int ClampIndex(const int value, const int max_index)
+  {
+   if(value < 0)
+      return 0;
+   if(value > max_index)
+      return max_index;
+   return value;
   }
 
 string TimeframeLabel()
@@ -339,7 +369,7 @@ bool DrawLiquidityVisuals()
 void CleanupVisualObjects()
   {
    ObjectsDeleteAll(0, g_prefix);
-   if(CleanAgentScreenshotMode() && InpCleanLegacyEhukaiObjects)
+   if(InpCleanLegacyEhukaiObjects)
      {
       ObjectsDeleteAll(0, "EMS_");
       ObjectsDeleteAll(0, "EFVG_");
@@ -369,6 +399,17 @@ void InitSetupContext(SetupContext &ctx)
    ctx.bear_sweep_in_zone_creation = false;
    ctx.buy_poi_trap_risk = false;
    ctx.sell_poi_trap_risk = false;
+   ctx.vp_ready = false;
+   ctx.vp_poc = 0.0;
+   ctx.vp_vah = 0.0;
+   ctx.vp_val = 0.0;
+   ctx.vp_distance_pips = 0.0;
+   ctx.vp_context = "disabled";
+   ctx.vp_read = "VP: off";
+   ctx.vp_buy_score = 0;
+   ctx.vp_sell_score = 0;
+   ctx.vp_buy_block = false;
+   ctx.vp_sell_block = false;
    ctx.nearest_bull_poi_pips = DBL_MAX;
    ctx.nearest_bear_poi_pips = DBL_MAX;
    ctx.bull_poi_upper = 0.0;
@@ -451,6 +492,176 @@ void TrackLiquidityContext(SetupContext &ctx, const bool buy_side, const bool sw
          if(level <= ctx.bull_poi_lower && level >= ctx.bull_poi_lower - behind_tolerance)
             ctx.buy_liquidity_behind_zone = true;
         }
+     }
+  }
+
+void ComputeVolumeValueArea(const double &totals[], const int row_count,
+                            const int poc_index, const double pct,
+                            int &low_idx, int &high_idx)
+  {
+   low_idx = poc_index;
+   high_idx = poc_index;
+   double total = 0.0;
+   for(int i = 0; i < row_count; i++)
+      total += totals[i];
+   double target = total * (MathMax(1.0, MathMin(100.0, pct)) / 100.0);
+   double covered = totals[poc_index];
+
+   while(covered < target && (low_idx > 0 || high_idx < row_count - 1))
+     {
+      double below = low_idx > 0 ? totals[low_idx - 1] : -1.0;
+      double above = high_idx < row_count - 1 ? totals[high_idx + 1] : -1.0;
+      if(above >= below && high_idx < row_count - 1)
+        {
+         high_idx++;
+         covered += totals[high_idx];
+        }
+      else if(low_idx > 0)
+        {
+         low_idx--;
+         covered += totals[low_idx];
+        }
+      else
+         break;
+     }
+  }
+
+void DrawVolumeProfileRail(const string suffix, const datetime start_time,
+                           const datetime end_time, const double price,
+                           const color c, const ENUM_LINE_STYLE style,
+                           const int width, const string tooltip)
+  {
+   string name = g_prefix + _Symbol + "_" + TimeframeLabel() + "_VP_" + suffix;
+   if(ObjectCreate(0, name, OBJ_TREND, 0, start_time, price, end_time, price))
+     {
+      ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+      ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+      ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+      SetObjectDefaults(name, false, 2);
+     }
+  }
+
+void RenderVolumeProfileContext(const double &open[], const double &high[], const double &low[],
+                                const double &close[], const datetime &time[],
+                                const long &tick_volume[], const int rates_total,
+                                SetupContext &ctx)
+  {
+   if(!InpUseVolumeProfileContext)
+      return;
+
+   int signal_index = SignalBarIndex(rates_total);
+   int row_count = MathMax(8, InpVolumeProfileRows);
+   int lookback = MathMin(MathMax(10, InpVolumeProfileBars), signal_index + 1);
+   if(lookback < 10)
+      return;
+
+   int start_index = signal_index - lookback + 1;
+   double profile_high = high[start_index];
+   double profile_low = low[start_index];
+   for(int i = start_index; i <= signal_index; i++)
+     {
+      profile_high = MathMax(profile_high, high[i]);
+      profile_low = MathMin(profile_low, low[i]);
+     }
+   if(profile_high <= profile_low)
+      return;
+
+   double row_height = (profile_high - profile_low) / (double)row_count;
+   double totals[];
+   ArrayResize(totals, row_count);
+   ArrayInitialize(totals, 0.0);
+
+   for(int i = start_index; i <= signal_index; i++)
+     {
+      double bar_volume = (double)tick_volume[i];
+      if(bar_volume <= 0.0)
+         continue;
+      int first = ClampIndex((int)MathFloor((low[i] - profile_low) / row_height), row_count - 1);
+      int last = ClampIndex((int)MathFloor((high[i] - profile_low) / row_height), row_count - 1);
+      if(last < first)
+        {
+         int tmp = first;
+         first = last;
+         last = tmp;
+        }
+      int touched = MathMax(1, last - first + 1);
+      double share = bar_volume / (double)touched;
+      for(int row = first; row <= last; row++)
+         totals[row] += share;
+     }
+
+   double max_volume = 0.0;
+   double total_volume = 0.0;
+   int poc_index = 0;
+   for(int row = 0; row < row_count; row++)
+     {
+      total_volume += totals[row];
+      if(totals[row] > max_volume)
+        {
+         max_volume = totals[row];
+         poc_index = row;
+        }
+     }
+   if(total_volume <= 0.0 || max_volume <= 0.0)
+      return;
+
+   int va_low_idx = poc_index;
+   int va_high_idx = poc_index;
+   ComputeVolumeValueArea(totals, row_count, poc_index, InpVolumeProfileValueAreaPct, va_low_idx, va_high_idx);
+
+   double poc = profile_low + ((double)poc_index + 0.5) * row_height;
+   double val = profile_low + (double)va_low_idx * row_height;
+   double vah = profile_low + ((double)va_high_idx + 1.0) * row_height;
+   double current_price = close[signal_index];
+   double distance_pips = MathAbs(current_price - poc) / PipsToPrice(1.0);
+
+   ctx.vp_ready = true;
+   ctx.vp_poc = poc;
+   ctx.vp_val = val;
+   ctx.vp_vah = vah;
+   ctx.vp_distance_pips = distance_pips;
+   if(current_price > vah)
+      ctx.vp_context = "above_value";
+   else if(current_price < val)
+      ctx.vp_context = "below_value";
+   else
+      ctx.vp_context = "inside_value";
+
+   int weight = MathMax(0, InpVolumeProfileScoreWeight);
+   double block_distance = MathMax(InpGuideEntryProximityPips, 8.0);
+   if(current_price > poc)
+     {
+      ctx.vp_buy_score = (ctx.vp_context == "inside_value") ? weight / 2 : weight;
+      ctx.vp_sell_score = distance_pips <= block_distance ? -weight : -weight / 2;
+      ctx.vp_sell_block = distance_pips <= block_distance;
+      ctx.vp_read = "VP: above POC";
+     }
+   else if(current_price < poc)
+     {
+      ctx.vp_sell_score = (ctx.vp_context == "inside_value") ? weight / 2 : weight;
+      ctx.vp_buy_score = distance_pips <= block_distance ? -weight : -weight / 2;
+      ctx.vp_buy_block = distance_pips <= block_distance;
+      ctx.vp_read = "VP: below POC";
+     }
+   else
+     {
+      ctx.vp_read = "VP: at POC";
+     }
+   if(ctx.vp_context == "inside_value")
+      ctx.vp_read = "VP: inside value";
+
+   datetime chart_end = FutureTime(time, rates_total);
+   if(InpShowVolumeProfilePOC)
+      DrawVolumeProfileRail("POC", time[start_index], chart_end, poc, InpVolumeProfilePOCColor,
+                            STYLE_SOLID, 1, StringFormat("%s POC %.5f", TimeframeLabel(), poc));
+   if(InpShowVolumeProfileValueArea)
+     {
+      DrawVolumeProfileRail("VAH", time[start_index], chart_end, vah, InpVolumeProfileVAColor,
+                            STYLE_DASH, 1, StringFormat("%s VAH %.5f", TimeframeLabel(), vah));
+      DrawVolumeProfileRail("VAL", time[start_index], chart_end, val, InpVolumeProfileVAColor,
+                            STYLE_DASH, 1, StringFormat("%s VAL %.5f", TimeframeLabel(), val));
      }
   }
 
@@ -853,7 +1064,7 @@ void DrawBiasPanel(const string bias, const SwingPoint &last_high, const bool ha
       string hi = have_high ? StringFormat("H %s %.3f", last_high.kind, last_high.price) : "H n/a";
       string lo = have_low ? StringFormat("L %s %.3f", last_low.kind, last_low.price) : "L n/a";
       ObjectSetString(0, name, OBJPROP_TEXT,
-                      StringFormat("TDA v1.24 %s: %s | %s | %s", TimeframeLabel(), bias, hi, lo));
+                      StringFormat("TDA v1.26 %s: %s | %s | %s", TimeframeLabel(), bias, hi, lo));
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 18);
@@ -876,7 +1087,7 @@ void DrawTopDownPanel()
    DrawPanelBackground(base + "_BG", CORNER_LEFT_UPPER, x, y, 205, 112,
                        InpGuideBgColor, C'55,65,81', 8);
    DrawPanelLine(base + "_T", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 8,
-                 "TDA v1.24 TOP-DOWN", InpGuideTextColor, true, 9);
+                 "TDA v1.26 TOP-DOWN", InpGuideTextColor, true, 9);
 
    ENUM_TIMEFRAMES frames[5] = {PERIOD_D1, PERIOD_H4, PERIOD_M15, PERIOD_M5, PERIOD_M1};
    for(int i = 0; i < 5; i++)
@@ -963,7 +1174,8 @@ void DrawEliteLine(const string name, const datetime t1, const double price,
 void DrawEliteText(const string name, const datetime t, const double price,
                   const string text, const color c, const bool above)
   {
-   double y = above ? price + PipsToPrice(InpLabelOffsetPips) : price - PipsToPrice(InpLabelOffsetPips);
+   double offset_pips = MathMax(InpLabelOffsetPips, InpLabelOffsetPips * 1.6);
+   double y = above ? price + PipsToPrice(offset_pips) : price - PipsToPrice(offset_pips);
    if(ObjectCreate(0, name, OBJ_TEXT, 0, t, y))
      {
       ObjectSetString(0, name, OBJPROP_TEXT, text);
@@ -988,7 +1200,7 @@ void DrawEliteLevel(const string suffix, const datetime start_time,
 
 string CompactBreakText(const StructureEvent &event)
   {
-   string arrow = event.bullish ? " ^" : " v";
+   string arrow = event.bullish ? " +" : " -";
    if(event.text == "BOS")
       return "BOS" + arrow;
    if(event.text == "CHOCH")
@@ -1026,7 +1238,7 @@ void DrawEliteStatePanel(const EliteState &state, const double last_close)
    bool display_seeded = state.internal_seeded || (state.internal_dir == 0 && display_dir != 0 && state.has_range);
    string event_text = state.last_event == "" ? EliteBiasText(state.swing_dir) : state.last_event;
    string signal_text = state.early_signal == "" ? "Waiting for fCHOCH / iBOS" : state.early_signal;
-   string text = StringFormat("TDA v1.24 | %s | Swing %s\nInternal %s | %s\n%s",
+   string text = StringFormat("TDA v1.26 | %s | Swing %s\nInternal %s | %s\n%s",
                               TimeframeLabel(), event_text,
                               EliteInternalText(display_dir, display_seeded),
                               EliteZoneText(last_close, state), signal_text);
@@ -1063,7 +1275,10 @@ void DrawEliteOverlays(const EliteState &state, const StructureEvent &events[],
          string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_ELITE_EV_" + IntegerToString(i);
          if(!is_failure)
             DrawEliteLine(base + "_LN", events[i].start_time, events[i].price, events[i].end_time, c, STYLE_DASH, 1);
-         DrawEliteText(base + "_TX", events[i].end_time, events[i].price, events[i].text, c, events[i].label_above);
+         bool label_above = is_failure ? events[i].label_above : events[i].bullish;
+         DrawEliteText(base + "_TX", events[i].end_time, events[i].price,
+                       InpUseCompactLabels ? CompactBreakText(events[i]) : events[i].text,
+                       c, label_above);
         }
      }
 
@@ -1122,7 +1337,7 @@ void DrawBreakMap(const StructureEvent &events[], const int event_count)
       if(InpShowBreakTextLabels || (InpShowLatestBreakLabel && shown == 0))
          DrawEliteText(base + "_TX", events[i].end_time, events[i].price,
                        InpShowBreakTextLabels ? text : CompactBreakText(events[i]),
-                       c, events[i].label_above);
+                       c, events[i].bullish);
       shown++;
      }
   }
@@ -1596,7 +1811,9 @@ void DrawFVG(const FVGZone &zone, const int ordinal,
    color c = zone.is_bullish ? InpBullColor : InpBearColor;
    string side = zone.is_bullish ? "BULL" : "BEAR";
    string status = zone.is_partial ? "PARTIAL" : "OPEN";
-   string label_text = StringFormat("%s FVG %s %.1fp", side, status, zone.gap_pips);
+   string label_text = InpUseCompactLabels
+                       ? StringFormat("%s FVG %.1fp", side, zone.gap_pips)
+                       : StringFormat("%s FVG %s %.1fp", side, status, zone.gap_pips);
    string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_FVG_" + IntegerToString(ordinal);
    bool fill_rect = InpFillSmallZones && (InpMaxFillPips <= 0 || zone.gap_pips <= InpMaxFillPips);
 
@@ -1625,7 +1842,10 @@ void DrawFVG(const FVGZone &zone, const int ordinal,
    if(InpShowFVGTextLabels)
      {
       string label = base + "_label";
-      if(ObjectCreate(0, label, OBJ_TEXT, 0, label_time, mid))
+      double label_y = zone.is_bullish
+                       ? zone.upper + PipsToPrice(MathMax(InpLabelOffsetPips, 2.5))
+                       : zone.lower - PipsToPrice(MathMax(InpLabelOffsetPips, 2.5));
+      if(ObjectCreate(0, label, OBJ_TEXT, 0, label_time, label_y))
         {
          ObjectSetString(0, label, OBJPROP_TEXT, label_text);
          ObjectSetInteger(0, label, OBJPROP_COLOR, c);
@@ -1834,7 +2054,9 @@ void DrawLiquidity(const int ordinal, const bool buy_side, const datetime pivot_
   {
    string side = buy_side ? "BSL" : "SSL";
    string status = swept ? "SWEPT" : "OPEN";
-   string text = StringFormat("%s LIQ %s C%d V%.0f", side, status, count, volume);
+   string text = InpUseCompactLabels
+                 ? StringFormat("%s %s", side, swept ? "sweep" : "liq")
+                 : StringFormat("%s LIQ %s C%d V%.0f", side, status, count, volume);
    color c = buy_side ? InpLiquidityBuyColor : InpLiquiditySellColor;
    string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_LIQ_" + IntegerToString(ordinal);
 
@@ -1863,15 +2085,16 @@ void DrawLiquidity(const int ordinal, const bool buy_side, const datetime pivot_
      }
 
    string label = base + "_label";
-   double y = buy_side ? level + PipsToPrice(InpLabelOffsetPips)
-                       : level - PipsToPrice(InpLabelOffsetPips);
+   double label_offset = MathMax(InpLabelOffsetPips, 3.0) + (ordinal % 3) * 1.2;
+   double y = buy_side ? level + PipsToPrice(label_offset)
+                       : level - PipsToPrice(label_offset);
    if(ObjectCreate(0, label, OBJ_TEXT, 0, right_time, y))
      {
       ObjectSetString(0, label, OBJPROP_TEXT, text);
       ObjectSetInteger(0, label, OBJPROP_COLOR, c);
       ObjectSetInteger(0, label, OBJPROP_FONTSIZE, InpLabelFontSize);
       ObjectSetString(0, label, OBJPROP_FONT, "Arial Bold");
-     SetObjectDefaults(label, false, 5);
+      SetObjectDefaults(label, false, 5);
      }
   }
 
@@ -1881,10 +2104,12 @@ void DrawSweepMarker(const int ordinal, const bool buy_side, const datetime swep
    if(!InpShowSweepMarkers || swept_time <= 0)
       return;
 
-   string side = buy_side ? "BSL sweep" : "SSL sweep";
+   string side = buy_side ? (InpUseCompactLabels ? "BSL swp" : "BSL sweep")
+                          : (InpUseCompactLabels ? "SSL swp" : "SSL sweep");
    color c = C'245,158,11';
-   double y = buy_side ? level + PipsToPrice(InpLabelOffsetPips)
-                       : level - PipsToPrice(InpLabelOffsetPips);
+   double label_offset = MathMax(InpLabelOffsetPips, 3.0) + (ordinal % 3) * 1.2;
+   double y = buy_side ? level + PipsToPrice(label_offset)
+                       : level - PipsToPrice(label_offset);
    string name = g_prefix + _Symbol + "_" + TimeframeLabel() + "_SWEEP_" + IntegerToString(ordinal);
    if(ObjectCreate(0, name, OBJ_TEXT, 0, swept_time, y))
      {
@@ -2081,6 +2306,12 @@ void EvaluateSetupState(SetupContext &ctx)
    if(ctx.nearest_bear_poi_pips != DBL_MAX && ctx.nearest_bear_poi_pips <= 20.0)
       sell_score += 5;
 
+   if(ctx.vp_ready)
+     {
+      buy_score += ctx.vp_buy_score;
+      sell_score += ctx.vp_sell_score;
+     }
+
    buy_score = ClampScore(buy_score);
    sell_score = ClampScore(sell_score);
 
@@ -2092,6 +2323,8 @@ void EvaluateSetupState(SetupContext &ctx)
       buy_score = MathMax(0, buy_score - 25);
    if(ctx.sell_poi_trap_risk)
       sell_score = MathMax(0, sell_score - 25);
+   buy_score = ClampScore(buy_score);
+   sell_score = ClampScore(sell_score);
 
    bool buy_armed = ctx.bull_poi_touched || ctx.sell_liquidity_swept;
    bool sell_armed = ctx.bear_poi_touched || ctx.buy_liquidity_swept;
@@ -2212,6 +2445,25 @@ string GuideInvalidationText(const bool bullish, const SetupContext &ctx)
    return "Invalidation: wait for clear swing";
   }
 
+string GuideVPText(const bool bullish, const SetupContext &ctx)
+  {
+   if(!InpUseVolumeProfileContext)
+      return "VP: off";
+   if(!ctx.vp_ready)
+      return "VP: n/a";
+   if(bullish && ctx.vp_buy_block)
+      return "VP: POC blocks buy";
+   if(!bullish && ctx.vp_sell_block)
+      return "VP: POC blocks sell";
+   if(ctx.vp_context == "inside_value")
+      return "VP: inside value, wait";
+   if(bullish && ctx.vp_buy_score > 0)
+      return "VP: POC supports buy";
+   if(!bullish && ctx.vp_sell_score > 0)
+      return "VP: POC supports sell";
+   return ctx.vp_read;
+  }
+
 void DrawTradeGuide(const SetupContext &ctx, const double current_price)
   {
    if(!InpShowTradeGuide)
@@ -2221,6 +2473,7 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
    string step1 = "Need BOS/CHOCH plus usable FVG";
    string step2 = "Do not force a trade from the middle";
    string step3 = ctx.reason;
+   string step4 = "";
 
    if(ctx.bias_dir > 0)
      {
@@ -2242,13 +2495,14 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
          action = "WAIT - BULLISH, NO BULL FVG";
 
       if(ctx.buy_poi_trap_risk)
-         step1 = "Liquidity: SSL behind POI, wait";
+         step1 = "Liq trap: SSL behind POI";
       else if(ctx.buy_opposing_liquidity_front)
-         step1 = "Liquidity: SSL in front/cleared";
+         step1 = "Liq OK: SSL in front";
       else
-         step1 = ctx.sell_liquidity_swept ? "Sweep: SSL taken" : "Liquidity: no front clue";
+         step1 = ctx.sell_liquidity_swept ? "Sweep: SSL taken" : "Liq: no front clue";
       step2 = GuidePOIText(true, ctx);
-      step3 = GuideInvalidationText(true, ctx);
+      step3 = GuideVPText(true, ctx);
+      step4 = GuideInvalidationText(true, ctx);
      }
    else if(ctx.bias_dir < 0)
      {
@@ -2270,14 +2524,17 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
          action = "WAIT - BEARISH, NO BEAR FVG";
 
       if(ctx.sell_poi_trap_risk)
-         step1 = "Liquidity: BSL behind POI, wait";
+         step1 = "Liq trap: BSL behind POI";
       else if(ctx.sell_opposing_liquidity_front)
-         step1 = "Liquidity: BSL in front/cleared";
+         step1 = "Liq OK: BSL in front";
       else
-         step1 = ctx.buy_liquidity_swept ? "Sweep: BSL taken" : "Liquidity: no front clue";
+         step1 = ctx.buy_liquidity_swept ? "Sweep: BSL taken" : "Liq: no front clue";
       step2 = GuidePOIText(false, ctx);
-      step3 = GuideInvalidationText(false, ctx);
+      step3 = GuideVPText(false, ctx);
+      step4 = GuideInvalidationText(false, ctx);
      }
+   else
+      step4 = ctx.vp_ready ? ctx.vp_read : "";
 
    if(ctx.state != "NO_TRADE")
       step1 = StringFormat("%s | Score %d | %s", ctx.state, ctx.score, step1);
@@ -2285,7 +2542,7 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
    string base = g_prefix + _Symbol + "_" + TimeframeLabel() + "_TRADE_GUIDE";
    int x = 14;
    int y = InpShowTopDownPanel ? 214 : 94;
-   DrawPanelBackground(base + "_BG", CORNER_LEFT_UPPER, x, y, 310, 88,
+   DrawPanelBackground(base + "_BG", CORNER_LEFT_UPPER, x, y, 330, 106,
                        InpGuideBgColor, C'55,65,81', 8);
    DrawPanelLine(base + "_L0", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 8,
                  "GUIDE: " + action, GuideActionColor(action), true, 9);
@@ -2295,6 +2552,8 @@ void DrawTradeGuide(const SetupContext &ctx, const double current_price)
                  step2, InpGuideTextColor, false, 9);
    DrawPanelLine(base + "_L3", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 63,
                  step3, InpGuideTextColor, false, 9);
+   DrawPanelLine(base + "_L4", CORNER_LEFT_UPPER, ANCHOR_LEFT_UPPER, x + 10, y + 81,
+                 step4, InpGuideTextColor, false, 9);
   }
 
 void DrawSniperState(const SetupContext &ctx)
@@ -2367,6 +2626,7 @@ int OnCalculate(const int rates_total,
    RenderStructure(high, low, time, close, rates_total, ctx);
    RenderFVGs(open, high, low, close, time, rates_total, ctx);
    RenderLiquidity(open, high, low, close, time, tick_volume, rates_total, ctx);
+   RenderVolumeProfileContext(open, high, low, close, time, tick_volume, rates_total, ctx);
    EvaluateSetupState(ctx);
    DrawTradeGuide(ctx, close[SignalBarIndex(rates_total)]);
    DrawSniperState(ctx);

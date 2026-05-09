@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MT5 TDA + Volume Profile Playground</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080b10;color:#e5e7eb;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{height:58px;border-bottom:1px solid #1f2937;background:#0d121b;display:flex;align-items:center;gap:12px;padding:0 18px;flex-shrink:0}
+h1{font-size:16px;margin:0;font-weight:750}
+.tag{font-size:11px;color:#a7b4c8;border:1px solid #293548;background:#111827;padding:4px 9px;border-radius:999px}
+main{display:grid;grid-template-columns:320px 1fr;min-height:0;flex:1}
+aside{border-right:1px solid #1f2937;background:#0b1018;overflow:auto;padding:14px}
+.stage{min-width:0;overflow:auto;padding:18px}
+.section{border:1px solid #1f2937;background:#0f1722;border-radius:8px;padding:12px;margin-bottom:12px}
+.section h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#93a4b8;margin:0 0 10px}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{font:inherit}
+.preset{border:1px solid #334155;background:#111827;color:#dbeafe;border-radius:6px;padding:8px;cursor:pointer;font-size:12px}
+.preset:hover,.preset.active{border-color:#38bdf8;background:#17263a}
+label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:9px 0;font-size:12px;color:#d1d5db}
+select,input[type="range"]{width:145px}
+select{background:#111827;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:5px}
+input[type="checkbox"]{accent-color:#22c55e}
+.board{min-width:1120px;display:grid;grid-template-rows:auto auto 1fr;gap:14px}
+.lane{display:grid;grid-template-columns:repeat(6,1fr);gap:11px}
+.node{border:1px solid #233047;background:#0f1722;border-radius:8px;padding:12px;min-height:150px;position:relative}
+.node h3{font-size:13px;margin:0 0 7px;color:#f8fafc}
+.node .sub{font-size:11px;color:#94a3b8;margin-bottom:8px;line-height:1.35}
+.node.good{border-color:#22c55e;box-shadow:0 0 0 1px rgba(34,197,94,.12)}
+.node.warn{border-color:#f59e0b;box-shadow:0 0 0 1px rgba(245,158,11,.13)}
+.node.block{border-color:#ef4444;box-shadow:0 0 0 1px rgba(239,68,68,.12)}
+.node.info{border-color:#38bdf8;box-shadow:0 0 0 1px rgba(56,189,248,.12)}
+.kv{display:grid;grid-template-columns:76px 1fr;gap:5px;font-size:12px;line-height:1.4}
+.k{color:#94a3b8}.v{color:#e5e7eb}
+.pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:750}
+.bull{background:rgba(34,197,94,.14);color:#86efac}.bear{background:rgba(239,68,68,.14);color:#fca5a5}
+.neutral{background:rgba(148,163,184,.14);color:#cbd5e1}.vp{background:rgba(217,70,239,.14);color:#f0abfc}
+.ready{background:rgba(34,197,94,.18);color:#bbf7d0}.watch{background:rgba(245,158,11,.16);color:#fde68a}
+.wait{background:rgba(56,189,248,.14);color:#bae6fd}.no{background:rgba(239,68,68,.16);color:#fecaca}
+.arrow-row{height:38px;display:grid;grid-template-columns:repeat(5,1fr);gap:11px;align-items:center;color:#64748b}
+.arrow{height:2px;background:#334155;position:relative}.arrow:after{content:"";position:absolute;right:-2px;top:-4px;border-left:8px solid #334155;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.bottom{display:grid;grid-template-columns:1.15fr .85fr;gap:14px}
+.panel{border:1px solid #233047;background:#0f1722;border-radius:8px;padding:14px}
+.panel h3{font-size:13px;margin:0 0 10px}
+.gates{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.gate{border:1px solid #334155;border-radius:7px;padding:8px;font-size:12px;background:#111827;min-height:76px}
+.gate.pass{border-color:#22c55e;color:#bbf7d0}.gate.warn{border-color:#f59e0b;color:#fde68a}.gate.fail{border-color:#ef4444;color:#fecaca}
+.guide{font-size:28px;font-weight:850;margin-bottom:6px}.guide.ready-text{color:#86efac}.guide.watch-text{color:#fde68a}.guide.wait-text{color:#bae6fd}.guide.no-text{color:#fecaca}
+.chart{height:210px;border:1px solid #1f2937;background:#0b1018;border-radius:8px;position:relative;overflow:hidden;margin-top:10px}
+.candle{position:absolute;width:8px;background:#f8fafc;border:1px solid #d1d5db}.candle.bear{background:#111827;border-color:#111827}.wick{position:absolute;width:1px;background:#cbd5e1}
+.line{position:absolute;left:0;right:0;height:1px}.poc{background:#e879f9;height:2px}.vah,.val{border-top:1px dashed #38bdf8}.fvg{position:absolute;left:42%;right:7%;border:1px solid #22c55e;background:rgba(34,197,94,.06)}
+.hist{position:absolute;right:0;top:0;bottom:0;width:98px;border-left:1px solid rgba(96,165,250,.25)}
+.bar{position:absolute;right:0;height:12px;background:rgba(96,165,250,.72)}
+.legend{font-size:11px;color:#94a3b8;line-height:1.55}
+#promptBox{height:150px;border-top:1px solid #1f2937;background:#0b1018;display:grid;grid-template-columns:1fr 132px;flex-shrink:0}
+#prompt{padding:13px 16px;font-size:12px;line-height:1.55;color:#d1d5db;white-space:pre-wrap;overflow:auto}
+#copyArea{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border-left:1px solid #1f2937}
+#copy{border:1px solid #38bdf8;background:#0c2533;color:#bae6fd;border-radius:6px;padding:8px 18px;cursor:pointer}
+#feedback{height:16px;font-size:11px;color:#86efac}.small{font-size:11px;color:#94a3b8;line-height:1.5}.muted{color:#64748b}
+</style>
+</head>
+<body>
+<header>
+  <h1>MT5 TDA + Volume Profile Playground</h1>
+  <span class="tag">Current TDA map</span>
+  <span class="tag">VP/POC confluence proposal</span>
+  <span class="tag">No autonomous trigger</span>
+  <span class="tag">Clean overlay first</span>
+</header>
+<main>
+  <aside>
+    <div class="section">
+      <h2>Presets</h2>
+      <div class="preset-grid" id="presets"></div>
+    </div>
+    <div class="section">
+      <h2>Structure Context</h2>
+      <label>D1/H4 Bias <select id="bias"><option value="bullish">Bullish</option><option value="bearish">Bearish</option><option value="mixed">Mixed</option><option value="neutral">Neutral</option></select></label>
+      <label>M15 Setup <select id="setup"><option value="aligned">Aligned POI</option><option value="pullback">Pullback</option><option value="range">Range</option><option value="conflict">Conflict</option></select></label>
+      <label>M5/M1 Entry <select id="entry"><option value="confirmed">Confirmed shift</option><option value="watch">Watching shift</option><option value="none">No shift</option><option value="opposite">Opposite shift</option></select></label>
+    </div>
+    <div class="section">
+      <h2>FVG / Liquidity</h2>
+      <label>Fresh FVG / POI <input id="freshPoi" type="checkbox" checked></label>
+      <label>POI Caused BOS <input id="causedBos" type="checkbox" checked></label>
+      <label>Liquidity Trap Risk <input id="trapRisk" type="checkbox"></label>
+      <label>RR <input id="rr" type="range" min="0.5" max="5" step="0.1" value="2.4"></label>
+    </div>
+    <div class="section">
+      <h2>Volume Profile Proposal</h2>
+      <label>Use VP in Overlay <input id="vpEnabled" type="checkbox" checked></label>
+      <label>Show Histogram <input id="showHistogram" type="checkbox"></label>
+      <label>Show VAH/VAL <input id="showValueArea" type="checkbox" checked></label>
+      <label>Price vs Value <select id="valueContext"><option value="inside">Inside value</option><option value="above">Above value</option><option value="below">Below value</option></select></label>
+      <label>POC Relationship <select id="pocRelation"><option value="near">Near POC</option><option value="reclaim">Reclaim / reject POC</option><option value="away">Away from POC</option><option value="against">POC blocks trade</option></select></label>
+      <label>VP Weight <input id="vpWeight" type="range" min="0" max="20" step="1" value="8"></label>
+    </div>
+    <div class="section">
+      <h2>Overlay Behavior</h2>
+      <label>POC Line Only <input id="pocLineOnly" type="checkbox" checked></label>
+      <label>Guide Text Includes VP <input id="guideVp" type="checkbox" checked></label>
+      <label>Hard Gate VP <input id="hardGate" type="checkbox"></label>
+    </div>
+  </aside>
+  <section class="stage">
+    <div class="board">
+      <div class="lane">
+        <div class="node info"><h3>MT5 Rates</h3><div class="sub">Closed candles feed both visual and JSON paths.</div><div class="kv"><span class="k">Source</span><span class="v">CopyRates / broker</span><span class="k">Contract</span><span class="v">last closed bar</span><span class="k">Volume</span><span class="v">tick volume</span></div></div>
+        <div class="node" id="n-structure"><h3>Structure Engine</h3><div class="sub">Swing / internal / fractal read.</div><div class="kv" id="structureKv"></div></div>
+        <div class="node" id="n-poi"><h3>POI Engine</h3><div class="sub">FVG, OB, supply/demand candidates.</div><div class="kv" id="poiKv"></div></div>
+        <div class="node" id="n-liq"><h3>Liquidity Geometry</h3><div class="sub">Sweep hints and trap risk.</div><div class="kv" id="liqKv"></div></div>
+        <div class="node" id="n-vp"><h3>VP / POC Layer</h3><div class="sub">Proposed quiet confluence, not trigger.</div><div class="kv" id="vpKv"></div></div>
+        <div class="node" id="n-guide"><h3>TDA Guide</h3><div class="sub">Final human and agent-readable read.</div><div id="guide" class="guide"></div><div class="small" id="guideText"></div></div>
+      </div>
+      <div class="arrow-row"><div class="arrow"></div><div class="arrow"></div><div class="arrow"></div><div class="arrow"></div><div class="arrow"></div></div>
+      <div class="bottom">
+        <div class="panel">
+          <h3>Chart Preview: clean overlay target</h3>
+          <div class="chart" id="chart"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="panel">
+          <h3>Decision Gates</h3>
+          <div class="gates" id="gates"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="promptBox">
+  <pre id="prompt"></pre>
+  <div id="copyArea"><button id="copy">Copy Prompt</button><div id="feedback"></div></div>
+</div>
+<script>
+const DEFAULTS={bias:"bullish",setup:"aligned",entry:"watch",freshPoi:true,causedBos:true,trapRisk:false,rr:2.4,vpEnabled:true,showHistogram:false,showValueArea:true,valueContext:"inside",pocRelation:"near",vpWeight:8,pocLineOnly:true,guideVp:true,hardGate:false};
+const state={...DEFAULTS};
+const presets={
+  "Clean POC Confluence":{bias:"bullish",setup:"aligned",entry:"watch",valueContext:"inside",pocRelation:"near",vpWeight:8,showHistogram:false,pocLineOnly:true,hardGate:false},
+  "POC Rejection Ready":{bias:"bearish",setup:"aligned",entry:"confirmed",freshPoi:true,causedBos:true,valueContext:"above",pocRelation:"reclaim",rr:3.0,vpWeight:12},
+  "Value Chop Warning":{bias:"bullish",setup:"range",entry:"none",freshPoi:false,causedBos:false,valueContext:"inside",pocRelation:"near",rr:1.2,vpWeight:14},
+  "POC Blocks Trade":{bias:"bullish",setup:"aligned",entry:"watch",freshPoi:true,trapRisk:false,valueContext:"below",pocRelation:"against",hardGate:true,vpWeight:16}
+};
+function el(id){return document.getElementById(id)}
+function badge(text,type){const s=document.createElement("span");s.className=`pill ${type}`;s.textContent=text;return s}
+function kv(container,pairs){container.replaceChildren();pairs.forEach(([k,v])=>{const ks=document.createElement("span");ks.className="k";ks.textContent=k;const vs=document.createElement("span");vs.className="v";if(v instanceof Node)vs.appendChild(v);else vs.textContent=v;container.append(ks,vs)})}
+function setNode(id,cls){const n=el(id);n.className="node"+(cls?` ${cls}`:"")}
+function sync(){Object.keys(DEFAULTS).forEach(k=>{const n=el(k);if(!n)return;if(n.type==="checkbox")n.checked=state[k];else n.value=state[k]})}
+function init(){
+  const p=el("presets");
+  Object.entries(presets).forEach(([name,patch])=>{const b=document.createElement("button");b.className="preset";b.textContent=name;b.onclick=()=>{Object.assign(state,DEFAULTS,patch);sync();render()};p.appendChild(b)});
+  Object.keys(DEFAULTS).forEach(k=>{const n=el(k);if(!n)return;n.addEventListener("input",()=>{state[k]=n.type==="checkbox"?n.checked:(n.type==="range"?Number(n.value):n.value);render()})});
+  el("copy").onclick=()=>navigator.clipboard.writeText(el("prompt").textContent).then(()=>{el("feedback").textContent="Copied";setTimeout(()=>el("feedback").textContent="",900)});
+  sync();render();
+}
+function direction(){return state.bias==="bullish"?"buy":state.bias==="bearish"?"sell":null}
+function vpEffect(){
+  if(!state.vpEnabled)return {kind:"neutral",score:0,text:"disabled"};
+  if(state.pocRelation==="against")return {kind:state.hardGate?"block":"warn",score:-state.vpWeight,text:"POC blocks the trade path"};
+  if(state.valueContext==="inside"&&state.pocRelation==="near")return {kind:"warn",score:-Math.round(state.vpWeight/2),text:"inside value; chop risk"};
+  if(state.pocRelation==="reclaim")return {kind:"good",score:state.vpWeight,text:"POC reclaim/rejection supports structure"};
+  if(state.valueContext==="above"||state.valueContext==="below")return {kind:"good",score:Math.round(state.vpWeight/2),text:"outside value; expansion context"};
+  return {kind:"neutral",score:0,text:"VP neutral"};
+}
+function status(){
+  const dir=direction(), vp=vpEffect();
+  if(!dir||state.setup==="conflict"||state.setup==="range"||!state.freshPoi||!state.causedBos||state.trapRisk||state.rr<1.5)return "no_trade";
+  if(state.hardGate&&vp.kind==="block")return "no_trade";
+  if(state.entry==="confirmed")return "ready";
+  if(state.entry==="watch")return "watch";
+  return "wait";
+}
+function render(){
+  const dir=direction(), s=status(), vp=vpEffect();
+  kv(el("structureKv"),[["Bias",badge(state.bias,state.bias==="bullish"?"bull":state.bias==="bearish"?"bear":"neutral")],["Permission",dir?`${dir.toUpperCase()} allowed`:"none"],["Event","BOS / CHOCH / iBOS"]]);
+  kv(el("poiKv"),[["Setup",state.setup],["Fresh",state.freshPoi?"yes":"no"],["Caused BOS",state.causedBos?"yes":"no"]]);
+  kv(el("liqKv"),[["Trap risk",state.trapRisk?"yes":"no"],["Sweep hint",state.trapRisk?"behind POI":"context only"],["Use",state.trapRisk?"blocker":"confluence"]]);
+  kv(el("vpKv"),[["Status",state.vpEnabled?badge("enabled","vp"):"disabled"],["Read",vp.text],["Score",`${vp.score>0?"+":""}${vp.score}`]]);
+  setNode("n-structure",dir?"good":"block");setNode("n-poi",state.freshPoi&&state.causedBos&&state.setup==="aligned"?"good":state.setup==="pullback"?"warn":"block");setNode("n-liq",state.trapRisk?"block":"good");setNode("n-vp",vp.kind==="good"?"good":vp.kind==="warn"?"warn":vp.kind==="block"?"block":"info");setNode("n-guide",s==="ready"?"good":s==="watch"?"warn":s==="no_trade"?"block":"info");
+  renderGuide(s,dir,vp);renderGates(vp);renderChart();updatePrompt(s,dir,vp);
+}
+function renderGuide(s,dir,vp){
+  const text={ready:"READY",watch:"WATCH",wait:"WAIT",no_trade:"NO TRADE"}[s];
+  el("guide").className=`guide ${s==="no_trade"?"no":s}-text`;el("guide").textContent=text;
+  const side=dir?dir.toUpperCase():"NONE";
+  let detail=s==="ready"?`${side} has structure, POI, entry confirmation, and RR.`
+    :s==="watch"?`${side} idea is forming; wait for M5/M1 close confirmation.`
+    :s==="wait"?`Context is not actionable yet.`
+    :`Core gate blocks this setup.`;
+  if(state.guideVp&&state.vpEnabled)detail+=` VP: ${vp.text}.`;
+  el("guideText").textContent=detail;
+}
+function gateEl(name,stateName,detail){const d=document.createElement("div");d.className=`gate ${stateName}`;d.textContent=`${stateName==="pass"?"PASS":stateName==="warn"?"WATCH":"BLOCK"} · ${name}`;const s=document.createElement("div");s.className="small";s.textContent=detail;d.appendChild(document.createElement("br"));d.appendChild(s);return d}
+function renderGates(vp){
+  const g=el("gates");g.replaceChildren();
+  g.append(
+    gateEl("Structure",direction()?"pass":"fail","D1/H4 bias gives trade permission."),
+    gateEl("POI",state.freshPoi&&state.causedBos?"pass":"fail","M15 POI should be fresh and break-causing."),
+    gateEl("Liquidity",state.trapRisk?"fail":"pass","Liquidity behind POI without in-front liquidity is trap risk."),
+    gateEl("Entry",state.entry==="confirmed"?"pass":state.entry==="watch"?"warn":"fail","M5/M1 shift controls execution timing."),
+    gateEl("RR",state.rr>=1.5?"pass":"fail",`${state.rr.toFixed(1)}R planned.`),
+    gateEl("VP / POC",!state.vpEnabled?"warn":vp.kind==="block"?"fail":vp.kind==="warn"?"warn":"pass","Confluence only unless Hard Gate VP is enabled.")
+  );
+}
+function renderChart(){
+  const c=el("chart");c.replaceChildren();
+  const heights=[60,88,72,104,68,52,116,78,96,54,82,67,120,72,62,86,70,58,92,76,84,64];
+  heights.forEach((h,i)=>{const x=22+i*28;const y=40+(i%5)*13;const w=document.createElement("div");w.className="wick";w.style.left=`${x+4}px`;w.style.top=`${Math.max(12,y-18)}px`;w.style.height=`${h}px`;const b=document.createElement("div");b.className="candle "+(i%3===0?"bear":"");b.style.left=`${x}px`;b.style.top=`${y}px`;b.style.height=`${Math.max(18,Math.round(h*.42))}px`;c.append(w,b)});
+  addLine(c,"poc",state.pocRelation==="against"?120:96); if(state.showValueArea){addLine(c,"vah",62);addLine(c,"val",150)}
+  const f=document.createElement("div");f.className="fvg";f.style.top="112px";f.style.height="28px";c.appendChild(f);
+  if(state.vpEnabled&&state.showHistogram&&!state.pocLineOnly){const h=document.createElement("div");h.className="hist";[18,36,56,74,90,110,132,154,172].forEach((top,i)=>{const b=document.createElement("div");b.className="bar";b.style.top=`${top}px`;b.style.width=`${30+((i*17)%62)}px`;h.appendChild(b)});c.appendChild(h)}
+  el("legend").textContent=state.vpEnabled
+    ? `Overlay proposal: show ${state.pocLineOnly?"only a subtle POC line":state.showHistogram?"POC plus compact profile histogram":"POC line"}${state.showValueArea?", plus VAH/VAL dashed rails":""}. Keep the full histogram as optional detail, not the default TDA view.`
+    : "Current TDA only: structure, FVG/POI, liquidity, guide panel. VP remains a separate indicator.";
+}
+function addLine(c,cls,top){const l=document.createElement("div");l.className=`line ${cls}`;l.style.top=`${top}px`;c.appendChild(l)}
+function updatePrompt(s,dir,vp){
+  const parts=[];
+  parts.push("Create or update the MT5 TDA architecture so Volume Profile/POC is a quiet confluence layer, not a primary trade trigger.");
+  parts.push(`Current selected behavior: ${s.toUpperCase()} ${dir?dir.toUpperCase():"NO-DIRECTION"} read with ${state.setup} M15 setup and ${state.entry} M5/M1 entry.`);
+  if(state.vpEnabled)parts.push(`Add VP context as POC/VAH/VAL structured data and optional overlay rails. VP read: ${vp.text}; score influence ${vp.score>0?"+":""}${vp.score}.`);
+  if(state.pocLineOnly)parts.push("Default visual should be POC line only, with VAH/VAL optional and the full histogram off by default.");
+  if(state.hardGate)parts.push("Hard-gate only when POC directly blocks the trade path; otherwise keep VP as score/explanation confluence.");
+  if(state.guideVp)parts.push("TDA guide panel should explain VP in one short sentence such as price inside value, above/below value, or POC rejection/reclaim.");
+  el("prompt").textContent=parts.join("\n");
+}
+init();
+</script>
+</body>
+</html>

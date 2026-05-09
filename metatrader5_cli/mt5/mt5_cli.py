@@ -590,6 +590,35 @@ def ehukai_liquidity_cmd(ctx, symbol, timeframe, bars, length, area, filter_by, 
     )
 
 
+@ehukai_group.command("volume-profile")
+@click.argument("symbol")
+@click.argument("timeframe")
+@click.option("--bars", default=120, show_default=True, type=int,
+              help="Lookback bars for fixed-range volume profile.")
+@click.option("--rows", "row_count", default=48, show_default=True, type=int,
+              help="Number of price rows in the profile.")
+@click.option("--value-area-pct", default=70.0, show_default=True, type=float,
+              help="Value area percentage.")
+@click.pass_context
+def ehukai_volume_profile_cmd(ctx, symbol, timeframe, bars, row_count, value_area_pct):
+    """EhukaiVolumeProfilePOC-compatible POC, VAH, and VAL levels."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    output(
+        ehukai.volume_profile(
+            symbol,
+            timeframe,
+            bars=bars,
+            rows=row_count,
+            value_area_pct=value_area_pct,
+        ),
+        obj["as_json"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Analyze command group
 # ---------------------------------------------------------------------------

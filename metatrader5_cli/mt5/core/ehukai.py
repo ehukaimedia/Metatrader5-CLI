@@ -5,6 +5,7 @@ These helpers intentionally follow the visual indicator contracts used by:
 - EhukaiFVG.mq5
 - EhukaiMarketStructure.mq5
 - EhukaiLiquiditySwings.mq5
+- EhukaiVolumeProfilePOC.mq5
 
 They are used by visual TDA so agents see one coherent Ehukai interpretation
 instead of competing generic analysis labels.
@@ -104,6 +105,29 @@ def _pool_zone_from_level(rows: list[dict], index: int, level: float, point: flo
     atr = _atr_at(rows, index)
     half = max(atr * half_atr, point * 5.0)
     return level + half, level - half, half
+
+
+def _clamp_index(value: int, upper: int) -> int:
+    return max(0, min(upper, value))
+
+
+def _profile_value_area(volumes: list[float], poc_index: int, value_area_pct: float) -> tuple[int, int, float]:
+    total = sum(volumes)
+    if not volumes or total <= 0:
+        return poc_index, poc_index, 0.0
+    target = total * max(0.0, min(100.0, value_area_pct)) / 100.0
+    low_idx = high_idx = poc_index
+    covered = volumes[poc_index]
+    while covered < target and (low_idx > 0 or high_idx < len(volumes) - 1):
+        above = volumes[high_idx + 1] if high_idx < len(volumes) - 1 else -1.0
+        below = volumes[low_idx - 1] if low_idx > 0 else -1.0
+        if above >= below:
+            high_idx += 1
+            covered += max(0.0, above)
+        else:
+            low_idx -= 1
+            covered += max(0.0, below)
+    return low_idx, high_idx, covered
 
 
 def _classify_swings(swings: list[dict]) -> list[dict]:
@@ -668,6 +692,146 @@ def liquidity(
                 "sides": {"buy_side": "liquidity above swing highs", "sell_side": "liquidity below swing lows"},
                 "geometry": ["ATR-width rectangle", "liquidity level", "count/volume label"],
                 "sweep_rule": "wick beyond pool boundary, close back through midpoint",
+            },
+        },
+    }
+
+
+def volume_profile(
+    symbol: str,
+    timeframe: str,
+    *,
+    bars: int = 120,
+    rows: int = 48,
+    value_area_pct: float = 70.0,
+) -> dict:
+    """Return an EhukaiVolumeProfilePOC-compatible fixed lookback profile.
+
+    The profile uses tick volume for forex/CFD symbols and distributes each
+    bar's volume across the price rows touched by that bar. This mirrors the
+    TradingView concept at a lightweight MT5-compatible resolution: POC,
+    VAH/VAL, profile high/low, and high-volume rows for reactive S/R context.
+    """
+    if bars < 10:
+        return _fail("EHUKAI_INVALID_ARGUMENT", "bars must be >= 10.")
+    if rows < 8:
+        return _fail("EHUKAI_INVALID_ARGUMENT", "rows must be >= 8.")
+    if not 1.0 <= value_area_pct <= 100.0:
+        return _fail("EHUKAI_INVALID_ARGUMENT", "value_area_pct must be between 1 and 100.")
+
+    result = rates_module.fetch(symbol, _tf_label(timeframe), bars)
+    if not result.get("ok"):
+        return result
+
+    fetched_rows = result["data"]
+    if len(fetched_rows) < 11:
+        return _fail("MT5_NO_DATA", f"Not enough bars for Ehukai volume profile on {symbol} {timeframe}.")
+    raw_rows = fetched_rows[:-1]
+    if len(raw_rows) < 10:
+        return _fail("MT5_NO_DATA", f"Not enough closed bars for Ehukai volume profile on {symbol} {timeframe}.")
+
+    profile_high = max(float(row["high"]) for row in raw_rows)
+    profile_low = min(float(row["low"]) for row in raw_rows)
+    if profile_high <= profile_low:
+        return _fail("MT5_NO_DATA", "Volume profile range is flat.")
+
+    row_count = max(8, int(rows))
+    step = (profile_high - profile_low) / row_count
+    total_volume = [0.0 for _ in range(row_count)]
+    up_volume = [0.0 for _ in range(row_count)]
+    down_volume = [0.0 for _ in range(row_count)]
+
+    for bar in raw_rows:
+        high = float(bar["high"])
+        low = float(bar["low"])
+        open_price = float(bar["open"])
+        close = float(bar["close"])
+        volume = float(bar.get("tick_volume", bar.get("volume", 0)) or 0.0)
+        if volume <= 0:
+            continue
+        first = _clamp_index(int((low - profile_low) / step), row_count - 1)
+        last = _clamp_index(int((high - profile_low) / step), row_count - 1)
+        if last < first:
+            first, last = last, first
+        touched = max(1, last - first + 1)
+        share = volume / touched
+        for idx in range(first, last + 1):
+            total_volume[idx] += share
+            if close >= open_price:
+                up_volume[idx] += share
+            else:
+                down_volume[idx] += share
+
+    total = sum(total_volume)
+    if total <= 0:
+        return _fail("MT5_NO_DATA", "No tick volume available for volume profile.")
+
+    poc_index = max(range(row_count), key=lambda idx: total_volume[idx])
+    va_low_idx, va_high_idx, va_volume = _profile_value_area(total_volume, poc_index, value_area_pct)
+    poc = profile_low + (poc_index + 0.5) * step
+    vah = profile_low + (va_high_idx + 1) * step
+    val = profile_low + va_low_idx * step
+    current_price = float(raw_rows[-1]["close"])
+    pip_size = _pip_size(symbol, raw_rows)
+    max_volume = max(total_volume)
+
+    profile_rows = []
+    for idx, volume in enumerate(total_volume):
+        lower = profile_low + idx * step
+        upper = lower + step
+        profile_rows.append({
+            "index": idx,
+            "lower": lower,
+            "upper": upper,
+            "mid": (lower + upper) / 2.0,
+            "volume": round(volume, 4),
+            "up_volume": round(up_volume[idx], 4),
+            "down_volume": round(down_volume[idx], 4),
+            "volume_pct_of_poc": round((volume / max_volume) * 100.0, 2) if max_volume else 0.0,
+            "in_value_area": va_low_idx <= idx <= va_high_idx,
+            "is_poc": idx == poc_index,
+        })
+
+    if current_price > vah:
+        price_context = "above_value_area"
+    elif current_price < val:
+        price_context = "below_value_area"
+    else:
+        price_context = "inside_value_area"
+
+    poc_distance_pips = abs(current_price - poc) / pip_size if pip_size else 0.0
+    return {
+        "ok": True,
+        "data": {
+            "symbol": symbol.upper(),
+            "timeframe": _tf_label(timeframe),
+            "source": "EhukaiVolumeProfilePOC",
+            "object_prefix": "EVP_",
+            "bars": len(raw_rows),
+            "rows": row_count,
+            "value_area_pct": value_area_pct,
+            "profile_high": profile_high,
+            "profile_low": profile_low,
+            "poc": poc,
+            "point_of_control": poc,
+            "value_area_high": vah,
+            "value_area_low": val,
+            "value_area_volume": round(va_volume, 4),
+            "total_volume": round(total, 4),
+            "current_price": current_price,
+            "price_context": price_context,
+            "poc_distance_pips": round(poc_distance_pips, 2),
+            "rows_detail": profile_rows,
+            "high_volume_nodes": sorted(profile_rows, key=lambda row: row["volume"], reverse=True)[:5],
+            "visual_label": f"VP POC {poc:.5f} | VA {val:.5f}-{vah:.5f}",
+            "visual_contract": {
+                "indicator": "EhukaiVolumeProfilePOC",
+                "object_prefix": "EVP_",
+                "label_pattern": "VP POC <price> | VA <val>-<vah>",
+                "levels": ["POC", "VAH", "VAL", "Profile High", "Profile Low"],
+                "geometry": ["right-side histogram", "POC line", "VAH/VAL lines"],
+                "volume_source": "tick volume for forex/CFD symbols",
+                "calculation_note": "bar volume distributed equally across touched price rows",
             },
         },
     }
