@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                         EhukaiLiquiditySwings.mq5 |
 //|                     Ehukai Trading - Liquidity Swing Pools        |
-//|                     v1.00 - TDA-ready liquidity map               |
+//|                     v1.10 - TDA-ready liquidity map               |
 //+------------------------------------------------------------------+
 #property copyright "Ehukai Trading"
-#property version   "1.00"
+#property version   "1.10"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -37,6 +37,10 @@ enum ENUM_LS_FILTER
 input int            InpLookbackBars   = 300;               // Lookback bars
 input int            InpPivotLookback  = 14;                // Pivot lookback
 input ENUM_LS_AREA   InpSwingArea      = LS_WICK_EXTREMITY; // Swing area
+input bool           InpUseAtrZones    = true;              // Use ATR-width pool zones
+input int            InpAtrPeriod      = 14;                // ATR period for pool zones
+input double         InpPoolHalfAtr    = 0.40;              // Pool half-width as ATR
+input double         InpMinPenAtr      = 0.00;              // Min penetration as ATR
 input ENUM_LS_FILTER InpFilterBy       = LS_FILTER_COUNT;   // Filter areas by
 input double         InpFilterValue    = 0.0;               // Filter threshold
 input bool           InpShowBuySide    = true;              // Show swing-high liquidity
@@ -145,6 +149,44 @@ bool IsPivotLow(const int index, const int length, const double &low[])
   }
 
 //+------------------------------------------------------------------+
+//| ATR helpers                                                       |
+//+------------------------------------------------------------------+
+double TrueRangeAt(const int index, const double &high[], const double &low[],
+                   const double &close[])
+  {
+   if(index <= 0)
+      return high[index] - low[index];
+   return MathMax(high[index] - low[index],
+                  MathMax(MathAbs(high[index] - close[index - 1]),
+                          MathAbs(low[index] - close[index - 1])));
+  }
+
+double AtrAt(const int index, const double &high[], const double &low[],
+             const double &close[])
+  {
+   int period = MathMax(1, InpAtrPeriod);
+   int start = MathMax(0, index - period + 1);
+   double total = 0.0;
+   int count = 0;
+   for(int j = start; j <= index; j++)
+     {
+      total += TrueRangeAt(j, high, low, close);
+      count++;
+     }
+   return count > 0 ? total / (double)count : 0.0;
+  }
+
+void PoolZoneFromLevel(const int index, const double level,
+                       const double &high[], const double &low[], const double &close[],
+                       double &top, double &bottom)
+  {
+   double half = MathMax(AtrAt(index, high, low, close) * MathMax(0.0, InpPoolHalfAtr),
+                         g_point * 5.0);
+   top = level + half;
+   bottom = level - half;
+  }
+
+//+------------------------------------------------------------------+
 //| Count later interactions with a pool                               |
 //+------------------------------------------------------------------+
 void PoolStats(const int start_index, const double top, const double bottom,
@@ -166,25 +208,43 @@ void PoolStats(const int start_index, const double top, const double bottom,
 //+------------------------------------------------------------------+
 //| Sweep status                                                       |
 //+------------------------------------------------------------------+
-bool FindSweep(const bool buy_side, const int start_index, const double top,
-               const double bottom, const double &close[], const datetime &time[],
-               const int rates_total, datetime &swept_time)
+int FindSweep(const bool buy_side, const int start_index, const double top,
+              const double bottom, const double min_penetration,
+              const double &high[], const double &low[], const double &close[],
+              const datetime &time[], const int rates_total, datetime &swept_time)
   {
    swept_time = 0;
+   double mid = (top + bottom) / 2.0;
    for(int j = start_index + 1; j < rates_total; j++)
      {
-      if(buy_side && close[j] > top)
+      if(buy_side)
         {
-         swept_time = time[j];
-         return true;
+         if(high[j] > top + min_penetration && close[j] < mid)
+           {
+            swept_time = time[j];
+            return 1;
+           }
+         if(close[j] > top)
+           {
+            swept_time = time[j];
+            return 2;
+           }
         }
-      if(!buy_side && close[j] < bottom)
+      else
         {
-         swept_time = time[j];
-         return true;
+         if(low[j] < bottom - min_penetration && close[j] > mid)
+           {
+            swept_time = time[j];
+            return 1;
+           }
+         if(close[j] < bottom)
+           {
+            swept_time = time[j];
+            return 2;
+           }
         }
      }
-   return false;
+   return 0;
   }
 
 //+------------------------------------------------------------------+
@@ -287,18 +347,28 @@ int OnCalculate(const int rates_total,
      {
       if(InpShowBuySide && IsPivotHigh(i, length, high))
         {
+         double level = high[i];
          double top = high[i];
-         double bottom = (InpSwingArea == LS_WICK_EXTREMITY ? MathMax(open[i], close[i]) : low[i]);
+         double bottom = low[i];
+         if(InpSwingArea == LS_WICK_EXTREMITY && InpUseAtrZones)
+            PoolZoneFromLevel(i, level, high, low, close, top, bottom);
+         else if(InpSwingArea == LS_WICK_EXTREMITY)
+            bottom = MathMax(open[i], close[i]);
          int count = 0;
          double vol = 0.0;
          PoolStats(i, top, bottom, high, low, tick_volume, rates_total, count, vol);
          if(PassesFilter(count, vol))
            {
             datetime swept_time = 0;
-            bool swept = FindSweep(true, i, top, bottom, close, time, rates_total, swept_time);
-            DrawPool(drawn, true, time[i], swept ? swept_time : future_time,
-                     top, bottom, top, swept, count, vol);
-            drawn++;
+            double min_pen = AtrAt(i, high, low, close) * MathMax(0.0, InpMinPenAtr);
+            int status = FindSweep(true, i, top, bottom, min_pen, high, low, close, time, rates_total, swept_time);
+            if(status != 2)
+              {
+               bool swept = (status == 1);
+               DrawPool(drawn, true, time[i], swept ? swept_time : future_time,
+                        top, bottom, level, swept, count, vol);
+               drawn++;
+              }
            }
         }
 
@@ -307,18 +377,28 @@ int OnCalculate(const int rates_total,
 
       if(InpShowSellSide && IsPivotLow(i, length, low))
         {
+         double level = low[i];
+         double top = high[i];
          double bottom = low[i];
-         double top = (InpSwingArea == LS_WICK_EXTREMITY ? MathMin(open[i], close[i]) : high[i]);
+         if(InpSwingArea == LS_WICK_EXTREMITY && InpUseAtrZones)
+            PoolZoneFromLevel(i, level, high, low, close, top, bottom);
+         else if(InpSwingArea == LS_WICK_EXTREMITY)
+            top = MathMin(open[i], close[i]);
          int count = 0;
          double vol = 0.0;
          PoolStats(i, top, bottom, high, low, tick_volume, rates_total, count, vol);
          if(PassesFilter(count, vol))
            {
             datetime swept_time = 0;
-            bool swept = FindSweep(false, i, top, bottom, close, time, rates_total, swept_time);
-            DrawPool(drawn, false, time[i], swept ? swept_time : future_time,
-                     top, bottom, bottom, swept, count, vol);
-            drawn++;
+            double min_pen = AtrAt(i, high, low, close) * MathMax(0.0, InpMinPenAtr);
+            int status = FindSweep(false, i, top, bottom, min_pen, high, low, close, time, rates_total, swept_time);
+            if(status != 2)
+              {
+               bool swept = (status == 1);
+               DrawPool(drawn, false, time[i], swept ? swept_time : future_time,
+                        top, bottom, level, swept, count, vol);
+               drawn++;
+              }
            }
         }
      }

@@ -40,13 +40,36 @@ def _liquidity_id(symbol: str, timeframe: str, side: str, pivot_time: str, price
     return f"{symbol.upper()}-{_tf_label(timeframe)}-{side}-{pivot_time}-{price:.10g}"
 
 
-def _pool_status(side: str, top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[bool, str | None, int | None]:
+def _pool_status(
+    side: str,
+    top: float,
+    bottom: float,
+    rows: list[dict],
+    start_idx: int,
+    *,
+    min_penetration: float = 0.0,
+) -> tuple[str, str | None, int | None]:
+    """Classify pool state with a wick-through/reclaim sweep contract.
+
+    A close beyond a pool is a break, not a liquidity grab. A valid sweep
+    probes beyond the pool boundary and closes back through the midpoint.
+    """
+    mid = (top + bottom) / 2.0
     for idx, row in enumerate(rows[start_idx + 1:], start=start_idx + 1):
-        if side == "buy_side" and float(row["close"]) > top:
-            return True, row["time"], idx
-        if side == "sell_side" and float(row["close"]) < bottom:
-            return True, row["time"], idx
-    return False, None, None
+        high = float(row["high"])
+        low = float(row["low"])
+        close = float(row["close"])
+        if side == "buy_side":
+            if high > top + min_penetration and close < mid:
+                return "swept", row["time"], idx
+            if close > top:
+                return "broken", row["time"], idx
+        else:
+            if low < bottom - min_penetration and close > mid:
+                return "swept", row["time"], idx
+            if close < bottom:
+                return "broken", row["time"], idx
+    return "open", None, None
 
 
 def _pool_counts(top: float, bottom: float, rows: list[dict], start_idx: int) -> tuple[int, float]:
@@ -58,6 +81,29 @@ def _pool_counts(top: float, bottom: float, rows: list[dict], start_idx: int) ->
             count += 1
             volume += float(row.get("tick_volume", row.get("volume", 0)) or 0)
     return count, volume
+
+
+def _true_range(row: dict, prev_close: float | None) -> float:
+    high = float(row["high"])
+    low = float(row["low"])
+    if prev_close is None:
+        return high - low
+    return max(high - low, abs(high - prev_close), abs(low - prev_close))
+
+
+def _atr_at(rows: list[dict], index: int, period: int = 14) -> float:
+    start = max(0, index - max(1, period) + 1)
+    values = []
+    for i in range(start, index + 1):
+        prev = float(rows[i - 1]["close"]) if i > 0 else None
+        values.append(_true_range(rows[i], prev))
+    return sum(values) / len(values) if values else 0.0
+
+
+def _pool_zone_from_level(rows: list[dict], index: int, level: float, point: float, *, half_atr: float) -> tuple[float, float, float]:
+    atr = _atr_at(rows, index)
+    half = max(atr * half_atr, point * 5.0)
+    return level + half, level - half, half
 
 
 def _classify_swings(swings: list[dict]) -> list[dict]:
@@ -453,12 +499,15 @@ def liquidity(
     filter_by: str = "count",
     filter_value: float = 0.0,
     max_pools: int = 10,
+    pool_half_atr: float = 0.40,
+    min_pen_atr: float = 0.0,
 ) -> dict:
     """Return liquidity swing pools matching EhukaiLiquiditySwings.mq5.
 
     Swing highs are buy-side liquidity; swing lows are sell-side liquidity.
     Pools are counted when later candles trade back through the pivot zone.
-    A pool becomes swept when a later close crosses beyond the pivot extreme.
+    A pool is swept only when price wicks through and closes back through the
+    pool midpoint. Close-throughs are marked broken instead of swept.
     """
     area = area.lower().replace("_", "-")
     filter_by = filter_by.lower()
@@ -478,8 +527,10 @@ def liquidity(
         return _fail("MT5_NO_DATA", f"Not enough bars for Ehukai liquidity swings on {symbol} {timeframe}.")
 
     pip_size = _pip_size(symbol, rows)
+    point = indicator._point_for_symbol(symbol, rows)  # noqa: SLF001 - shared visual contract helper
     current_price = float(rows[-1]["close"])
     pools: list[dict] = []
+    broken_pools: list[dict] = []
     start = length
     stop = len(rows) - length
 
@@ -498,23 +549,40 @@ def liquidity(
             if not is_high and not is_low:
                 break
 
-        candidates: list[tuple[str, str, float, float, float]] = []
+        candidates: list[tuple[str, str, float, float, float, float]] = []
         if is_high:
-            top = high
-            bottom = max(float(rows[i]["open"]), float(rows[i]["close"])) if area == "wick" else low
-            candidates.append(("buy_side", "BSL", top, bottom, top))
+            level = high
+            if area == "wick":
+                top, bottom, half_width = _pool_zone_from_level(rows, i, level, point, half_atr=pool_half_atr)
+            else:
+                top = high
+                bottom = low
+                half_width = (top - bottom) / 2.0
+            candidates.append(("buy_side", "BSL", top, bottom, level, half_width))
         if is_low:
-            top = min(float(rows[i]["open"]), float(rows[i]["close"])) if area == "wick" else high
-            bottom = low
-            candidates.append(("sell_side", "SSL", top, bottom, bottom))
+            level = low
+            if area == "wick":
+                top, bottom, half_width = _pool_zone_from_level(rows, i, level, point, half_atr=pool_half_atr)
+            else:
+                top = high
+                bottom = low
+                half_width = (top - bottom) / 2.0
+            candidates.append(("sell_side", "SSL", top, bottom, level, half_width))
 
-        for side, short_label, top, bottom, level in candidates:
+        for side, short_label, top, bottom, level, half_width in candidates:
             count, volume = _pool_counts(top, bottom, rows, i)
             target = count if filter_by == "count" else volume
             if target <= filter_value:
                 continue
-            swept, swept_at, sweep_idx = _pool_status(side, top, bottom, rows, i)
-            status = "swept" if swept else "open"
+            min_penetration = _atr_at(rows, i) * max(0.0, float(min_pen_atr))
+            status, swept_at, sweep_idx = _pool_status(
+                side,
+                top,
+                bottom,
+                rows,
+                i,
+                min_penetration=min_penetration,
+            )
             distance_pips = 0.0
             if current_price > top:
                 distance_pips = (current_price - top) / pip_size
@@ -537,6 +605,11 @@ def liquidity(
                 "top": top,
                 "bottom": bottom,
                 "mid": (top + bottom) / 2.0,
+                "zone_width_pips": round((top - bottom) / pip_size, 2),
+                "sweep_model": "wick_reclaim",
+                "pool_half_atr": pool_half_atr,
+                "min_pen_atr": min_pen_atr,
+                "source_kind": "swing_pivot",
                 "count": count,
                 "volume": volume,
                 "filter_target": target,
@@ -552,12 +625,15 @@ def liquidity(
                     "kind": "liquidity_zone",
                     "fill": "rgba(239,68,68,0.16)" if side == "buy_side" else "rgba(20,184,166,0.16)",
                     "border": "#ef4444" if side == "buy_side" else "#14b8a6",
-                    "level_style": "dashed" if swept else "solid",
+                    "level_style": "dashed" if status == "swept" else "solid",
                     "label": visual_label,
                     "cli_pair": f"mt5 --json ehukai liquidity SYMBOL {_tf_label(timeframe)}",
                 },
             }
-            pools.append(pool)
+            if status == "broken":
+                broken_pools.append(pool)
+            else:
+                pools.append(pool)
 
     pools.sort(key=lambda item: item["pivot_time"], reverse=True)
     visible = pools[:max(1, int(max_pools))]
@@ -575,10 +651,14 @@ def liquidity(
             "area": area,
             "filter_by": filter_by,
             "filter_value": filter_value,
+            "pool_half_atr": pool_half_atr,
+            "min_pen_atr": min_pen_atr,
+            "sweep_model": "wick_reclaim",
             "current_price": current_price,
             "pools": visible,
             "open_pools": open_pools,
             "swept_pools": swept_pools,
+            "broken_pools": broken_pools[:max(1, int(max_pools))],
             "nearest_buy_side": next((p for p in open_by_distance if p["side"] == "buy_side"), None),
             "nearest_sell_side": next((p for p in open_by_distance if p["side"] == "sell_side"), None),
             "visual_contract": {
@@ -586,7 +666,8 @@ def liquidity(
                 "object_prefix": "ELS_",
                 "label_pattern": "BSL/SSL LIQ OPEN/SWEPT C<count> V<volume>",
                 "sides": {"buy_side": "liquidity above swing highs", "sell_side": "liquidity below swing lows"},
-                "geometry": ["rectangle", "liquidity level", "count/volume label"],
+                "geometry": ["ATR-width rectangle", "liquidity level", "count/volume label"],
+                "sweep_rule": "wick beyond pool boundary, close back through midpoint",
             },
         },
     }
