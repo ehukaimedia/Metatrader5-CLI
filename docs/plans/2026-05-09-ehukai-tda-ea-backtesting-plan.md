@@ -99,12 +99,17 @@ Candidate iteration lanes:
 
 - FVG age and distance filters
 - VP hard-gate versus score-only behavior
+- VP high-volume zone detection around POC, using contiguous rows above a configurable percent of POC volume
+- VP zone-boundary entries: long retests from above use the high-volume zone upper boundary; short retests from below use the lower boundary
+- POC plus M15 support/resistance confluence bonus when POC aligns with an M15 swing high/low inside a configurable pip tolerance
+- TP scaling to nearest VP barrier before fixed RR, using heavy-volume zones as target structure
+- SL barrier check to confirm the swept-extreme stop sits behind a heavy-volume barrier; start as a warning/soft gate until Phase 3 evidence says otherwise
 - Liquidity sweep recency and trap tolerance
 - Fixed RR versus target liquidity TP
 - BE trigger and Chandelier multiplier
 - Pair/session filters
 
-Every iteration must cite a result table and preserve the previous settings.
+The VP items above come from `docs/video-transcripts/how-to-master-volume-profile-trading-in-less-than-15-minutes-and-never-guess-market-direction-again_e68163e9/archive.json`. They do not change v1 before the Phase 3 baseline. Every iteration must cite a result table and preserve the previous settings.
 
 ## Non-Goals
 
