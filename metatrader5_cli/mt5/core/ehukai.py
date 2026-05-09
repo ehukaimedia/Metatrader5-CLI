@@ -130,6 +130,76 @@ def _profile_value_area(volumes: list[float], poc_index: int, value_area_pct: fl
     return low_idx, high_idx, covered
 
 
+def volume_profile_confluence(
+    *,
+    current_price: float,
+    poc: float,
+    value_area_high: float,
+    value_area_low: float,
+    pip_size: float,
+    score_weight: int = 8,
+    block_distance_pips: float = 8.0,
+) -> dict:
+    """Mirror the TDA overlay's compact VP/POC confluence scoring."""
+    weight = max(0, int(score_weight))
+    block_distance = max(0.0, float(block_distance_pips))
+    distance_pips = abs(float(current_price) - float(poc)) / pip_size if pip_size else 0.0
+    if current_price > value_area_high:
+        context = "above_value"
+    elif current_price < value_area_low:
+        context = "below_value"
+    else:
+        context = "inside_value"
+
+    buy_score = 0
+    sell_score = 0
+    buy_block = False
+    sell_block = False
+    read = "VP: at POC"
+
+    if current_price > poc:
+        buy_score = weight // 2 if context == "inside_value" else weight
+        sell_score = -weight if distance_pips <= block_distance else -(weight // 2)
+        sell_block = distance_pips <= block_distance
+        read = "VP: above POC"
+    elif current_price < poc:
+        sell_score = weight // 2 if context == "inside_value" else weight
+        buy_score = -weight if distance_pips <= block_distance else -(weight // 2)
+        buy_block = distance_pips <= block_distance
+        read = "VP: below POC"
+
+    if context == "inside_value":
+        read = "VP: inside value"
+
+    def guide(bullish: bool) -> str:
+        if bullish and buy_block:
+            return "VP: POC blocks buy"
+        if not bullish and sell_block:
+            return "VP: POC blocks sell"
+        if context == "inside_value":
+            return "VP: inside value, wait"
+        if bullish and buy_score > 0:
+            return "VP: POC supports buy"
+        if not bullish and sell_score > 0:
+            return "VP: POC supports sell"
+        return read
+
+    return {
+        "source": "EhukaiTDAOverlay.vp_confluence",
+        "context": context,
+        "read": read,
+        "buy_score": buy_score,
+        "sell_score": sell_score,
+        "buy_block": buy_block,
+        "sell_block": sell_block,
+        "guide_buy": guide(True),
+        "guide_sell": guide(False),
+        "distance_pips": round(distance_pips, 2),
+        "score_weight": weight,
+        "block_distance_pips": block_distance,
+    }
+
+
 def _classify_swings(swings: list[dict]) -> list[dict]:
     last_high = None
     last_low = None
@@ -800,6 +870,13 @@ def volume_profile(
         price_context = "inside_value_area"
 
     poc_distance_pips = abs(current_price - poc) / pip_size if pip_size else 0.0
+    confluence = volume_profile_confluence(
+        current_price=current_price,
+        poc=poc,
+        value_area_high=vah,
+        value_area_low=val,
+        pip_size=pip_size,
+    )
     return {
         "ok": True,
         "data": {
@@ -821,6 +898,7 @@ def volume_profile(
             "current_price": current_price,
             "price_context": price_context,
             "poc_distance_pips": round(poc_distance_pips, 2),
+            "confluence": confluence,
             "rows_detail": profile_rows,
             "high_volume_nodes": sorted(profile_rows, key=lambda row: row["volume"], reverse=True)[:5],
             "visual_label": f"VP POC {poc:.5f} | VA {val:.5f}-{vah:.5f}",

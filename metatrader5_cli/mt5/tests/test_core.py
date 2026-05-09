@@ -1511,8 +1511,69 @@ class TestMarket:
         assert data["current_price"] == 1.1005
         assert data["value_area_low"] <= data["poc"] <= data["value_area_high"]
         assert data["price_context"] == "below_value_area"
+        assert data["confluence"]["context"] == "below_value"
+        assert data["confluence"]["guide_sell"] == "VP: POC supports sell"
         assert data["visual_contract"]["indicator"] == "EhukaiVolumeProfilePOC"
         assert data["high_volume_nodes"][0]["is_poc"] is True
+
+    def test_ehukai_volume_profile_confluence_above_poc_supports_buy(self):
+        from metatrader5_cli.mt5.core import ehukai
+
+        result = ehukai.volume_profile_confluence(
+            current_price=1.1100,
+            poc=1.1000,
+            value_area_high=1.1050,
+            value_area_low=1.0950,
+            pip_size=0.0001,
+            score_weight=8,
+            block_distance_pips=8,
+        )
+
+        assert result["context"] == "above_value"
+        assert result["buy_score"] == 8
+        assert result["sell_score"] == -4
+        assert result["sell_block"] is False
+        assert result["guide_buy"] == "VP: POC supports buy"
+
+    def test_ehukai_volume_profile_confluence_near_poc_blocks_opposing_trade(self):
+        from metatrader5_cli.mt5.core import ehukai
+
+        result = ehukai.volume_profile_confluence(
+            current_price=1.1005,
+            poc=1.1000,
+            value_area_high=1.1050,
+            value_area_low=1.0950,
+            pip_size=0.0001,
+            score_weight=8,
+            block_distance_pips=8,
+        )
+
+        assert result["context"] == "inside_value"
+        assert result["buy_score"] == 4
+        assert result["sell_score"] == -8
+        assert result["sell_block"] is True
+        assert result["guide_buy"] == "VP: inside value, wait"
+        assert result["guide_sell"] == "VP: POC blocks sell"
+
+    def test_ehukai_volume_profile_confluence_below_poc_blocks_buy(self):
+        from metatrader5_cli.mt5.core import ehukai
+
+        result = ehukai.volume_profile_confluence(
+            current_price=156.995,
+            poc=157.000,
+            value_area_high=157.020,
+            value_area_low=156.980,
+            pip_size=0.01,
+            score_weight=8,
+            block_distance_pips=8,
+        )
+
+        assert result["context"] == "inside_value"
+        assert result["sell_score"] == 4
+        assert result["buy_score"] == -8
+        assert result["buy_block"] is True
+        assert result["guide_buy"] == "VP: POC blocks buy"
+        assert result["guide_sell"] == "VP: inside value, wait"
 
     def test_cli_ehukai_volume_profile_json(self, monkeypatch, tmp_path):
         import json
