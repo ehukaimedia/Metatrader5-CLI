@@ -19,6 +19,9 @@ build/
 ehukai-compile-*.log
 docs/code-reviews/compile-*.log
 
+# Local MT5 Strategy Tester output (reports, generated tester configs, EA CSV journals)
+docs/backtests/
+
 # Audit-time screenshot bundles (chart captures, not source)
 docs/code-reviews/tda-usdjpy-*/
 docs/code-reviews/visual-tda-usdjpy-*/

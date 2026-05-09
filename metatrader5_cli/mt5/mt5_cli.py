@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, order, position, project, rates, screenshot
+from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, order, position, project, rates, screenshot, tester
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -900,6 +900,85 @@ def adaptive_trail_manual_set_cmd(ctx, enabled, symbols, experts_dir, preset_nam
             symbols=parsed_symbols,
             experts_dir=experts_dir,
             preset_name=preset_name,
+        ),
+        obj["as_json"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Strategy Tester command group
+# ---------------------------------------------------------------------------
+
+@main.group("tester")
+@click.pass_context
+def tester_group(ctx):
+    """MetaTrader 5 Strategy Tester automation."""
+    ctx.ensure_object(dict)
+
+
+@tester_group.command("compile")
+@click.option("--metaeditor", default=None, help="Path to MetaEditor64.exe. Auto-detected by default.")
+@click.option("--data-dir", default=None, help="MT5 terminal data directory. Auto-detected by default.")
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Used to infer data-dir.")
+@click.pass_context
+def tester_compile_cmd(ctx, metaeditor, data_dir, experts_dir):
+    """Copy and compile EhukaiTDAEA into the MT5 Experts folder."""
+    obj = ctx.obj
+    output(
+        tester.compile_ea(metaeditor=metaeditor, data_dir=data_dir, experts_dir=experts_dir),
+        obj["as_json"],
+    )
+
+
+@tester_group.command("run")
+@click.option("--symbol", default="USDJPY", show_default=True, help="Symbol to backtest.")
+@click.option("--timeframe", default="M5", show_default=True, help="Strategy Tester period.")
+@click.option("--from", "date_from", required=True, help="Start date YYYY-MM-DD.")
+@click.option("--to", "date_to", required=True, help="End date YYYY-MM-DD.")
+@click.option("--terminal", default=None, help="Path to terminal64.exe. Auto-detected by default.")
+@click.option("--metaeditor", default=None, help="Path to MetaEditor64.exe. Auto-detected by default.")
+@click.option("--data-dir", default=None, help="MT5 terminal data directory. Auto-detected by default.")
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Used to infer data-dir.")
+@click.option("--output-dir", default=None, help="Directory for tester config, reports, and copied journals.")
+@click.option("--compile/--no-compile", "compile_first", default=True, show_default=True,
+              help="Compile the EA before running.")
+@click.option("--timeout-seconds", default=900, show_default=True, type=int,
+              help="Maximum Strategy Tester run time.")
+@click.option("--entry-mode", default="limit", show_default=True,
+              type=click.Choice(["limit", "market"], case_sensitive=False),
+              help="EA entry mode. market is useful for smoke tests only.")
+@click.pass_context
+def tester_run_cmd(
+    ctx,
+    symbol,
+    timeframe,
+    date_from,
+    date_to,
+    terminal,
+    metaeditor,
+    data_dir,
+    experts_dir,
+    output_dir,
+    compile_first,
+    timeout_seconds,
+    entry_mode,
+):
+    """Run one Strategy Tester backtest and collect artifacts."""
+    obj = ctx.obj
+    output(
+        tester.run_backtest(
+            symbol=symbol,
+            timeframe=timeframe,
+            date_from=date_from,
+            date_to=date_to,
+            terminal=terminal,
+            metaeditor=metaeditor,
+            data_dir=data_dir,
+            experts_dir=experts_dir,
+            output_dir=output_dir,
+            compile_first=compile_first,
+            timeout_seconds=timeout_seconds,
+            entry_mode=entry_mode,
         ),
         obj["as_json"],
     )

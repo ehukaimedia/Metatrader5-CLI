@@ -319,6 +319,67 @@ class TestEAHelpers:
         assert "Manual_Magic_0_Symbols=USDJPY,EURUSD,GBPUSD,AUDUSD" in text
 
 
+class TestTesterHelpers:
+    def test_pair_magic_matches_strategy_id_contract(self):
+        from metatrader5_cli.mt5.core import tester
+
+        assert tester.pair_magic("USDJPY") == 176879
+        assert tester.pair_magic("USDCAD") == 128461
+        assert 100000 <= tester.pair_magic("EURGBP") < 180000
+
+    def test_build_config_writes_tester_ini_and_set(self, tmp_path):
+        from metatrader5_cli.mt5.core import tester
+
+        ini_path = tester.build_config(
+            symbol="USDJPY",
+            timeframe="M5",
+            date_from="2026-04-01",
+            date_to="2026-04-30",
+            run_dir=tmp_path,
+            data_dir=tmp_path / "terminal",
+        )
+
+        text = ini_path.read_text(encoding="utf-8")
+        assert "Expert=EhukaiTDAEA" in text
+        assert "ExpertParameters=USDJPY_M5_EhukaiTDAEA.set" in text
+        assert "Symbol=USDJPY" in text
+        assert "Period=M5" in text
+        assert "FromDate=2026.04.01" in text
+        assert "ToDate=2026.04.30" in text
+        assert "Report=reports\\" in text
+        assert "InpMagicOverride=176879" in text
+        assert (tmp_path / "USDJPY_M5_EhukaiTDAEA.set").exists()
+        assert (
+            tmp_path
+            / "terminal"
+            / "MQL5"
+            / "Profiles"
+            / "Tester"
+            / "USDJPY_M5_EhukaiTDAEA.set"
+        ).exists()
+
+    def test_summarize_run_counts_journal_rows(self, tmp_path):
+        from metatrader5_cli.mt5.core import tester
+
+        (tmp_path / "USDJPY_setups.csv").write_text(
+            "time,symbol,failure\n2026.04.01,USDJPY,entry_structure\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "USDJPY_exits.csv").write_text(
+            "profit,commission,swap,realized_r\n10,-1,0,1.2\n-5,0,0,-0.7\n",
+            encoding="utf-8",
+        )
+
+        summary = tester.summarize_run(tmp_path)
+
+        assert summary["setup_rows"] == 1
+        assert summary["trades"] == 2
+        assert summary["wins"] == 1
+        assert summary["losses"] == 1
+        assert summary["net_profit"] == 4.0
+        assert summary["failure_modes"] == {"entry_structure": 1}
+
+
 # ===========================================================================
 # Task 4 — Risk (core/risk.py)
 # ===========================================================================
