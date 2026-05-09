@@ -379,6 +379,29 @@ class TestTesterHelpers:
         assert summary["net_profit"] == 4.0
         assert summary["failure_modes"] == {"entry_structure": 1}
 
+    def test_collect_manual_run_copies_existing_journals(self, tmp_path):
+        from metatrader5_cli.mt5.core import tester
+
+        data_dir = tmp_path / "terminal"
+        files_dir = data_dir / "MQL5" / "Files" / "EhukaiTDAEA"
+        files_dir.mkdir(parents=True)
+        (files_dir / "EhukaiTDAEA_USDJPY_setups.csv").write_text(
+            "time,symbol,failure\n2026.04.01,USDJPY,none\n",
+            encoding="utf-8",
+        )
+        out_dir = tmp_path / "collected"
+
+        result = tester.collect_manual_run(
+            symbol="USDJPY",
+            timeframe="M5",
+            data_dir=str(data_dir),
+            output_dir=str(out_dir),
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["summary"]["setup_rows"] == 1
+        assert (out_dir / "EhukaiTDAEA_USDJPY_setups.csv").exists()
+
 
 # ===========================================================================
 # Task 4 — Risk (core/risk.py)

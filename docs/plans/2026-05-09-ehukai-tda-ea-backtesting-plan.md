@@ -58,6 +58,7 @@ Smoke target:
 - Date range: `2026-04-01` to `2026-04-30`
 - Goal: prove the EA loads, evaluates bars, journals decisions, and either trades or truthfully reports no READY setups.
 - Current status: command-line smoke is blocked by `TESTER_NO_ARTIFACTS`; `terminal64.exe /config:<ini>` exits `0` in less than one second with no report/journals and no new terminal log lines while the same MT5 installation is already running live charts.
+- Agreed workaround: run this one smoke from the live MT5 Strategy Tester GUI, then collect artifacts with `mt5 tester collect`. Full CLI automation can move to a separate portable MT5 install before the 11-pair Phase 3 run.
 
 ## Phase 2: Review And Coherent Commit
 

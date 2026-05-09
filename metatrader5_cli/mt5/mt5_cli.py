@@ -984,6 +984,28 @@ def tester_run_cmd(
     )
 
 
+@tester_group.command("collect")
+@click.option("--symbol", default="USDJPY", show_default=True, help="Symbol to collect artifacts for.")
+@click.option("--timeframe", default="M5", show_default=True, help="Timeframe label for the output folder.")
+@click.option("--data-dir", default=None, help="MT5 terminal data directory. Auto-detected by default.")
+@click.option("--experts-dir", default=None, help="MT5 MQL5\\Experts directory. Used to infer data-dir.")
+@click.option("--output-dir", default=None, help="Directory for copied reports and journals.")
+@click.pass_context
+def tester_collect_cmd(ctx, symbol, timeframe, data_dir, experts_dir, output_dir):
+    """Collect reports and EA journals after a manually launched Strategy Tester run."""
+    obj = ctx.obj
+    output(
+        tester.collect_manual_run(
+            symbol=symbol,
+            timeframe=timeframe,
+            data_dir=data_dir,
+            experts_dir=experts_dir,
+            output_dir=output_dir,
+        ),
+        obj["as_json"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Order command group
 # ---------------------------------------------------------------------------

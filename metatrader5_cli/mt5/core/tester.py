@@ -335,6 +335,41 @@ def run_backtest(
     return {"ok": True, "data": data}
 
 
+def collect_manual_run(
+    *,
+    symbol: str,
+    timeframe: str = "M5",
+    data_dir: str | None = None,
+    experts_dir: str | None = None,
+    output_dir: str | None = None,
+) -> dict:
+    """Collect artifacts after a Strategy Tester run launched from the MT5 GUI."""
+    resolved_data = resolve_data_dir(data_dir=data_dir, experts_dir=experts_dir)
+    if resolved_data is None:
+        return _fail("TESTER_DATA_DIR_NOT_FOUND", "Could not resolve an MT5 terminal data directory.")
+
+    run_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{symbol.upper()}-{timeframe}-manual"
+    run_dir = Path(output_dir).expanduser() if output_dir else repo_root() / "docs" / "backtests" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    collected = collect_artifacts(run_dir=run_dir, data_dir=resolved_data, symbol=symbol)
+    summary = summarize_run(run_dir)
+    data = {
+        "run_dir": str(run_dir),
+        "data_dir": str(resolved_data),
+        "symbol": symbol.upper(),
+        "timeframe": timeframe,
+        "artifacts": collected,
+        "summary": summary,
+    }
+    if not collected["journals"] and not collected["reports"]:
+        return _fail(
+            "TESTER_NO_ARTIFACTS",
+            "No Strategy Tester report or EhukaiTDAEA journal artifacts were found to collect.",
+            data=data,
+        )
+    return {"ok": True, "data": data}
+
+
 def _mt5_date(value: str) -> str:
     return value.replace("-", ".")
 
