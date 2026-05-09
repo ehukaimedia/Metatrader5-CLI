@@ -7,7 +7,7 @@ Verdict: GO for Phase-3 manual-trade adoption after the local portability/schema
 Verification:
 - `python -m pytest adaptive-forex-mt5/tests/test_phase3_audit_fixes.py adaptive-forex-mt5/tests/test_adoption_bootstrap.py adaptive-forex-mt5/tests/test_adopt.py -q` → 21 passed
 - `python -m pytest -q` → 358 passed, 1 skipped
-- `git grep -n -E "C:\\\\|Users\\\\|OneDrive|D0E8209|tail5f6339|ehukai-pc|100\\.100\\.|AppData|MetaQuotes|Terminal\\\\" -- adaptive-forex-mt5 docs/skills .gitignore` → no tracked portability hits
+- `git grep -n -E "<local-path-and-hostname-patterns>" -- adaptive-forex-mt5 docs/skills .gitignore` → no tracked portability hits
 - `git check-ignore -v .ehukaiconnect/agents.json .ehukaiconnect/skills/ClaudeReviewer/SKILL.md adaptive-forex-mt5/config.json adaptive-forex-mt5/managed_positions.json adaptive-forex-mt5/logs/trades.jsonl` → all expected runtime/local state ignored
 
 ## Findings

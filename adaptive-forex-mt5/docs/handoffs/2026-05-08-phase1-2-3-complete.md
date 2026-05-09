@@ -85,11 +85,11 @@
 Codex1's pre-push sweep at HEAD `cea4e6b` flagged two NO-GO items, both
 addressed in this session's final commits:
 
-1. Local Windows paths (`C:\Users\arsen\...`) and a real-looking MT5
+1. Local Windows paths (`<USER_HOME>\...`) and a real-looking MT5
    terminal id appeared in three audit/plan docs. **Replaced with
    `<workspace>` and `%APPDATA%\MetaQuotes\Terminal\<TERMINAL_ID>\`
    placeholders.**
-2. Real-looking MT5 login `105112007` appeared in `README.md` and
+2. A real-looking MT5 login appeared in `README.md` and
    `metatrader5_cli/mt5/tests/test_core.py` (15 occurrences). **Replaced
    with the placeholder `12345678` in all tracked files.**
 
@@ -97,7 +97,7 @@ addressed in this session's final commits:
 
 ```bash
 # 1. Verify the scrub stuck
-grep -rn "105112007\|C:.Users.arsen" --include="*.md" --include="*.py" --include="*.json" .
+grep -rn "<REAL_MT5_LOGIN>\|<USER_HOME>" --include="*.md" --include="*.py" --include="*.json" .
 
 # (Anything in .claude/worktrees/* is stale Claude Code state, gitignored, fine.)
 
