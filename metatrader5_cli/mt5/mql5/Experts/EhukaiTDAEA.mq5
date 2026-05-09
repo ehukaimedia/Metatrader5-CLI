@@ -92,7 +92,7 @@ input int             InpMinSLImprovementPoints = 5;
 input group "Journaling"
 input bool            InpJournalEnabled         = true;
 input string          InpJournalFolder          = "EhukaiTDAEA";
-input bool            InpJournalResetOnInit     = true;
+input bool            InpJournalResetOnInit     = false;
 input bool            InpJournalNoTrade         = false;
 input bool            InpVerbose                = true;
 
