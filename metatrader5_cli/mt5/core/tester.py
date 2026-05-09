@@ -326,7 +326,7 @@ def run_backtest(
     }
     if completed.returncode != 0:
         return _fail("TESTER_RUN_FAILED", f"Strategy Tester command exited {completed.returncode}.", data=data)
-    if not collected["journals"] and not collected["reports"]:
+    if not _has_collected_artifacts(collected):
         return _fail(
             "TESTER_NO_ARTIFACTS",
             "Strategy Tester process exited successfully but produced no report or EA journal artifacts.",
@@ -361,7 +361,7 @@ def collect_manual_run(
         "artifacts": collected,
         "summary": summary,
     }
-    if not collected["journals"] and not collected["reports"]:
+    if not _has_collected_artifacts(collected):
         return _fail(
             "TESTER_NO_ARTIFACTS",
             "No Strategy Tester report or EhukaiTDAEA journal artifacts were found to collect.",
@@ -375,13 +375,13 @@ def _mt5_date(value: str) -> str:
 
 
 def collect_artifacts(*, run_dir: Path, data_dir: Path, symbol: str) -> dict:
-    files_dir = data_dir / "MQL5" / "Files" / "EhukaiTDAEA"
     copied: list[str] = []
-    if files_dir.exists():
+    for files_dir in _ea_file_dirs(data_dir):
         for path in files_dir.glob(f"EhukaiTDAEA_{symbol.upper()}_*.csv"):
             target = run_dir / path.name
             shutil.copy2(path, target)
             copied.append(str(target))
+
     report_paths: list[Path] = list(run_dir.glob("*report*"))
     reports_dir = data_dir / "reports"
     if reports_dir.exists():
@@ -390,8 +390,78 @@ def collect_artifacts(*, run_dir: Path, data_dir: Path, symbol: str) -> dict:
             if path.resolve() != target.resolve():
                 shutil.copy2(path, target)
             report_paths.append(target)
+
+    logs: list[str] = []
+    for logs_dir in _tester_log_dirs(data_dir):
+        for path in _latest_logs(logs_dir):
+            target = run_dir / f"{logs_dir.parent.name}_{path.name}"
+            shutil.copy2(path, target)
+            logs.append(str(target))
+
+    caches: list[str] = []
+    cache_dir = data_dir / "Tester" / "cache"
+    if cache_dir.exists():
+        for path in cache_dir.glob(f"EhukaiTDAEA*{symbol.upper()}*"):
+            target = run_dir / path.name
+            shutil.copy2(path, target)
+            caches.append(str(target))
+
     reports = [str(path) for path in report_paths]
-    return {"journals": copied, "reports": reports}
+    return {"journals": copied, "reports": reports, "logs": logs, "cache": caches}
+
+
+def _has_collected_artifacts(collected: dict) -> bool:
+    return any(collected.get(kind) for kind in ("journals", "reports", "logs", "cache"))
+
+
+def _ea_file_dirs(data_dir: Path) -> list[Path]:
+    dirs = [
+        data_dir / "MQL5" / "Files" / "EhukaiTDAEA",
+        data_dir / "MQL5" / "Files",
+    ]
+    for agent_dir in _tester_agent_dirs(data_dir):
+        dirs.extend(
+            [
+                agent_dir / "MQL5" / "Files" / "EhukaiTDAEA",
+                agent_dir / "MQL5" / "Files",
+            ]
+        )
+    return _existing_unique_dirs(dirs)
+
+
+def _tester_log_dirs(data_dir: Path) -> list[Path]:
+    dirs = [data_dir / "Tester" / "logs"]
+    dirs.extend(agent_dir / "logs" for agent_dir in _tester_agent_dirs(data_dir))
+    return _existing_unique_dirs(dirs)
+
+
+def _tester_agent_dirs(data_dir: Path) -> list[Path]:
+    tester_root = data_dir.parent.parent / "Tester" / data_dir.name
+    if not tester_root.exists():
+        return []
+    return [path for path in tester_root.glob("Agent-*") if path.is_dir()]
+
+
+def _latest_logs(logs_dir: Path) -> list[Path]:
+    logs = [path for path in logs_dir.glob("*.log") if path.is_file()]
+    if not logs:
+        return []
+    logs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return [logs[0]]
+
+
+def _existing_unique_dirs(paths: list[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    dirs: list[Path] = []
+    for path in paths:
+        if not path.exists() or not path.is_dir():
+            continue
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        dirs.append(path)
+    return dirs
 
 
 def summarize_run(run_dir: Path) -> dict:
@@ -434,7 +504,19 @@ def _read_csvs(paths) -> list[dict]:
     for path in paths:
         with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
             rows.extend(csv.DictReader(handle))
-    return rows
+    return _unique_rows(rows)
+
+
+def _unique_rows(rows: list[dict]) -> list[dict]:
+    unique: list[dict] = []
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    for row in rows:
+        key = tuple(sorted((str(k), str(v)) for k, v in row.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
 
 
 def _float(value: str | None) -> float:

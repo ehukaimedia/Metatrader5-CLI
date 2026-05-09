@@ -379,6 +379,22 @@ class TestTesterHelpers:
         assert summary["net_profit"] == 4.0
         assert summary["failure_modes"] == {"entry_structure": 1}
 
+    def test_summarize_run_dedupes_repeated_tester_rows(self, tmp_path):
+        from metatrader5_cli.mt5.core import tester
+
+        (tmp_path / "USDJPY_exits.csv").write_text(
+            "time,deal,profit,commission,swap,realized_r\n"
+            "2026.04.01,3,-5,0,0,-1\n"
+            "2026.04.01,3,-5,0,0,-1\n",
+            encoding="utf-8",
+        )
+
+        summary = tester.summarize_run(tmp_path)
+
+        assert summary["exit_rows"] == 1
+        assert summary["trades"] == 1
+        assert summary["net_profit"] == -5.0
+
     def test_collect_manual_run_copies_existing_journals(self, tmp_path):
         from metatrader5_cli.mt5.core import tester
 
@@ -401,6 +417,51 @@ class TestTesterHelpers:
         assert result["ok"] is True
         assert result["data"]["summary"]["setup_rows"] == 1
         assert (out_dir / "EhukaiTDAEA_USDJPY_setups.csv").exists()
+
+    def test_collect_manual_run_copies_gui_tester_agent_artifacts(self, tmp_path):
+        from metatrader5_cli.mt5.core import tester
+
+        data_dir = tmp_path / "MetaQuotes" / "Terminal" / "ABC123"
+        files_dir = (
+            tmp_path
+            / "MetaQuotes"
+            / "Tester"
+            / "ABC123"
+            / "Agent-127.0.0.1-3000"
+            / "MQL5"
+            / "Files"
+            / "EhukaiTDAEA"
+        )
+        logs_dir = (
+            tmp_path
+            / "MetaQuotes"
+            / "Tester"
+            / "ABC123"
+            / "Agent-127.0.0.1-3000"
+            / "logs"
+        )
+        data_dir.mkdir(parents=True)
+        files_dir.mkdir(parents=True)
+        logs_dir.mkdir(parents=True)
+        (files_dir / "EhukaiTDAEA_USDJPY_exits.csv").write_text(
+            "profit,commission,swap,realized_r\n-5,0,0,-1\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "20260509.log").write_text("tester journal\n", encoding="utf-8")
+        out_dir = tmp_path / "collected"
+
+        result = tester.collect_manual_run(
+            symbol="USDJPY",
+            timeframe="M5",
+            data_dir=str(data_dir),
+            output_dir=str(out_dir),
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["summary"]["exit_rows"] == 1
+        assert result["data"]["summary"]["net_profit"] == -5.0
+        assert (out_dir / "EhukaiTDAEA_USDJPY_exits.csv").exists()
+        assert (out_dir / "Agent-127.0.0.1-3000_20260509.log").exists()
 
 
 # ===========================================================================

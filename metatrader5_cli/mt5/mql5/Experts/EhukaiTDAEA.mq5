@@ -92,6 +92,7 @@ input int             InpMinSLImprovementPoints = 5;
 input group "Journaling"
 input bool            InpJournalEnabled         = true;
 input string          InpJournalFolder          = "EhukaiTDAEA";
+input bool            InpJournalResetOnInit     = true;
 input bool            InpJournalNoTrade         = false;
 input bool            InpVerbose                = true;
 
@@ -173,6 +174,7 @@ long     g_magic = 0;
 datetime g_last_entry_bar_time = 0;
 double   g_last_initial_risk = 0.0;
 ulong    g_last_position_id = 0;
+ulong    g_journaled_deals[];
 
 //+------------------------------------------------------------------+
 //| Lifecycle                                                        |
@@ -235,6 +237,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       return;
 
    const ENUM_DEAL_ENTRY entry_type = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(!RememberJournaledDeal(trans.deal))
+      return;
+
    if(entry_type == DEAL_ENTRY_IN)
       JournalEntryDeal(trans.deal);
    else if(entry_type == DEAL_ENTRY_OUT || entry_type == DEAL_ENTRY_INOUT)
@@ -1186,22 +1191,47 @@ double CurrentExitPrice(const ENUM_POSITION_TYPE type)
 //+------------------------------------------------------------------+
 void InitJournals()
   {
+   ArrayResize(g_journaled_deals, 0);
    FolderCreate(InpJournalFolder);
-   EnsureJournalHeader("setups", "time,symbol,tf,status,direction,score,gates,poi_tf,poi_lower,poi_upper,entry,sl,tp,rr,liquidity,vp,failure");
-   EnsureJournalHeader("entries", "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit");
-   EnsureJournalHeader("exits", "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason");
-   EnsureJournalHeader("failures", "time,symbol,stage,status,direction,score,entry,sl,tp,rr,reason,detail");
+   InitJournalFile("setups", "time,symbol,tf,status,direction,score,gates,poi_tf,poi_lower,poi_upper,entry,sl,tp,rr,liquidity,vp,failure");
+   InitJournalFile("entries", "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit");
+   InitJournalFile("exits", "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason");
+   InitJournalFile("failures", "time,symbol,stage,status,direction,score,entry,sl,tp,rr,reason,detail");
   }
 
-void EnsureJournalHeader(const string kind, const string header)
+void InitJournalFile(const string kind, const string header)
   {
    const string path = JournalPath(kind);
+   if(InpJournalResetOnInit)
+     {
+      const int reset_handle = FileOpen(path, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ);
+      if(reset_handle != INVALID_HANDLE)
+        {
+         FileWriteString(reset_handle, header + "\r\n");
+         FileClose(reset_handle);
+        }
+      return;
+     }
+
    const int handle = FileOpen(path, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ);
    if(handle == INVALID_HANDLE)
       return;
    if(FileSize(handle) == 0)
       FileWriteString(handle, header + "\r\n");
    FileClose(handle);
+  }
+
+bool RememberJournaledDeal(const ulong deal)
+  {
+   const int count = ArraySize(g_journaled_deals);
+   for(int i = 0; i < count; i++)
+     {
+      if(g_journaled_deals[i] == deal)
+         return false;
+     }
+   ArrayResize(g_journaled_deals, count + 1);
+   g_journaled_deals[count] = deal;
+   return true;
   }
 
 void JournalSetup(const SetupRead &setup)
