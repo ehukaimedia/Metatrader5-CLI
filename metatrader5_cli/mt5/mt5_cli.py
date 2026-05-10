@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, order, position, project, rates, screenshot, tester
+from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, mfe, order, position, project, rates, screenshot, tester
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -1004,6 +1004,29 @@ def tester_collect_cmd(ctx, symbol, timeframe, data_dir, experts_dir, output_dir
         ),
         obj["as_json"],
     )
+
+
+@tester_group.command("mfe-mae")
+@click.argument("run_dir", type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.option("--timeframe", default="M5", show_default=True, help="OHLC timeframe used for reconstruction.")
+@click.option("--output-name", default="mfe_mae.csv", show_default=True, help="CSV filename written into run-dir.")
+@click.pass_context
+def tester_mfe_mae_cmd(ctx, run_dir, timeframe, output_name):
+    """Reconstruct per-trade MFE/MAE from tester journals and OHLC bars."""
+    obj = ctx.obj
+    err = _ensure_connected(obj["cfg"])
+    if err:
+        output(err, obj["as_json"])
+        return
+    result = mfe.reconstruct_run(run_dir, timeframe=timeframe, output_name=output_name)
+    if obj["as_json"]:
+        output(result, True)
+        return
+    if result.get("ok"):
+        click.echo(result["data"]["summary_line"])
+        click.echo(f"wrote={result['data']['output']}")
+    else:
+        output(result, False)
 
 
 # ---------------------------------------------------------------------------

@@ -1942,6 +1942,115 @@ class TestRatesCLI:
 
 
 # ===========================================================================
+# Strategy Tester MFE/MAE reconstruction (core/mfe.py)
+# ===========================================================================
+
+class TestMfeMae:
+    def test_long_formula_uses_high_for_mfe_and_low_for_mae(self):
+        from metatrader5_cli.mt5.core import mfe
+
+        entry = {
+            "time": "2026.01.01 10:02:00", "symbol": "USDJPY", "deal": "2",
+            "position": "2", "direction": "BUY", "price": "100.0", "initial_risk": "10.0",
+        }
+        exit_row = {"time": "2026.01.01 10:09:00", "deal": "3", "position": "2", "price": "105.0"}
+        bars = [
+            {"time": "2026-01-01T10:00:00", "high": 112.0, "low": 97.0},
+            {"time": "2026-01-01T10:05:00", "high": 118.0, "low": 95.0},
+        ]
+
+        row = mfe.calculate_trade_excursion(entry, exit_row, bars, timeframe="M5")
+
+        assert row["status"] == "ok"
+        assert row["mfe_r"] == "1.800"
+        assert row["mae_r"] == "0.500"
+
+    def test_short_formula_uses_low_for_mfe_and_high_for_mae(self):
+        from metatrader5_cli.mt5.core import mfe
+
+        entry = {
+            "time": "2026.01.01 10:00:00", "symbol": "USDJPY", "deal": "8",
+            "position": "8", "direction": "SELL", "price": "100.0", "initial_risk": "10.0",
+        }
+        exit_row = {"time": "2026.01.01 10:05:00", "deal": "9", "position": "8", "price": "95.0"}
+        bars = [{"time": "2026-01-01T10:00:00", "high": 107.0, "low": 82.0}]
+
+        row = mfe.calculate_trade_excursion(entry, exit_row, bars, timeframe="M5")
+
+        assert row["status"] == "ok"
+        assert row["mfe_r"] == "1.800"
+        assert row["mae_r"] == "0.700"
+
+    def test_same_entry_exit_time_includes_touching_bar(self):
+        from metatrader5_cli.mt5.core import mfe
+
+        entry = {
+            "time": "2026.01.01 10:02:00", "symbol": "USDJPY", "deal": "2",
+            "position": "2", "direction": "BUY", "price": "100.0", "initial_risk": "10.0",
+        }
+        exit_row = {"time": "2026.01.01 10:02:00", "deal": "3", "position": "2", "price": "101.0"}
+        bars = [{"time": "2026-01-01T10:00:00", "high": 103.0, "low": 99.0}]
+
+        row = mfe.calculate_trade_excursion(entry, exit_row, bars, timeframe="M5")
+
+        assert row["status"] == "ok"
+        assert row["mfe_r"] == "0.300"
+        assert row["mae_r"] == "0.100"
+
+    def test_missing_bars_marks_row_without_metrics(self):
+        from metatrader5_cli.mt5.core import mfe
+
+        entry = {
+            "time": "2026.01.01 10:00:00", "symbol": "USDJPY", "deal": "2",
+            "position": "2", "direction": "BUY", "price": "100.0", "initial_risk": "10.0",
+        }
+        exit_row = {"time": "2026.01.01 10:05:00", "deal": "3", "position": "2", "price": "101.0"}
+
+        row = mfe.calculate_trade_excursion(entry, exit_row, [], timeframe="M5")
+
+        assert row["status"] == "no_bars"
+        assert row["mfe_r"] == ""
+        assert row["mae_r"] == ""
+
+    def test_reconstruct_run_writes_csv_and_summary(self, tmp_path, monkeypatch):
+        from metatrader5_cli.mt5.core import mfe
+
+        (tmp_path / "EhukaiTDAEA_USDJPY_entries.csv").write_text(
+            "time,symbol,deal,position,direction,price,initial_risk\n"
+            "2026.01.01 10:00:00,USDJPY,2,2,BUY,100.0,10.0\n"
+            "2026.01.01 11:00:00,USDJPY,4,4,SELL,100.0,10.0\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "EhukaiTDAEA_USDJPY_exits.csv").write_text(
+            "time,symbol,deal,position,price\n"
+            "2026.01.01 10:05:00,USDJPY,3,2,101.0\n"
+            "2026.01.01 11:05:00,USDJPY,5,4,99.0\n",
+            encoding="utf-8",
+        )
+
+        calls = []
+
+        def fake_range(symbol, timeframe, date_from, date_to):
+            calls.append((date_from, date_to))
+            if len(calls) == 1:
+                assert date_from.isoformat() == "2026-01-01T10:00:00+00:00"
+                return {"ok": True, "data": [{"time": "2026-01-01T10:00:00", "high": 120.0, "low": 99.0}]}
+            assert date_from.isoformat() == "2026-01-01T11:00:00+00:00"
+            return {"ok": True, "data": [{"time": "2026-01-01T11:00:00", "high": 102.0, "low": 80.0}]}
+
+        monkeypatch.setattr(mfe.rates_module, "range", fake_range)
+
+        result = mfe.reconstruct_run(tmp_path)
+
+        assert result["ok"] is True
+        assert (tmp_path / "mfe_mae.csv").exists()
+        assert result["data"]["summary"]["median_mfe_r"] == 2.0
+        assert result["data"]["summary"]["mfe_gte_1_5r"] == 2
+        assert "median_mfe_r=2.000" in result["data"]["summary_line"]
+        assert calls[0][0].tzinfo is not None
+
+
+# ===========================================================================
 # Task 9 — Indicators (core/indicator.py)
 # ===========================================================================
 
