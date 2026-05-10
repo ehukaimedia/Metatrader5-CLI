@@ -12,7 +12,7 @@ import sys
 
 import click
 
-from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, mfe, order, position, project, rates, screenshot, tester
+from metatrader5_cli.mt5.core import account, analyze, chart, ea, ehukai, history, indicator, market, mfe, order, playground_data, position, project, rates, screenshot, tester
 from metatrader5_cli.mt5.utils import mt5_backend as bridge
 
 # ---------------------------------------------------------------------------
@@ -1019,6 +1019,52 @@ def tester_mfe_mae_cmd(ctx, run_dir, timeframe, output_name):
         output(err, obj["as_json"])
         return
     result = mfe.reconstruct_run(run_dir, timeframe=timeframe, output_name=output_name)
+    if obj["as_json"]:
+        output(result, True)
+        return
+    if result.get("ok"):
+        click.echo(result["data"]["summary_line"])
+        click.echo(f"wrote={result['data']['output']}")
+    else:
+        output(result, False)
+
+
+# ---------------------------------------------------------------------------
+# Playground command group
+# ---------------------------------------------------------------------------
+
+@main.group("playground")
+@click.pass_context
+def playground_group(ctx):
+    """Build local playground datasets."""
+
+
+@playground_group.command("build")
+@click.argument("run_dir", type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.option("--timeframe", default="M5", show_default=True, help="Tester timeframe for the dataset.")
+@click.option("--output-name", default="trade_summary.json", show_default=True, help="JSON filename written into run-dir.")
+@click.option("--chandelier", "chandelier_atr_multiplier", default=3.0, show_default=True, type=float, help="Recorded Chandelier ATR multiplier.")
+@click.option("--be-trigger-r", default=0.8, show_default=True, type=float, help="Recorded breakeven trigger in R.")
+@click.option("--default-rr", default=3.0, show_default=True, type=float, help="Recorded default TP multiple in R.")
+@click.option("--reconstruct-mfe/--no-reconstruct-mfe", default=False, show_default=True, help="Create mfe_mae.csv first if missing; requires MT5 history access.")
+@click.pass_context
+def playground_build_cmd(ctx, run_dir, timeframe, output_name, chandelier_atr_multiplier, be_trigger_r, default_rr, reconstruct_mfe):
+    """Build trade_summary.json for the tuning playground."""
+    obj = ctx.obj
+    if reconstruct_mfe:
+        err = _ensure_connected(obj["cfg"])
+        if err:
+            output(err, obj["as_json"])
+            return
+    result = playground_data.build(
+        run_dir,
+        timeframe=timeframe,
+        output_name=output_name,
+        chandelier_atr_multiplier=chandelier_atr_multiplier,
+        be_trigger_r=be_trigger_r,
+        default_rr=default_rr,
+        reconstruct_mfe=reconstruct_mfe,
+    )
     if obj["as_json"]:
         output(result, True)
         return

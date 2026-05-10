@@ -3,6 +3,7 @@ Unit tests for the MT5 CLI core and bridge layers.
 All tests use the MagicMock MetaTrader5 stub installed by conftest.py.
 No real MT5 terminal is required.
 """
+import json
 import threading
 from unittest.mock import MagicMock
 
@@ -2012,6 +2013,27 @@ class TestMfeMae:
         assert row["mfe_r"] == ""
         assert row["mae_r"] == ""
 
+    def test_extended_mfe_replays_until_tp_or_sl(self):
+        from metatrader5_cli.mt5.core import mfe
+
+        entry = {
+            "time": "2026.01.01 10:00:00", "symbol": "USDJPY", "deal": "2",
+            "position": "2", "direction": "BUY", "price": "100.0", "initial_risk": "2.0",
+        }
+        setup = {"rr": "3.0", "sl": "98.0"}
+        bars = [
+            {"time": "2026-01-01T10:00:00", "high": 101.0, "low": 99.0},
+            {"time": "2026-01-01T10:05:00", "high": 106.0, "low": 99.5},
+            {"time": "2026-01-01T10:10:00", "high": 110.0, "low": 99.0},
+        ]
+
+        row = mfe.calculate_extended_excursion(entry, bars, setup=setup, timeframe="M5")
+
+        assert row["extended_status"] == "ok"
+        assert row["extended_event"] == "tp"
+        assert row["extended_mfe_r"] == "3.000"
+        assert row["extended_bars"] == 2
+
     def test_reconstruct_run_writes_csv_and_summary(self, tmp_path, monkeypatch):
         from metatrader5_cli.mt5.core import mfe
 
@@ -2032,10 +2054,11 @@ class TestMfeMae:
 
         def fake_range(symbol, timeframe, date_from, date_to):
             calls.append((date_from, date_to))
-            if len(calls) == 1:
+            if date_from.isoformat().startswith("2026-01-01T10:00:00") and date_to.hour == 10:
                 assert date_from.isoformat() == "2026-01-01T10:00:00+00:00"
                 return {"ok": True, "data": [{"time": "2026-01-01T10:00:00", "high": 120.0, "low": 99.0}]}
-            assert date_from.isoformat() == "2026-01-01T11:00:00+00:00"
+            if date_from.isoformat().startswith("2026-01-01T10:00:00"):
+                return {"ok": True, "data": [{"time": "2026-01-01T10:00:00", "high": 130.0, "low": 99.0}]}
             return {"ok": True, "data": [{"time": "2026-01-01T11:00:00", "high": 102.0, "low": 80.0}]}
 
         monkeypatch.setattr(mfe.rates_module, "range", fake_range)
@@ -2046,8 +2069,86 @@ class TestMfeMae:
         assert (tmp_path / "mfe_mae.csv").exists()
         assert result["data"]["summary"]["median_mfe_r"] == 2.0
         assert result["data"]["summary"]["mfe_gte_1_5r"] == 2
+        assert result["data"]["summary"]["median_extended_mfe_r"] == 2.5
         assert "median_mfe_r=2.000" in result["data"]["summary_line"]
+        assert "median_extended_mfe_r=2.500" in result["data"]["summary_line"]
         assert calls[0][0].tzinfo is not None
+
+
+class TestPlaygroundData:
+    def test_build_merges_journals_and_mfe_into_trade_summary(self, tmp_path):
+        from metatrader5_cli.mt5.core import playground_data
+
+        self._write_fixture_run(tmp_path)
+        result = playground_data.build(tmp_path, chandelier_atr_multiplier=4.0, be_trigger_r=1.2)
+
+        assert result["ok"] is True
+        assert "trades=2" in result["data"]["summary_line"]
+        payload = json.loads((tmp_path / "trade_summary.json").read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 1
+        assert payload["inputs"]["chandelier_atr_multiplier"] == 4.0
+        assert payload["inputs"]["be_trigger_r"] == 1.2
+        assert payload["summary"]["trades"] == 2
+        assert payload["summary"]["median_mfe_r"] == 1.65
+        assert payload["summary"]["median_extended_mfe_r"] == 2.05
+        assert payload["setup_summary"]["failure_modes"]["entry"] == 1
+        assert payload["trades"][0]["planned_rr"] == 3.0
+        assert payload["trades"][0]["mfe_r"] == 1.8
+        assert payload["trades"][0]["extended_mfe_r"] == 2.2
+        assert payload["trades"][1]["exit_type"] == "trail_sl"
+
+    def test_build_falls_back_to_realized_r_when_mfe_file_is_missing(self, tmp_path):
+        from metatrader5_cli.mt5.core import playground_data
+
+        self._write_fixture_run(tmp_path, include_mfe=False)
+        result = playground_data.build(tmp_path)
+
+        assert result["ok"] is True
+        payload = json.loads((tmp_path / "trade_summary.json").read_text(encoding="utf-8"))
+        assert payload["mfe_source"] == "realized_r_fallback"
+        assert payload["trades"][0]["mfe_r"] == 0.5
+        assert payload["trades"][1]["mae_r"] == 0.2
+
+    def test_playground_build_cli_writes_summary_without_mt5_connection(self, tmp_path, monkeypatch):
+        from click.testing import CliRunner
+        from metatrader5_cli.mt5 import mt5_cli
+        from metatrader5_cli.mt5.core import project
+
+        monkeypatch.setattr(project, "CONFIG_PATH", tmp_path / "missing.json")
+        self._write_fixture_run(tmp_path)
+
+        result = CliRunner().invoke(mt5_cli.main, ["playground", "build", str(tmp_path)])
+
+        assert result.exit_code == 0
+        assert "trades=2" in result.output
+        assert (tmp_path / "trade_summary.json").exists()
+
+    def _write_fixture_run(self, path, *, include_mfe=True):
+        (path / "EhukaiTDAEA_USDJPY_entries.csv").write_text(
+            "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit\n"
+            "2026.01.01 10:00:00,USDJPY,2,2,176879,BUY,0.1,100.0,99.0,103.0,1.0,0,0,0\n"
+            "2026.01.01 11:00:00,USDJPY,4,4,176879,SELL,0.1,100.0,101.0,97.0,1.0,0,0,0\n",
+            encoding="utf-8",
+        )
+        (path / "EhukaiTDAEA_USDJPY_exits.csv").write_text(
+            "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason\n"
+            "2026.01.01 10:05:00,USDJPY,3,2,176879,SELL,0.1,100.5,0.50,0,0,5.00,tp\n"
+            "2026.01.01 11:05:00,USDJPY,5,4,176879,BUY,0.1,100.2,-0.20,0,0,-2.00,\"sl 100.200\"\n",
+            encoding="utf-8",
+        )
+        (path / "EhukaiTDAEA_USDJPY_setups.csv").write_text(
+            "time,symbol,tf,status,direction,score,gates,poi_tf,poi_lower,poi_upper,entry,sl,tp,rr,liquidity,vp,failure\n"
+            "2026.01.01 10:00:00,USDJPY,M5,READY,BUY,90,pass,M1,99,101,100,99,103,3.0,liq,vp,\n"
+            "2026.01.01 11:00:00,USDJPY,M5,WATCH,SELL,70,entry fail,M5,99,101,100,101,97,3.0,liq,vp,entry\n",
+            encoding="utf-8",
+        )
+        if include_mfe:
+            (path / "mfe_mae.csv").write_text(
+                "position,entry_deal,exit_deal,symbol,direction,entry_time,exit_time,entry_price,exit_price,initial_risk,status,mfe_price,mae_price,mfe,mae,mfe_r,mae_r,bars,extended_status,extended_mfe_price,extended_mfe,extended_mfe_r,extended_event,extended_bars\n"
+                "2,2,3,USDJPY,BUY,2026.01.01 10:00:00,2026.01.01 10:05:00,100.0,100.5,1.0,ok,101.8,99.7,1.8,0.3,1.800,0.300,2,ok,102.2,2.2,2.200,sl,8\n"
+                "4,4,5,USDJPY,SELL,2026.01.01 11:00:00,2026.01.01 11:05:00,100.0,100.2,1.0,ok,98.5,100.4,1.5,0.4,1.500,0.400,2,ok,98.1,1.9,1.900,tp,5\n",
+                encoding="utf-8",
+            )
 
 
 # ===========================================================================
