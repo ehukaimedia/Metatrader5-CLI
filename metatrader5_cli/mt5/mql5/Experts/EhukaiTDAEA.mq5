@@ -51,7 +51,7 @@ input double          InpBehindZoneTolerancePips = 15.0;
 input int             InpMinTDAScore            = 70;
 input bool            InpRequireEntryStructure  = true;
 input int             InpMaxSpreadPoints        = 30;
-input bool            InpSkipFriday             = false;              // Broker-server Friday entry filter
+input bool            InpSkipFriday             = true;               // Broker-server Friday entry filter
 input int             InpMaxInitialRiskPips     = 50;                 // 0 = disabled; caps entry-to-SL distance in pips
 
 input group "Risk"
@@ -83,7 +83,7 @@ input double          InpPocBlockDistancePips   = 8.0;
 
 input group "Trade Management"
 input bool            InpUseBreakeven           = true;
-input double          InpBETriggerR             = 0.80;
+input double          InpBETriggerR             = 1.20;
 input int             InpBEBufferPoints         = 5;
 input int             InpChandelierATRPeriod    = 22;
 input double          InpChandelierATRMultiplier = 3.0;
@@ -95,7 +95,7 @@ input group "Journaling"
 input bool            InpJournalEnabled         = true;
 input string          InpJournalFolder          = "EhukaiTDAEA";
 input bool            InpJournalResetOnInit     = false;
-input bool            InpJournalNoTrade         = false;
+input bool            InpJournalNoTrade         = true;
 input bool            InpVerbose                = true;
 
 struct StructureRead
