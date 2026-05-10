@@ -51,6 +51,8 @@ input double          InpBehindZoneTolerancePips = 15.0;
 input int             InpMinTDAScore            = 70;
 input bool            InpRequireEntryStructure  = true;
 input int             InpMaxSpreadPoints        = 30;
+input bool            InpSkipFriday             = false;              // Broker-server Friday entry filter
+input int             InpMaxInitialRiskPips     = 50;                 // 0 = disabled; caps entry-to-SL distance in pips
 
 input group "Risk"
 input double          InpRiskPercent            = 0.25;
@@ -133,6 +135,9 @@ struct LiquidityRead
    bool   deeper_pool_too_close;
    double swept_level;
    double deeper_pool_level;
+   int    swept_pivot_age_bars;
+   int    swept_event_age_bars;
+   datetime sweep_event_time;
    string reason;
   };
 
@@ -167,6 +172,12 @@ struct SetupRead
    double   rr;
    double   risk;
    double   lots;
+   double   htf_momentum_d1;
+   int      time_since_sweep_pivot_bars;
+   int      time_since_sweep_event_bars;
+   double   room_to_swing_high_pips;
+   double   spread_to_atr_ratio;
+   int      m5_m1_event_lag_bars;
   };
 
 CTrade   g_trade;
@@ -174,6 +185,12 @@ long     g_magic = 0;
 datetime g_last_entry_bar_time = 0;
 double   g_last_initial_risk = 0.0;
 ulong    g_last_position_id = 0;
+double   g_last_htf_momentum_d1 = 0.0;
+int      g_last_time_since_sweep_pivot_bars = -1;
+int      g_last_time_since_sweep_event_bars = -1;
+double   g_last_room_to_swing_high_pips = -1.0;
+double   g_last_spread_to_atr_ratio = 0.0;
+int      g_last_m5_m1_event_lag_bars = -1;
 ulong    g_journaled_deals[];
 
 //+------------------------------------------------------------------+
@@ -282,6 +299,7 @@ void EvaluateSetup(SetupRead &setup)
    const bool spread_ok = spread_points <= InpMaxSpreadPoints;
    const bool rollover_ok = InpAllowRolloverWindow || !IsFxRolloverWindow();
    const bool news_ok = NewsWindowOk();
+   const bool friday_ok = !InpSkipFriday || !IsFridayUTC();
    const bool structure_ok = direction != 0 && d1.ok && h4.ok && m15.ok;
 
    FVGChoice fvg;
@@ -295,6 +313,12 @@ void EvaluateSetup(SetupRead &setup)
    VPRead vp;
    ReadVolumeProfile(vp);
    setup.vp = vp;
+   const double atr_m5 = ATRPrice(InpEntryTF1, 14);
+   setup.htf_momentum_d1 = D1MomentumRatio();
+   setup.time_since_sweep_pivot_bars = liq.swept_pivot_age_bars;
+   setup.time_since_sweep_event_bars = liq.swept_event_age_bars;
+   setup.spread_to_atr_ratio = atr_m5 > 0.0 ? (tick.ask - tick.bid) / atr_m5 : 0.0;
+   setup.m5_m1_event_lag_bars = EventLagBarsM1(direction, m5, m1, liq.sweep_event_time);
 
    const bool entry_confirmed = EntryConfirmed(direction, m5, m1);
    const bool quote_side_ok = fvg.ok && (
@@ -331,17 +355,20 @@ void EvaluateSetup(SetupRead &setup)
    bool risk_ok = false;
    if(fvg.ok)
       risk_ok = BuildRiskPlan(direction, fvg, tick, setup);
+   setup.room_to_swing_high_pips = RoomToSwingExtremePips(direction, setup.entry);
 
    const bool score_ok = setup.score >= InpMinTDAScore;
    const bool entry_ok = !InpRequireEntryStructure || entry_confirmed;
    const bool blockers =
-      !spread_ok || !rollover_ok || !news_ok || !structure_ok || !fvg.ok || !quote_side_ok ||
+      !spread_ok || !rollover_ok || !news_ok || !friday_ok || !structure_ok || !fvg.ok || !quote_side_ok ||
       !sweep_ok || !deeper_pool_ok || liq.trap || !vp_ok || !risk_ok || !score_ok || !entry_ok || !active_ok;
 
    setup.gates = StringFormat(
-      "spread=%s(%d/%d);rollover=%s;news=%s;structure=%s;fvg=%s;quote_side=%s;liq_sweep=%s;deeper_pool=%s;liq_trap=%s;vp=%s;entry=%s;risk=%s;score=%d/%d;active=%s",
+      "spread=%s(%d/%d);rollover=%s;news=%s;friday=%s;risk_pips=%.1f/%d;structure=%s;fvg=%s;quote_side=%s;liq_sweep=%s;deeper_pool=%s;liq_trap=%s;vp=%s;entry=%s;risk=%s;score=%d/%d;active=%s",
       BoolText(spread_ok), spread_points, InpMaxSpreadPoints,
-      BoolText(rollover_ok), BoolText(news_ok), BoolText(structure_ok), BoolText(fvg.ok),
+      BoolText(rollover_ok), BoolText(news_ok), BoolText(friday_ok),
+      pip > 0.0 ? setup.risk / pip : 0.0, InpMaxInitialRiskPips,
+      BoolText(structure_ok), BoolText(fvg.ok),
       BoolText(quote_side_ok), BoolText(sweep_ok), BoolText(deeper_pool_ok), BoolText(!liq.trap),
       BoolText(vp_ok), BoolText(entry_ok), BoolText(risk_ok),
       setup.score, InpMinTDAScore, BoolText(active_ok)
@@ -352,16 +379,17 @@ void EvaluateSetup(SetupRead &setup)
       setup.status = EHUKAI_READY;
       setup.failure = "";
      }
-   else if(structure_ok && fvg.ok && sweep_ok && deeper_pool_ok && !liq.trap && vp_ok && risk_ok && active_ok)
+   else if(friday_ok && structure_ok && fvg.ok && sweep_ok && deeper_pool_ok && !liq.trap && vp_ok && risk_ok && active_ok)
      {
       setup.status = EHUKAI_WATCH;
-      setup.failure = FirstFailure(spread_ok, rollover_ok, quote_side_ok, score_ok, entry_ok);
+      setup.failure = FirstFailure(spread_ok, rollover_ok, friday_ok, quote_side_ok, score_ok, entry_ok);
      }
    else
      {
       setup.status = EHUKAI_NO_TRADE;
-      setup.failure = FirstFailure(spread_ok, rollover_ok, news_ok, structure_ok, fvg.ok, quote_side_ok,
-                                   sweep_ok, deeper_pool_ok, !liq.trap, vp_ok, risk_ok, score_ok, entry_ok, active_ok);
+      setup.failure = FirstFailure(spread_ok, rollover_ok, news_ok, friday_ok, structure_ok, fvg.ok, quote_side_ok,
+                                   sweep_ok, deeper_pool_ok, !liq.trap, vp_ok, risk_ok,
+                                   score_ok, entry_ok, active_ok);
      }
   }
 
@@ -378,6 +406,12 @@ void ResetSetup(SetupRead &setup)
    setup.rr = 0.0;
    setup.risk = 0.0;
    setup.lots = 0.0;
+   setup.htf_momentum_d1 = 0.0;
+   setup.time_since_sweep_pivot_bars = -1;
+   setup.time_since_sweep_event_bars = -1;
+   setup.room_to_swing_high_pips = -1.0;
+   setup.spread_to_atr_ratio = 0.0;
+   setup.m5_m1_event_lag_bars = -1;
 
    setup.poi.ok = false;
    setup.poi.reason = "none";
@@ -388,6 +422,9 @@ void ResetSetup(SetupRead &setup)
    setup.liquidity.deeper_pool_too_close = false;
    setup.liquidity.swept_level = 0.0;
    setup.liquidity.deeper_pool_level = 0.0;
+   setup.liquidity.swept_pivot_age_bars = -1;
+   setup.liquidity.swept_event_age_bars = -1;
+   setup.liquidity.sweep_event_time = 0;
    setup.liquidity.reason = "none";
    setup.vp.ok = false;
    setup.vp.read = "VP: off";
@@ -651,6 +688,9 @@ void ReadLiquidity(const int direction, const FVGChoice &fvg, const double bid,
    read.deeper_pool_too_close = false;
    read.swept_level = 0.0;
    read.deeper_pool_level = 0.0;
+   read.swept_pivot_age_bars = -1;
+   read.swept_event_age_bars = -1;
+   read.sweep_event_time = 0;
    read.reason = "liquidity neutral";
    if(direction == 0 || !fvg.ok)
       return;
@@ -700,7 +740,12 @@ void LiquidityScanTF(const ENUM_TIMEFRAMES tf, const int direction, const FVGCho
            {
             read.sweep = true;
             if(read.swept_level <= 0.0 || level < read.swept_level)
+              {
                read.swept_level = level;
+               read.swept_pivot_age_bars = i;
+               read.swept_event_age_bars = sweep_age;
+               read.sweep_event_time = SweepEventTime(rates, copied, i, sweep_age);
+              }
            }
          if(!swept && deeper_distance > 0.0 && level < entry_ref && (entry_ref - level) <= deeper_distance)
            {
@@ -723,7 +768,12 @@ void LiquidityScanTF(const ENUM_TIMEFRAMES tf, const int direction, const FVGCho
            {
             read.sweep = true;
             if(read.swept_level <= 0.0 || level > read.swept_level)
+              {
                read.swept_level = level;
+               read.swept_pivot_age_bars = i;
+               read.swept_event_age_bars = sweep_age;
+               read.sweep_event_time = SweepEventTime(rates, copied, i, sweep_age);
+              }
            }
          if(!swept && deeper_distance > 0.0 && level > entry_ref && (level - entry_ref) <= deeper_distance)
            {
@@ -948,6 +998,9 @@ bool BuildRiskPlan(const int direction, const FVGChoice &fvg, const MqlTick &tic
 
    const double stop_points = setup.risk / point;
    const double spread_adjusted_atr = (setup.risk - spread_price) / atr;
+   const double pip = PipSize();
+   if(InpMaxInitialRiskPips > 0 && pip > 0.0 && setup.risk / pip > InpMaxInitialRiskPips)
+      return false;
    return setup.risk > 0.0 &&
           setup.rr >= InpMinRR &&
           stop_points >= pair_min_points &&
@@ -1016,6 +1069,12 @@ void PlaceSetup(const SetupRead &setup)
       return;
 
    g_last_initial_risk = setup.risk;
+   g_last_htf_momentum_d1 = setup.htf_momentum_d1;
+   g_last_time_since_sweep_pivot_bars = setup.time_since_sweep_pivot_bars;
+   g_last_time_since_sweep_event_bars = setup.time_since_sweep_event_bars;
+   g_last_room_to_swing_high_pips = setup.room_to_swing_high_pips;
+   g_last_spread_to_atr_ratio = setup.spread_to_atr_ratio;
+   g_last_m5_m1_event_lag_bars = setup.m5_m1_event_lag_bars;
    const string comment = StringSubstr(InpStrategyIdPrefix + "-" + _Symbol, 0, 31);
    bool ok = false;
    if(InpEntryMode == ENTRY_MARKET_SMOKE)
@@ -1194,8 +1253,8 @@ void InitJournals()
    ArrayResize(g_journaled_deals, 0);
    FolderCreate(InpJournalFolder);
    InitJournalFile("setups", "time,symbol,tf,status,direction,score,gates,poi_tf,poi_lower,poi_upper,entry,sl,tp,rr,liquidity,vp,failure");
-   InitJournalFile("entries", "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit");
-   InitJournalFile("exits", "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason");
+   InitJournalFile("entries", "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit,htf_momentum_d1,time_since_sweep_pivot_bars,time_since_sweep_event_bars,room_to_swing_high_pips,spread_to_atr_ratio,m5_m1_event_lag_bars");
+   InitJournalFile("exits", "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason,htf_momentum_d1,time_since_sweep_pivot_bars,time_since_sweep_event_bars,room_to_swing_high_pips,spread_to_atr_ratio,m5_m1_event_lag_bars");
    InitJournalFile("failures", "time,symbol,stage,status,direction,score,entry,sl,tp,rr,reason,detail");
   }
 
@@ -1217,7 +1276,25 @@ void InitJournalFile(const string kind, const string header)
    if(handle == INVALID_HANDLE)
       return;
    if(FileSize(handle) == 0)
+     {
       FileWriteString(handle, header + "\r\n");
+     }
+   else
+     {
+      FileSeek(handle, 0, SEEK_SET);
+      const string current_header = FileReadString(handle);
+      if(current_header != header)
+        {
+         FileClose(handle);
+         const int rewrite_handle = FileOpen(path, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_SHARE_READ);
+         if(rewrite_handle != INVALID_HANDLE)
+           {
+            FileWriteString(rewrite_handle, header + "\r\n");
+            FileClose(rewrite_handle);
+           }
+         return;
+        }
+     }
    FileClose(handle);
   }
 
@@ -1264,7 +1341,7 @@ void JournalEntryDeal(const ulong deal)
    const string direction = deal_type == DEAL_TYPE_BUY ? "BUY" : "SELL";
    const ulong position_id = (ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID);
    g_last_position_id = position_id;
-   string row = StringFormat("%s,%s,%I64u,%I64u,%I64d,%s,%.2f,%.5f,%.5f,%.5f,%.5f,%.2f,%.2f,%.2f",
+   string row = StringFormat("%s,%s,%I64u,%I64u,%I64d,%s,%.2f,%.5f,%.5f,%.5f,%.5f,%.2f,%.2f,%.2f,%.4f,%d,%d,%.1f,%.4f,%d",
       TimeToString((datetime)HistoryDealGetInteger(deal, DEAL_TIME), TIME_DATE | TIME_SECONDS),
       _Symbol,
       deal,
@@ -1278,7 +1355,13 @@ void JournalEntryDeal(const ulong deal)
       g_last_initial_risk,
       HistoryDealGetDouble(deal, DEAL_COMMISSION),
       HistoryDealGetDouble(deal, DEAL_SWAP),
-      HistoryDealGetDouble(deal, DEAL_PROFIT)
+      HistoryDealGetDouble(deal, DEAL_PROFIT),
+      g_last_htf_momentum_d1,
+      g_last_time_since_sweep_pivot_bars,
+      g_last_time_since_sweep_event_bars,
+      g_last_room_to_swing_high_pips,
+      g_last_spread_to_atr_ratio,
+      g_last_m5_m1_event_lag_bars
    );
    AppendJournal("entries", row);
   }
@@ -1300,7 +1383,7 @@ void JournalExitDeal(const ulong deal)
       if(money_r > 0.0)
          realized_r = profit / money_r;
      }
-   string row = StringFormat("%s,%s,%I64u,%I64u,%I64d,%s,%.2f,%.5f,%.2f,%.2f,%.2f,%.2f,%s",
+   string row = StringFormat("%s,%s,%I64u,%I64u,%I64d,%s,%.2f,%.5f,%.2f,%.2f,%.2f,%.2f,%s,%.4f,%d,%d,%.1f,%.4f,%d",
       TimeToString((datetime)HistoryDealGetInteger(deal, DEAL_TIME), TIME_DATE | TIME_SECONDS),
       _Symbol,
       deal,
@@ -1313,7 +1396,13 @@ void JournalExitDeal(const ulong deal)
       HistoryDealGetDouble(deal, DEAL_COMMISSION),
       HistoryDealGetDouble(deal, DEAL_SWAP),
       HistoryDealGetDouble(deal, DEAL_PROFIT),
-      Csv(HistoryDealGetString(deal, DEAL_COMMENT))
+      Csv(HistoryDealGetString(deal, DEAL_COMMENT)),
+      g_last_htf_momentum_d1,
+      g_last_time_since_sweep_pivot_bars,
+      g_last_time_since_sweep_event_bars,
+      g_last_room_to_swing_high_pips,
+      g_last_spread_to_atr_ratio,
+      g_last_m5_m1_event_lag_bars
    );
    AppendJournal("exits", row);
   }
@@ -1389,6 +1478,13 @@ bool IsFxRolloverWindow()
    return dt.hour == 21 || dt.hour == 22;
   }
 
+bool IsFridayUTC()
+  {
+   MqlDateTime dt;
+   TimeToStruct(TimeGMT(), dt);
+   return dt.day_of_week == 5;
+  }
+
 bool NewsWindowOk()
   {
    // Structural placeholder: when enabled before a calendar source is wired,
@@ -1416,6 +1512,79 @@ double PipSize()
 double PipsToPrice(const double pips)
   {
    return pips * PipSize();
+  }
+
+double D1MomentumRatio(const int bars = 10)
+  {
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   const int copied = CopyRates(_Symbol, PERIOD_D1, 1, bars, rates);
+   if(copied < bars)
+      return 0.0;
+
+   const double net = rates[0].close - rates[copied - 1].close;
+   double range_sum = 0.0;
+   for(int i = 0; i < copied; i++)
+      range_sum += MathAbs(rates[i].high - rates[i].low);
+   return range_sum > 0.0 ? net / range_sum : 0.0;
+  }
+
+double RoomToSwingExtremePips(const int direction, const double entry_price)
+  {
+   if(direction == 0 || entry_price <= 0.0)
+      return 0.0;
+
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   const int copied = CopyRates(_Symbol, PERIOD_M15, 0, InpLookbackBars, rates);
+   const int pivot = InpSwingPivotBars;
+   if(copied < pivot * 4)
+      return 0.0;
+
+   double nearest = 0.0;
+   for(int i = pivot; i < copied - pivot; i++)
+     {
+      if(direction > 0 && PivotHighAt(rates, copied, i, pivot))
+        {
+         const double level = rates[i].high;
+         if(level > entry_price && (nearest == 0.0 || level < nearest))
+            nearest = level;
+        }
+      else if(direction < 0 && PivotLowAt(rates, copied, i, pivot))
+        {
+         const double level = rates[i].low;
+         if(level < entry_price && (nearest == 0.0 || level > nearest))
+            nearest = level;
+        }
+     }
+   return nearest == 0.0 || PipSize() <= 0.0 ? 0.0 : MathAbs(nearest - entry_price) / PipSize();
+  }
+
+datetime SweepEventTime(const MqlRates &rates[], const int count, const int pivot_index, const int age_bars)
+  {
+   const int index = pivot_index - 1 - age_bars;
+   if(index >= 0 && index < count)
+      return rates[index].time;
+   return 0;
+  }
+
+datetime EntryConfirmTime(const int direction, const StructureRead &m5, const StructureRead &m1)
+  {
+   if(direction == 0)
+      return 0;
+   if(m1.event_dir == direction && (m1.event_type == "BOS" || m1.event_type == "CHOCH" || m1.event_type == "iBOS"))
+      return m1.signal_time;
+   if(m5.event_dir == direction && (m5.event_type == "BOS" || m5.event_type == "CHOCH" || m5.event_type == "iBOS"))
+      return m5.signal_time;
+   return 0;
+  }
+
+int EventLagBarsM1(const int direction, const StructureRead &m5, const StructureRead &m1, const datetime sweep_event_time)
+  {
+   const datetime confirm_time = EntryConfirmTime(direction, m5, m1);
+   if(confirm_time <= 0 || sweep_event_time <= 0)
+      return -1;
+   return (int)((confirm_time - sweep_event_time) / 60);
   }
 
 bool PriceInZone(const double price, const double upper, const double lower)
@@ -1466,17 +1635,19 @@ string TimeframeText(const ENUM_TIMEFRAMES tf)
      }
   }
 
-string FirstFailure(const bool a, const bool b, const bool c, const bool d, const bool e)
+string FirstFailure(const bool spread_ok, const bool rollover_ok, const bool friday_ok,
+                    const bool quote_ok, const bool score_ok, const bool entry_ok)
   {
-   if(!a) return "spread";
-   if(!b) return "rollover";
-   if(!c) return "quote_side_or_structure";
-   if(!d) return "score";
-   if(!e) return "entry";
+   if(!spread_ok) return "spread";
+   if(!rollover_ok) return "rollover";
+   if(!friday_ok) return "friday";
+   if(!quote_ok) return "quote_side_or_structure";
+   if(!score_ok) return "score";
+   if(!entry_ok) return "entry";
    return "watch";
   }
 
-string FirstFailure(const bool spread_ok, const bool rollover_ok, const bool news_ok,
+string FirstFailure(const bool spread_ok, const bool rollover_ok, const bool news_ok, const bool friday_ok,
                     const bool structure_ok, const bool fvg_ok, const bool quote_ok,
                     const bool sweep_ok, const bool deeper_pool_ok, const bool liq_ok,
                     const bool vp_ok, const bool risk_ok, const bool score_ok,
@@ -1485,6 +1656,7 @@ string FirstFailure(const bool spread_ok, const bool rollover_ok, const bool new
    if(!spread_ok) return "spread";
    if(!rollover_ok) return "rollover";
    if(!news_ok) return "news_guard";
+   if(!friday_ok) return "friday";
    if(!structure_ok) return "structure";
    if(!fvg_ok) return "fvg";
    if(!quote_ok) return "quote_side";

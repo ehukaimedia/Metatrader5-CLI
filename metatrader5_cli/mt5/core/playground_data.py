@@ -110,6 +110,7 @@ def _dataset(
             "be_trigger_r": be_trigger_r,
             "default_rr": default_rr,
         },
+        "feature_set_version": _feature_set_version(entries, exits),
         "mfe_source": mfe_source,
         "summary": summary,
         "setup_summary": _setup_summary(setups),
@@ -176,6 +177,12 @@ def _merge_trades(
             "extended_mfe_price": _optional_float(mfe_row.get("extended_mfe_price")),
             "extended_event": mfe_row.get("extended_event", ""),
             "extended_bars": int(_float(mfe_row.get("extended_bars"))),
+            "htf_momentum_d1": _feature_float(entry, exit_row, "htf_momentum_d1"),
+            "time_since_sweep_pivot_bars": _feature_int(entry, exit_row, "time_since_sweep_pivot_bars"),
+            "time_since_sweep_event_bars": _feature_int(entry, exit_row, "time_since_sweep_event_bars"),
+            "room_to_swing_high_pips": _feature_float(entry, exit_row, "room_to_swing_high_pips"),
+            "spread_to_atr_ratio": _feature_float(entry, exit_row, "spread_to_atr_ratio"),
+            "m5_m1_event_lag_bars": _feature_int(entry, exit_row, "m5_m1_event_lag_bars"),
             "mfe_source": mfe_source,
         }
         trades.append(trade)
@@ -224,6 +231,14 @@ def _setup_summary(setups: list[dict]) -> dict:
         statuses[status] = statuses.get(status, 0) + 1
         failures[failure] = failures.get(failure, 0) + 1
     return {"rows": len(setups), "statuses": statuses, "failure_modes": failures}
+
+
+def _feature_set_version(entries: list[dict], exits: list[dict]) -> int:
+    feature_field = "htf_momentum_d1"
+    for row in [*entries, *exits]:
+        if feature_field in row:
+            return 2
+    return 1
 
 
 def _read_csv(paths) -> list[dict]:
@@ -287,6 +302,22 @@ def _optional_float(value) -> float | None:
     if value in (None, ""):
         return None
     return _float(value)
+
+
+def _feature_float(entry: dict, exit_row: dict, field: str) -> float | None:
+    value = entry.get(field)
+    if value in (None, ""):
+        value = exit_row.get(field)
+    return _optional_float(value)
+
+
+def _feature_int(entry: dict, exit_row: dict, field: str) -> int:
+    value = entry.get(field)
+    if value in (None, ""):
+        value = exit_row.get(field)
+    if value in (None, ""):
+        return -1
+    return int(_float(value))
 
 
 def _float(value) -> float:

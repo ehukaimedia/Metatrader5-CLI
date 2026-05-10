@@ -2086,6 +2086,7 @@ class TestPlaygroundData:
         assert "trades=2" in result["data"]["summary_line"]
         payload = json.loads((tmp_path / "trade_summary.json").read_text(encoding="utf-8"))
         assert payload["schema_version"] == 1
+        assert payload["feature_set_version"] == 1
         assert payload["inputs"]["chandelier_atr_multiplier"] == 4.0
         assert payload["inputs"]["be_trigger_r"] == 1.2
         assert payload["summary"]["trades"] == 2
@@ -2096,6 +2097,23 @@ class TestPlaygroundData:
         assert payload["trades"][0]["mfe_r"] == 1.8
         assert payload["trades"][0]["extended_mfe_r"] == 2.2
         assert payload["trades"][1]["exit_type"] == "trail_sl"
+
+    def test_build_surfaces_track_b_feature_columns(self, tmp_path):
+        from metatrader5_cli.mt5.core import playground_data
+
+        self._write_fixture_run(tmp_path, include_track_b=True)
+        result = playground_data.build(tmp_path)
+
+        assert result["ok"] is True
+        payload = json.loads((tmp_path / "trade_summary.json").read_text(encoding="utf-8"))
+        assert payload["feature_set_version"] == 2
+        first = payload["trades"][0]
+        assert first["htf_momentum_d1"] == 0.1234
+        assert first["time_since_sweep_pivot_bars"] == 9
+        assert first["time_since_sweep_event_bars"] == 2
+        assert first["room_to_swing_high_pips"] == 18.5
+        assert first["spread_to_atr_ratio"] == 0.21
+        assert first["m5_m1_event_lag_bars"] == 3
 
     def test_build_falls_back_to_realized_r_when_mfe_file_is_missing(self, tmp_path):
         from metatrader5_cli.mt5.core import playground_data
@@ -2123,16 +2141,26 @@ class TestPlaygroundData:
         assert "trades=2" in result.output
         assert (tmp_path / "trade_summary.json").exists()
 
-    def _write_fixture_run(self, path, *, include_mfe=True):
+    def _write_fixture_run(self, path, *, include_mfe=True, include_track_b=False):
+        entry_header = "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit"
+        exit_header = "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason"
+        entry_extra = ""
+        exit_extra = ""
+        if include_track_b:
+            track_b_header = ",htf_momentum_d1,time_since_sweep_pivot_bars,time_since_sweep_event_bars,room_to_swing_high_pips,spread_to_atr_ratio,m5_m1_event_lag_bars"
+            entry_header += track_b_header
+            exit_header += track_b_header
+            entry_extra = ",0.1234,9,2,18.5,0.2100,3"
+            exit_extra = ",0.1234,9,2,18.5,0.2100,3"
         (path / "EhukaiTDAEA_USDJPY_entries.csv").write_text(
-            "time,symbol,deal,position,magic,direction,lots,price,sl,tp,initial_risk,commission,swap,profit\n"
-            "2026.01.01 10:00:00,USDJPY,2,2,176879,BUY,0.1,100.0,99.0,103.0,1.0,0,0,0\n"
+            entry_header + "\n"
+            f"2026.01.01 10:00:00,USDJPY,2,2,176879,BUY,0.1,100.0,99.0,103.0,1.0,0,0,0{entry_extra}\n"
             "2026.01.01 11:00:00,USDJPY,4,4,176879,SELL,0.1,100.0,101.0,97.0,1.0,0,0,0\n",
             encoding="utf-8",
         )
         (path / "EhukaiTDAEA_USDJPY_exits.csv").write_text(
-            "time,symbol,deal,position,magic,direction,lots,price,realized_r,commission,swap,profit,reason\n"
-            "2026.01.01 10:05:00,USDJPY,3,2,176879,SELL,0.1,100.5,0.50,0,0,5.00,tp\n"
+            exit_header + "\n"
+            f"2026.01.01 10:05:00,USDJPY,3,2,176879,SELL,0.1,100.5,0.50,0,0,5.00,tp{exit_extra}\n"
             "2026.01.01 11:05:00,USDJPY,5,4,176879,BUY,0.1,100.2,-0.20,0,0,-2.00,\"sl 100.200\"\n",
             encoding="utf-8",
         )
