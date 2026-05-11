@@ -29,6 +29,15 @@ Files
    - Current pair-specific research presets for GBPUSD, AUDUSD, and USDJPY.
    - These are not live-profit claims. They are candidate validation settings for the next real-tick and forward-test pass.
 
+7. Hybrid_WPVS_Top3_LiveDemo_ObserveOnly_M5.set
+   - First live-demo attachment preset for GBPUSD, AUDUSD, and USDJPY M5 charts.
+   - Does not trade. Logs closed-bar candidate signals to Terminal\Common\Files\Hybrid_WPVS_LIVE_SIGNAL_LOG.csv.
+   - Uses lower indicator threshold 0.60 so daily signal cadence can be studied.
+
+8. Hybrid_WPVS_Top3_*_LiveDemo_TinyTrade.set
+   - Pair-specific tiny-trade presets for Trading.com demo only.
+   - Keep 0.01 lots, one symbol per chart, spread gate, max trades/day, daily loss cutoff, FOK filling, and pair-specific exit bars.
+
 Compile order
 -------------
 1. Compile Hybrid_Wavelet_Pivot_Volume_Spike.mq5 first in MetaEditor.
@@ -90,3 +99,23 @@ Next validation step
 Run the same three pair-specific presets with Every tick based on real ticks.
 After that, run Forward = 1/3 for the same period and reject any preset that collapses out of sample.
 Do not treat these files as live trading presets until real-tick and forward validation are complete.
+
+Live-demo operating model
+-------------------------
+Use one EA codebase on one M5 chart per symbol. The custom indicator must be installed and compiled, but it does not need to be manually attached to each chart because the EA loads it with iCustom.
+
+Recommended first three charts:
+- GBPUSD,M5 with Hybrid_WPVS_Top3_LiveDemo_ObserveOnly_M5.set
+- AUDUSD,M5 with Hybrid_WPVS_Top3_LiveDemo_ObserveOnly_M5.set
+- USDJPY,M5 with Hybrid_WPVS_Top3_LiveDemo_ObserveOnly_M5.set
+
+After observe-only logging is confirmed, use the matching tiny-trade preset on each chart:
+- GBPUSD,M5 with Hybrid_WPVS_Top3_GBPUSD_M5_LiveDemo_TinyTrade.set
+- AUDUSD,M5 with Hybrid_WPVS_Top3_AUDUSD_M5_LiveDemo_TinyTrade.set
+- USDJPY,M5 with Hybrid_WPVS_Top3_USDJPY_M5_LiveDemo_TinyTrade.set
+
+Trading.com notes:
+- No hedging assumption: the EA uses one position per symbol/effective magic.
+- FIFO risk is minimized by allowing one own position per symbol/effective magic.
+- Live presets force FOK filling and use 10 points deviation.
+- InpDemoAccountsOnly should stay true for this proof-of-concept.

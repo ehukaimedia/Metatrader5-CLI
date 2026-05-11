@@ -3,7 +3,7 @@
 //| Closed-bar execution harness for top-3 Hybrid WPVS candidates.    |
 //+------------------------------------------------------------------+
 #property copyright "OpenAI / user-specified project"
-#property version   "1.00"
+#property version   "1.10"
 #property tester_indicator "Hybrid_Wavelet_Pivot_Volume_Spike.ex5"
 
 #include <Trade/Trade.mqh>
@@ -21,16 +21,28 @@ enum ENUM_WPVS_SIGNAL_BAR
 //| Execution inputs                                                  |
 //+------------------------------------------------------------------+
 input string               InpAllowedSymbols        = "GBPUSD,AUDUSD,USDJPY";
+input string               InpTradeSymbols          = "GBPUSD,AUDUSD,USDJPY";
 input long                 InpMagicNumber           = 26051080;
+input bool                 InpUseAutoSymbolMagic    = true;
+input bool                 InpAllowTrading          = false;
+input bool                 InpAllowPositionManagement = false;
+input bool                 InpDemoAccountsOnly      = true;
+input double               InpTradeMinSignalScore   = 0.80;
 input double               InpFixedLots             = 0.01;
 input int                  InpExitAfterBars         = 24;
 input bool                 InpCloseOnOppositeSignal = false;
-input int                  InpMaxSpreadPointsTrade  = 0;
-input int                  InpDeviationPoints       = 20;
+input int                  InpMaxSpreadPointsTrade  = 30;
+input int                  InpMaxTradesPerDay       = 3;
+input double               InpMaxDailyLossMoney     = 25.00;
+input int                  InpDeviationPoints       = 10;
+input bool                 InpForceFokFilling       = true;
 input bool                 InpUseAtrStop            = true;
 input double               InpStopAtrMultiple       = 2.50;
 input bool                 InpUseAtrTakeProfit      = false;
 input double               InpTakeProfitAtrMultiple = 3.00;
+input bool                 InpLogSignals            = true;
+input bool                 InpUseCommonFiles        = true;
+input string               InpSignalLogFileName     = "Hybrid_WPVS_LIVE_SIGNAL_LOG.csv";
 
 //+------------------------------------------------------------------+
 //| Mirrored indicator inputs                                         |
@@ -76,6 +88,9 @@ CTrade   g_trade;
 int      g_indicator_handle = INVALID_HANDLE;
 int      g_atr_handle       = INVALID_HANDLE;
 datetime g_last_bar_time    = 0;
+datetime g_day_start_time   = 0;
+double   g_day_start_equity = 0.0;
+long     g_effective_magic  = 0;
 
 //+------------------------------------------------------------------+
 //| Helpers                                                           |
@@ -87,17 +102,61 @@ string TrimString(string value)
    return value;
   }
 
-bool IsAllowedSymbol()
+bool SymbolInList(const string csv_list,const string symbol)
   {
    string items[];
-   int count = StringSplit(InpAllowedSymbols, ',', items);
+   int count = StringSplit(csv_list, ',', items);
    for(int i = 0; i < count; i++)
      {
       string item = TrimString(items[i]);
-      if(item == _Symbol)
+      if(item == symbol)
          return true;
      }
    return false;
+  }
+
+bool IsAllowedSymbol()
+  {
+   return SymbolInList(InpAllowedSymbols, _Symbol);
+  }
+
+bool IsTradeSymbol()
+  {
+   return SymbolInList(InpTradeSymbols, _Symbol);
+  }
+
+long SymbolMagicOffset()
+  {
+   uint hash = 0;
+   int length = StringLen(_Symbol);
+   for(int i = 0; i < length; i++)
+      hash = (hash * 131) + (uint)StringGetCharacter(_Symbol, i);
+
+   return (long)(hash % 100000);
+  }
+
+datetime StartOfDay(const datetime value)
+  {
+   MqlDateTime parts;
+   TimeToStruct(value, parts);
+   parts.hour = 0;
+   parts.min = 0;
+   parts.sec = 0;
+   return StructToTime(parts);
+  }
+
+void RefreshDailyWindow()
+  {
+   datetime now = TimeCurrent();
+   datetime day_start = StartOfDay(now);
+   if(g_day_start_time == day_start)
+      return;
+
+   g_day_start_time = day_start;
+   g_day_start_equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   PrintFormat("Daily guard reset on %s. start_equity=%.2f",
+               TimeToString(g_day_start_time, TIME_DATE),
+               g_day_start_equity);
   }
 
 int CurrentSpreadPoints()
@@ -113,6 +172,237 @@ bool SpreadAllowsTrade()
    if(InpMaxSpreadPointsTrade <= 0)
       return true;
    return CurrentSpreadPoints() <= InpMaxSpreadPointsTrade;
+  }
+
+string DirectionText(const int direction)
+  {
+   if(direction > 0)
+      return "BUY";
+   if(direction < 0)
+      return "SELL";
+   return "NONE";
+  }
+
+bool IsTester()
+  {
+   return (bool)MQLInfoInteger(MQL_TESTER);
+  }
+
+string AccountTradeModeText()
+  {
+   long mode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(mode == ACCOUNT_TRADE_MODE_DEMO)
+      return "DEMO";
+   if(mode == ACCOUNT_TRADE_MODE_REAL)
+      return "REAL";
+   if(mode == ACCOUNT_TRADE_MODE_CONTEST)
+      return "CONTEST";
+   return "UNKNOWN";
+  }
+
+string StructureClassText(const double value)
+  {
+   if(value == EMPTY_VALUE)
+      return "";
+
+   int structure = (int)MathRound(value);
+   if(structure == 0)
+      return "HH";
+   if(structure == 1)
+      return "HL";
+   if(structure == 2)
+      return "LH";
+   if(structure == 3)
+      return "LL";
+   return IntegerToString(structure);
+  }
+
+string NumericText(const double value,const int digits)
+  {
+   if(value == EMPTY_VALUE)
+      return "";
+   return DoubleToString(value, digits);
+  }
+
+int OwnOpenPositionCount()
+  {
+   int count = 0;
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(!PositionSelectByTicket(ticket))
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != g_effective_magic)
+         continue;
+      count++;
+     }
+   return count;
+  }
+
+int TodaysEntryCount()
+  {
+   RefreshDailyWindow();
+   if(!HistorySelect(g_day_start_time, TimeCurrent()))
+      return 0;
+
+   int count = 0;
+   int total = HistoryDealsTotal();
+   for(int i = 0; i < total; i++)
+     {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol)
+         continue;
+      if((long)HistoryDealGetInteger(ticket, DEAL_MAGIC) != g_effective_magic)
+         continue;
+      if((long)HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         continue;
+      count++;
+     }
+   return count;
+  }
+
+bool TradeGateAllows(const int direction,const double score,string &block_reason)
+  {
+   block_reason = "allowed";
+   RefreshDailyWindow();
+
+   if(direction == 0)
+     {
+      block_reason = "no_signal";
+      return false;
+     }
+   if(score < InpTradeMinSignalScore)
+     {
+      block_reason = "shadow_score";
+      return false;
+     }
+   if(!IsTradeSymbol())
+     {
+      block_reason = "research_symbol";
+      return false;
+     }
+   if(!InpAllowTrading)
+     {
+      block_reason = "allow_trading_false";
+      return false;
+     }
+   if(InpDemoAccountsOnly && !IsTester() && AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
+     {
+      block_reason = "not_demo_account";
+      return false;
+     }
+   if(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0 || AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) == 0)
+     {
+      block_reason = "terminal_or_account_trade_disabled";
+      return false;
+     }
+   if(!SpreadAllowsTrade())
+     {
+      block_reason = "spread_too_high";
+      return false;
+     }
+   if(InpMaxTradesPerDay > 0 && TodaysEntryCount() >= InpMaxTradesPerDay)
+     {
+      block_reason = "max_trades_per_day";
+      return false;
+     }
+   if(InpMaxDailyLossMoney > 0.0 && g_day_start_equity > 0.0)
+     {
+      double equity_loss = g_day_start_equity - AccountInfoDouble(ACCOUNT_EQUITY);
+      if(equity_loss >= InpMaxDailyLossMoney)
+        {
+         block_reason = "daily_loss_cutoff";
+         return false;
+        }
+     }
+   if(OwnOpenPositionCount() > 0)
+     {
+      block_reason = "own_position_exists";
+      return false;
+     }
+
+   return true;
+  }
+
+void LogSignalEvent(const int direction,
+                    const double score,
+                    const double volume_ratio,
+                    const double wavelet_regime,
+                    const double structure_class,
+                    const double debug_reason,
+                    const bool trade_allowed,
+                    const string block_reason,
+                    const ulong ticket)
+  {
+   if(!InpLogSignals)
+      return;
+
+   int flags = FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI;
+   if(InpUseCommonFiles)
+      flags |= FILE_COMMON;
+
+   ResetLastError();
+   int handle = FileOpen(InpSignalLogFileName, flags, ',');
+   if(handle == INVALID_HANDLE)
+     {
+      PrintFormat("Signal log open failed: %s error=%d", InpSignalLogFileName, GetLastError());
+      return;
+     }
+
+   bool write_header = (FileSize(handle) == 0);
+   FileSeek(handle, 0, SEEK_END);
+   if(write_header)
+     {
+      FileWrite(handle,
+                "server_time",
+                "signal_bar_time",
+                "account_login",
+                "account_mode",
+                "symbol",
+                "timeframe",
+                "magic",
+                "direction",
+                "score",
+                "trade_min_score",
+                "spread_points",
+                "volume_ratio",
+                "wavelet_regime",
+                "structure_class",
+                "debug_reason",
+                "trade_allowed",
+                "block_reason",
+                "ticket");
+     }
+
+   datetime signal_time = iTime(_Symbol, _Period, 1);
+   FileWrite(handle,
+             TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS),
+             TimeToString(signal_time, TIME_DATE | TIME_SECONDS),
+             (long)AccountInfoInteger(ACCOUNT_LOGIN),
+             AccountTradeModeText(),
+             _Symbol,
+             EnumToString((ENUM_TIMEFRAMES)_Period),
+             g_effective_magic,
+             DirectionText(direction),
+             DoubleToString(score, 4),
+             DoubleToString(InpTradeMinSignalScore, 4),
+             CurrentSpreadPoints(),
+             NumericText(volume_ratio, 4),
+             NumericText(wavelet_regime, 0),
+             StructureClassText(structure_class),
+             NumericText(debug_reason, 0),
+             (trade_allowed ? "true" : "false"),
+             block_reason,
+             (long)ticket);
+
+   FileClose(handle);
   }
 
 double NormalizeLots(const double lots)
@@ -150,6 +440,14 @@ bool CopyOneBufferValue(const int buffer_index,const int shift,double &value)
    return true;
   }
 
+double OptionalBufferValue(const int buffer_index,const int shift)
+  {
+   double value = EMPTY_VALUE;
+   if(!CopyOneBufferValue(buffer_index, shift, value))
+      return EMPTY_VALUE;
+   return value;
+  }
+
 bool CopyAtrValue(const int shift,double &atr)
   {
    atr = 0.0;
@@ -176,11 +474,21 @@ bool CopyAtrValue(const int shift,double &atr)
 
 bool SelectOwnPosition()
   {
-   if(!PositionSelect(_Symbol))
-      return false;
-
-   long magic = (long)PositionGetInteger(POSITION_MAGIC);
-   return magic == InpMagicNumber;
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(!PositionSelectByTicket(ticket))
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != g_effective_magic)
+         continue;
+      return true;
+     }
+   return false;
   }
 
 int OwnPositionType()
@@ -260,18 +568,11 @@ void BuildStops(const int direction,double &sl,double &tp)
      }
   }
 
-bool OpenSignalPosition(const int direction,const double score)
+bool OpenSignalPosition(const int direction,const double score,ulong &ticket)
   {
+   ticket = 0;
    if(direction == 0)
       return false;
-
-   if(!SpreadAllowsTrade())
-     {
-      PrintFormat("Signal skipped: spread=%d max=%d",
-                  CurrentSpreadPoints(),
-                  InpMaxSpreadPointsTrade);
-      return false;
-     }
 
    double lots = NormalizeLots(InpFixedLots);
    double sl = 0.0;
@@ -287,6 +588,7 @@ bool OpenSignalPosition(const int direction,const double score)
 
    if(ok)
      {
+      ticket = g_trade.ResultDeal();
       PrintFormat("Opened %s lots=%.2f score=%.4f sl=%s tp=%s",
                   (direction > 0 ? "BUY" : "SELL"),
                   lots,
@@ -307,6 +609,9 @@ bool OpenSignalPosition(const int direction,const double score)
 
 void ManageOpenPosition(const int signal_direction)
   {
+   if(!InpAllowPositionManagement)
+      return;
+
    int age = PositionAgeBars();
    if(age >= InpExitAfterBars && InpExitAfterBars > 0)
      {
@@ -341,13 +646,36 @@ void ProcessClosedBar()
       signal_direction = -1;
 
    ManageOpenPosition(signal_direction);
-   if(SelectOwnPosition())
-      return;
-
    if(signal_direction == 0)
       return;
 
-   OpenSignalPosition(signal_direction, score);
+   double volume_ratio = OptionalBufferValue(4, 1);
+   double wavelet_regime = OptionalBufferValue(5, 1);
+   double structure_class = OptionalBufferValue(6, 1);
+   double debug_reason = OptionalBufferValue(7, 1);
+
+   string block_reason = "";
+   bool gate_allowed = TradeGateAllows(signal_direction, score, block_reason);
+   bool trade_executed = false;
+   ulong ticket = 0;
+   if(gate_allowed)
+      trade_executed = OpenSignalPosition(signal_direction, score, ticket);
+   if(trade_executed)
+      block_reason = "executed";
+   else if(gate_allowed)
+      block_reason = "order_send_failed";
+   else if(block_reason == "")
+      block_reason = "order_send_failed";
+
+   LogSignalEvent(signal_direction,
+                  score,
+                  volume_ratio,
+                  wavelet_regime,
+                  structure_class,
+                  debug_reason,
+                  trade_executed,
+                  block_reason,
+                  ticket);
   }
 
 //+------------------------------------------------------------------+
@@ -362,6 +690,10 @@ int OnInit()
                   InpAllowedSymbols);
       return INIT_PARAMETERS_INCORRECT;
      }
+
+   g_effective_magic = InpMagicNumber;
+   if(InpUseAutoSymbolMagic)
+      g_effective_magic += SymbolMagicOffset();
 
    ResetLastError();
    g_indicator_handle = iCustom(_Symbol,
@@ -411,14 +743,22 @@ int OnInit()
    if(g_atr_handle == INVALID_HANDLE)
       PrintFormat("iATR failed. ATR stops will be disabled. error=%d", GetLastError());
 
-   g_trade.SetExpertMagicNumber(InpMagicNumber);
+   g_trade.SetExpertMagicNumber(g_effective_magic);
    g_trade.SetDeviationInPoints(InpDeviationPoints);
-   g_trade.SetTypeFillingBySymbol(_Symbol);
+   if(InpForceFokFilling)
+      g_trade.SetTypeFilling(ORDER_FILLING_FOK);
+   else
+      g_trade.SetTypeFillingBySymbol(_Symbol);
 
+   RefreshDailyWindow();
    g_last_bar_time = iTime(_Symbol, _Period, 0);
-   PrintFormat("Hybrid_WPVS_Top3_ExecutionEA initialized on %s %s",
+   PrintFormat("Hybrid_WPVS_Top3_ExecutionEA initialized on %s %s magic=%d allow_trading=%s trade_symbols=%s account_mode=%s",
                _Symbol,
-               EnumToString((ENUM_TIMEFRAMES)_Period));
+               EnumToString((ENUM_TIMEFRAMES)_Period),
+               g_effective_magic,
+               (InpAllowTrading ? "true" : "false"),
+               InpTradeSymbols,
+               AccountTradeModeText());
    return INIT_SUCCEEDED;
   }
 
