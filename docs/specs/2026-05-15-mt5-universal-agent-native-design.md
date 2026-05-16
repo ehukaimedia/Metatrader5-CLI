@@ -216,7 +216,7 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - This spec + the playground are the planning artifacts that ship before Phase 1.
 
 ### Phase 1 — Archive legacy
-- Commit untracked `metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System*` first so its history is captured.
+- Commit the untracked `metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/` source directory first so its history is captured; do not include the ignored `.zip` unless explicitly choosing the force-add option in §6.2.
 - Remove `archive/` from `.gitignore` (currently excluded — would silently swallow the moved files).
 - `git mv` Ehukai/TDA-flavored core modules → `archive/legacy-core/`.
 - `git mv` the full `metatrader5_cli/mt5/mql5/` tree → `archive/legacy-mql5/`.

@@ -95,7 +95,7 @@ Anything else green is a bonus. A reviewer reporting the suite as "broken" becau
 
 | Artifact | What good looks like |
 |---|---|
-| **Spec** (this dir) | Internally consistent. Locked decisions match brainstorm. MQL5 inventory matches `git ls-tree`. Phase acceptance criteria are testable. |
+| **Spec** (this dir) | Internally consistent. Locked decisions match brainstorm. MQL5 inventory distinguishes tracked git contents from explicitly named ignored/untracked disk artifacts. Phase acceptance criteria are testable. |
 | **Playground HTML** (`docs/playgrounds/`) | Self-contained single file. No external deps. Safe DOM (textContent / explicit nodes; no innerHTML on dynamic content). All phases render. Click-to-comment works. Copy Prompt has a fallback. Responsive at narrow viewport. |
 | **Plan** (forthcoming, `docs/plans/`) | Per-phase tasks, dependency order, test-first per phase, single-commit-per-task. |
 | **Implementation commits** | Match the phase they claim to implement. Pass the phase's acceptance criteria. Don't break previously-passing tests. Don't introduce hardcoded user paths. |
