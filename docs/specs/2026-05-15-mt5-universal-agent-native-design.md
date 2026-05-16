@@ -35,7 +35,7 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 - Transpiling Python to MQL5 or wrapping MQL5 in a Python DSL. Authors write MQL5 directly.
 - Live multi-broker abstraction at the protocol level. Other brokers also go through MT5; broker-specific quirks (filling mode, hedging, retcodes, rollover) currently live in `mt5_cli/config/trading_com.py`. When a second broker is added, factor the shared interface out at that time — do not pre-build the abstraction now.
 - Rewriting any in-flight Ehukai / Wavelet / Hybrid-WPVS strategy. Those archive as-is and can be re-introduced as user-dir plugins later.
-- **Shipping any custom EA, indicator, strategy doc, backtest result, or workspace dir.** `metatrader5-cli` is a pip-installable tool that gives AI agents (and humans) hands to MT5. Users install via pip and operate `mt5` (CLI) or `mt5-mcp` (MCP server) **from their own external workspace** — they don't clone this repo or edit its code. The `ea/`, `indicators/`, `presets/`, `results/` discovery dirs live in the user's CWD or `~/.config/mt5-universal/`, **never in this repo**.
+- **Shipping any custom EA, indicator, strategy doc, backtest result, or workspace dir.** `metatrader5-cli` is a pip-installable tool that gives AI agents (and humans) hands to MT5. Users install via pip and operate `mt5` (CLI) or `mt5-mcp` (MCP server) **from their own external workspace** — they don't clone this repo or edit its code. The `ea/`, `indicators/`, `presets/`, `results/` discovery dirs live in the user's CWD or `~/.local/share/metatrader5-cli/` (XDG_DATA_HOME; `%APPDATA%/metatrader5-cli/` on Windows), **never in this repo**.
 
 ## 4. Locked decisions (from brainstorm)
 
@@ -140,7 +140,7 @@ What lived at `metatrader5_cli/mt5/mql5/` before the wholesale archive move, now
 - `mt5_cli/bridge/mt5_backend.py` is the **only** module that imports `MetaTrader5`. CI test enforces this.
 - `mt5_cli/risk/` is called from `orders/` for **every** order call. CLI, MCP, plugin code, direct library import — all paths flow through it. Non-negotiable; preserved from the archived [mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) §1.
 - Plugins (user EAs/indicators) never import from `mt5/` (CLI) or `mt5_mcp/`. Read-only relationship.
-- `ea/` and `indicators/` user dirs are searched in this order: current working directory → `~/.config/mt5-universal/{ea,indicators}/` or platform equivalent → installed entry points. First-match wins.
+- `ea/` and `indicators/` user dirs are searched in this order: current working directory → `~/.local/share/metatrader5-cli/{ea,indicators}/` (XDG_DATA_HOME convention; `%APPDATA%/metatrader5-cli/` on Windows) → installed entry points. First-match wins.
 
 ## 7. Strategy Tester contract (Phase 4)
 

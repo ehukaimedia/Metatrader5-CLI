@@ -1039,7 +1039,7 @@ git log --oneline -8
 - Modify: `README.md` — add a "User workspace layout" section
 - Add: `mt5_cli/skills/USER_WORKSPACE.md` — minimal one-pager linked from SKILL.md
 
-**Why this task is tiny:** this repo ships only the tool. The `ea/`, `indicators/`, `presets/`, `results/` directories live in the USER's workspace (their CWD when they run `mt5`, or `~/.config/mt5-universal/{ea,indicators,presets,results}/`). We do NOT create those dirs here, ship example EAs, or maintain a `results/` snapshot dir in this repo. The CLI commands (Tasks 3.2-3.6) operate on the user's CWD by default.
+**Why this task is tiny:** this repo ships only the tool. The `ea/`, `indicators/`, `presets/`, `results/` directories live in the USER's workspace (their CWD when they run `mt5`, or `~/.local/share/metatrader5-cli/{ea,indicators,presets,results}/` — XDG_DATA_HOME convention; `%APPDATA%/metatrader5-cli/...` on Windows). We do NOT create those dirs here, ship example EAs, or maintain a `results/` snapshot dir in this repo. The CLI commands (Tasks 3.2-3.6) operate on the user's CWD by default.
 
 - [ ] **Step 1: Add README section**
 
@@ -1062,12 +1062,12 @@ my-trading-project/
 ├── presets/                  # tester .set files
 │   └── my_strategy.AUDUSD.M5.set
 ├── results/                  # tester run snapshots (one dir per run)
-└── .mt5-universal.json       # optional config (otherwise uses ~/.config/mt5-universal/config.json)
+└── .metatrader5-cli.json     # optional per-project config override (otherwise uses ~/.config/metatrader5-cli.json)
 ```
 
-`mt5` discovers EAs/indicators in this order: `./ea` / `./indicators` (CWD) → `~/.config/mt5-universal/ea` / `/indicators` → installed entry points. First match wins.
+`mt5` discovers EAs/indicators in this order: `./ea` / `./indicators` (CWD) → `~/.local/share/metatrader5-cli/{ea,indicators}/` (XDG_DATA_HOME; `%APPDATA%/metatrader5-cli/` on Windows) → installed entry points. First match wins.
 
-You can also keep your EAs and indicators centrally under `~/.config/mt5-universal/` and run `mt5` from anywhere.
+You can also keep your EAs and indicators centrally under `~/.local/share/metatrader5-cli/` and run `mt5` from anywhere.
 ```
 
 - [ ] **Step 2: Add the workspace one-pager (referenced from SKILL.md in Phase 5)**
@@ -1085,18 +1085,18 @@ This file describes where the CLI looks for things on the USER's machine. It shi
 - `./indicators/<name>.mq5` and `./indicators/<name>.ex5` — user-authored indicators
 - `./presets/<name>.<symbol>.<tf>.set` — tester parameter presets
 - `./results/<run-id>/` — captured tester run artifacts (report.html, journal.csv, tester.ini, optionally optimization.xml)
-- `./.mt5-universal.json` — optional per-project config override
+- `./.metatrader5-cli.json` — optional per-project config override
 
-## What lives in the user's config dir
+## What lives in the user's data dir (XDG_DATA_HOME convention)
 
-When no project-local `./ea` / `./indicators` exists, `mt5` falls back to the user's config dir. Resolution order (first match wins):
+When no project-local `./ea` / `./indicators` exists, `mt5` falls back to the user's data dir. EAs/indicators/presets/results are user-authored DATA, so they belong under `XDG_DATA_HOME` (not `XDG_CONFIG_HOME`, which is for settings). Resolution order (first match wins):
 
 1. `MT5_EA_DIR` / `MT5_INDICATORS_DIR` / `MT5_PRESETS_DIR` / `MT5_RESULTS_DIR` env vars (each overridable independently)
-2. `$XDG_DATA_HOME/mt5-universal/{ea,indicators,presets,results}/`
-3. `%APPDATA%/mt5-universal/{ea,indicators,presets,results}/` (Windows)
-4. `~/.local/share/mt5-universal/{ea,indicators,presets,results}/`
+2. `$XDG_DATA_HOME/metatrader5-cli/{ea,indicators,presets,results}/`
+3. `%APPDATA%/metatrader5-cli/{ea,indicators,presets,results}/` (Windows)
+4. `~/.local/share/metatrader5-cli/{ea,indicators,presets,results}/` (fallback when XDG_DATA_HOME unset)
 
-The config FILE itself follows a separate resolution: `MT5_CONFIG` env → `$XDG_CONFIG_HOME/mt5-universal/config.json` → `%APPDATA%/mt5-universal/config.json` → `~/.config/mt5-universal/config.json`.
+The config FILE itself follows a separate resolution and is a flat JSON file (XDG_CONFIG_HOME convention): `MT5_CONFIG` env → `$XDG_CONFIG_HOME/metatrader5-cli.json` → `%APPDATA%/metatrader5-cli.json` → `~/.config/metatrader5-cli.json`.
 
 ## What never lives in this repo
 
@@ -1488,7 +1488,7 @@ Create `mt5_cli/mql5/discovery.py`:
 
 Search order (first match wins):
   1. ./ea/ or ./indicators/ (current working directory where the user runs `mt5`)
-  2. ~/.config/mt5-universal/ea/ or /indicators/ (or platform equivalents — Phase 6 paths.py refines)
+  2. ~/.local/share/metatrader5-cli/ea/ or /indicators/ (XDG_DATA_HOME convention; %APPDATA%/metatrader5-cli/ on Windows — Phase 6 paths.py finalizes the resolution chain)
   3. (future) entry points
 """
 import os
@@ -1561,7 +1561,7 @@ python -m pytest tests/test_mql5_discovery.py -v
 git add mt5_cli/mql5/discovery.py tests/test_mql5_discovery.py
 git commit -m "Phase 3: add mql5.discovery — auto-find user EAs/indicators
 
-Search order: ./ea or ./indicators (cwd) -> ~/.config/mt5-universal/.
+Search order: ./ea or ./indicators (cwd) -> ~/.local/share/metatrader5-cli/.
 First-match wins. Each result includes name, source path, and
 compiled boolean."
 ```
