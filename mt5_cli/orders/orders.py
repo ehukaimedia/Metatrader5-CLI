@@ -39,6 +39,7 @@ Deliberate divergences from legacy:
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime, timezone
 
@@ -180,11 +181,28 @@ def _resolve_pending_filling(filling_str: str) -> int:
     return ORDER_FILLING_FOK
 
 
-def _live_gate_check(is_live_intent: bool) -> dict | None:
+def _live_gate_check(is_live_intent: bool, cfg: dict) -> dict | None:
     """Return a fail envelope if live-gate blocks; None if clear.
 
-    Used by cancel (which bypasses check_order's risk gates). Place functions
-    get their live gate through check_order Guard 2 — no double-gating.
+    Used by mutation paths (cancel, modify, cancel_all_pending) that bypass
+    check_order's full risk gauntlet. Place functions get their live gate
+    through check_order Guard 2 — no double-gating.
+
+    On REAL accounts, enforces the same triple lock as check_order Guard 2
+    (spec §9, preserved from legacy):
+      1. is_live_intent=True (the CLI/library caller's --live proxy)
+      2. cfg["live"] is True (the config file/env layer)
+      3. MT5_LIVE=1 env var (the operator's shell intent)
+
+    Codex post-fix P1 (2026-05-16): the pre-fix version of this helper
+    checked ONLY is_live_intent, so cancel/modify/cancel_all_pending
+    could mutate live orders with one gate armed. The fix aligns this
+    helper with check_order's Guard 2.
+
+    Args:
+        is_live_intent: --live CLI flag proxy.
+        cfg: Effective configuration dict (required so the gate can
+             check cfg["live"]). Mutation callers must thread cfg through.
     """
     account_info = mt5_call("account_info")
     if account_info is None:
@@ -192,10 +210,25 @@ def _live_gate_check(is_live_intent: bool) -> dict | None:
             "RISK_INVALID_INPUT",
             "account_info unavailable — MT5 may be disconnected.",
         )
-    if not is_live_intent and account_info.trade_mode == ACCOUNT_TRADE_MODE_REAL:
+    if account_info.trade_mode != ACCOUNT_TRADE_MODE_REAL:
+        return None  # DEMO / CONTEST bypass the triple lock (preserved behavior)
+    if not is_live_intent:
         return fail(
             "RISK_LIVE_GATE_BLOCKED",
-            "This is a live (real-money) account. Pass --live to confirm intentional live trading.",
+            "This is a live (real-money) account. Pass is_live_intent=True "
+            "(--live on the CLI) to confirm intentional live trading.",
+        )
+    if not cfg.get("live"):
+        return fail(
+            "RISK_LIVE_GATE_BLOCKED",
+            'Live trading requires cfg["live"]=true. Set it in your config '
+            "file or pass overrides={'live': True} to load().",
+        )
+    if os.environ.get("MT5_LIVE") != "1":
+        return fail(
+            "RISK_LIVE_GATE_BLOCKED",
+            "Live trading requires MT5_LIVE=1 in the environment. Export "
+            "MT5_LIVE=1 (or set it in your shell profile) to arm live trading.",
         )
     return None
 
@@ -664,20 +697,24 @@ def dryrun(
 # cancel
 # ---------------------------------------------------------------------------
 
-def cancel(ticket: int, *, is_live_intent: bool) -> dict:
+def cancel(ticket: int, *, cfg: dict, is_live_intent: bool) -> dict:
     """Cancel a pending order (TRADE_ACTION_REMOVE).
 
-    Live gate checked via _live_gate_check (account_info-based), NOT check_order,
-    because cancel does not go through the full risk gauntlet.
+    Live gate checked via _live_gate_check (account_info-based + triple
+    lock), NOT check_order, because cancel does not go through the full
+    risk gauntlet. On REAL accounts the triple lock requires:
+      is_live_intent=True + cfg["live"]=True + MT5_LIVE=1 env.
 
     Args:
         ticket: Pending order ticket number.
-        is_live_intent: Must be True on a live account or the call is blocked.
+        cfg: Effective configuration dict (required for the live gate).
+        is_live_intent: Must be True on a live account; combined with the
+            other two gates above per spec section 9.
 
     Returns:
         ok({"ticket": ..., "cancelled": True}) on success, or fail envelope.
     """
-    gate = _live_gate_check(is_live_intent)
+    gate = _live_gate_check(is_live_intent, cfg)
     if gate is not None:
         return gate
 
@@ -833,6 +870,7 @@ def modify(
     tp: float | None = None,
     price: float | None = None,
     expiry=None,
+    cfg: dict,
     is_live_intent: bool,
 ) -> dict:
     """Modify an open position (SL/TP) or a pending order (price/SL/TP).
@@ -846,7 +884,8 @@ def modify(
 
     # TODO: expiry support pending ORDER_TIME_SPECIFIED bridge widening.
 
-    Live gate uses _live_gate_check (same pattern as cancel).
+    Live gate uses _live_gate_check (same triple-lock semantics as
+    cancel and check_order Guard 2).
 
     Args:
         ticket: Order or position ticket.
@@ -854,13 +893,15 @@ def modify(
         tp: New take-profit price. None preserves existing.
         price: New pending-order price. None preserves existing.
         expiry: Deferred — accepted for signature stability but ignored.
-        is_live_intent: Must be True on a live account.
+        cfg: Effective configuration dict (required for the live gate).
+        is_live_intent: Must be True on a live account; combined with
+            cfg["live"]=True and MT5_LIVE=1 per spec section 9.
 
     Returns:
         ok({"ticket": ..., "action": "SLTP"|"MODIFY", ...}) on success,
         or fail envelope.
     """
-    gate = _live_gate_check(is_live_intent)
+    gate = _live_gate_check(is_live_intent, cfg)
     if gate is not None:
         return gate
 
@@ -929,7 +970,9 @@ def modify(
 # cancel_all_pending
 # ---------------------------------------------------------------------------
 
-def cancel_all_pending(symbol: str | None = None, *, is_live_intent: bool) -> dict:
+def cancel_all_pending(
+    symbol: str | None = None, *, cfg: dict, is_live_intent: bool,
+) -> dict:
     """Cancel all pending orders, optionally scoped to one symbol.
 
     Continues on per-ticket failure (fail-soft). Returns per-ticket outcome
@@ -942,14 +985,17 @@ def cancel_all_pending(symbol: str | None = None, *, is_live_intent: bool) -> di
 
     Args:
         symbol: Filter to this symbol only. None cancels all pending orders.
-        is_live_intent: Must be True on a live account.
+        cfg: Effective configuration dict (required for the live gate;
+             threaded through to each per-ticket cancel() call).
+        is_live_intent: Must be True on a live account; combined with
+            cfg["live"]=True and MT5_LIVE=1 per spec section 9.
 
     Returns:
         ok({"per_ticket": [...], "cancelled": N, "failed": N}) — outer ok=True
         even when some tickets fail. fail envelope only if the live gate or
         orders_get itself fails.
     """
-    gate = _live_gate_check(is_live_intent)
+    gate = _live_gate_check(is_live_intent, cfg)
     if gate is not None:
         return gate
 
@@ -966,7 +1012,7 @@ def cancel_all_pending(symbol: str | None = None, *, is_live_intent: bool) -> di
     failed = 0
     for order in pending:
         ticket = int(order.ticket)
-        result = cancel(ticket, is_live_intent=is_live_intent)
+        result = cancel(ticket, cfg=cfg, is_live_intent=is_live_intent)
         if result["ok"]:
             cancelled += 1
             results.append({"ticket": ticket, "ok": True})

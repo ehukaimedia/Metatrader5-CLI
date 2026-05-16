@@ -536,7 +536,7 @@ class TestCancel:
         mocked_mt5.orders_get.return_value = [pending]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=800)
         from mt5_cli.orders.orders import cancel
-        result = cancel(800, is_live_intent=False)
+        result = cancel(800, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["ticket"] == 800
         assert result["data"]["cancelled"] is True
@@ -548,7 +548,7 @@ class TestCancel:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
         from mt5_cli.orders.orders import cancel
-        result = cancel(900, is_live_intent=False)
+        result = cancel(900, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
         mocked_mt5.order_send.assert_not_called()
@@ -559,9 +559,50 @@ class TestCancel:
         mocked_mt5.orders_get.return_value = []
         # is_live_intent=True so live gate passes (account is DEMO)
         from mt5_cli.orders.orders import cancel
-        result = cancel(999, is_live_intent=True)
+        result = cancel(999, cfg=_cfg(), is_live_intent=True)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
+
+    # ----- Triple-lock matrix on REAL accounts (Codex post-fix P1) -----
+
+    def test_cancel_triple_lock_passes_when_all_three_armed(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        pending = _make_pending_order(ticket=800, symbol="EURUSD")
+        mocked_mt5.orders_get.return_value = [pending]
+        mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=800)
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.orders.orders import cancel
+        result = cancel(800, cfg=_cfg(live=True), is_live_intent=True)
+        assert result["ok"] is True
+
+    def test_cancel_triple_lock_blocks_when_cfg_live_false(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.orders.orders import cancel
+        result = cancel(800, cfg=_cfg(live=False), is_live_intent=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        assert 'cfg["live"]' in result["error"]["message"]
+        mocked_mt5.order_send.assert_not_called()
+
+    def test_cancel_triple_lock_blocks_when_env_unset(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        from mt5_cli.orders.orders import cancel
+        result = cancel(800, cfg=_cfg(live=True), is_live_intent=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        assert "MT5_LIVE" in result["error"]["message"]
+        mocked_mt5.order_send.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -772,7 +813,7 @@ class TestModify:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=12345)
         from mt5_cli.orders.orders import modify
-        result = modify(12345, sl=148.5, tp=152.0, is_live_intent=False)
+        result = modify(12345, sl=148.5, tp=152.0, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
         assert call_args["action"] == 6   # TRADE_ACTION_SLTP
@@ -785,7 +826,7 @@ class TestModify:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=12345)
         from mt5_cli.orders.orders import modify
-        result = modify(12345, sl=148.0, tp=None, is_live_intent=False)
+        result = modify(12345, sl=148.0, tp=None, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
         assert call_args["tp"] == 153.5   # preserved from existing position
@@ -798,7 +839,7 @@ class TestModify:
         mocked_mt5.orders_get.return_value = [pending]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=54321)
         from mt5_cli.orders.orders import modify
-        result = modify(54321, sl=148.0, tp=154.0, is_live_intent=False)
+        result = modify(54321, sl=148.0, tp=154.0, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
         assert call_args["action"] == 7   # TRADE_ACTION_MODIFY
@@ -812,7 +853,7 @@ class TestModify:
         mocked_mt5.orders_get.return_value = [pending]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=54321)
         from mt5_cli.orders.orders import modify
-        result = modify(54321, price=None, is_live_intent=False)
+        result = modify(54321, price=None, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
         assert call_args["price"] == 151.5  # preserved from pending order
@@ -823,7 +864,7 @@ class TestModify:
         mocked_mt5.positions_get.return_value = []
         mocked_mt5.orders_get.return_value = []
         from mt5_cli.orders.orders import modify
-        result = modify(99999, sl=1.0, is_live_intent=False)
+        result = modify(99999, sl=1.0, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
         mocked_mt5.order_send.assert_not_called()
@@ -833,7 +874,7 @@ class TestModify:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
         from mt5_cli.orders.orders import modify
-        result = modify(12345, sl=148.0, is_live_intent=False)
+        result = modify(12345, sl=148.0, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
         mocked_mt5.order_send.assert_not_called()
@@ -845,10 +886,49 @@ class TestModify:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=12345)
         from mt5_cli.orders.orders import modify
-        result = modify(12345, sl=148.5, is_live_intent=False)
+        result = modify(12345, sl=148.5, cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["ticket"] == 12345
         assert result["data"]["action"] == "SLTP"
+
+    # ----- Triple-lock matrix on REAL accounts (Codex post-fix P1) -----
+
+    def test_modify_triple_lock_passes_when_all_three_armed(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        pos = _make_position(ticket=12345, symbol="USDJPY", sl=149.0, tp=151.0)
+        mocked_mt5.positions_get.return_value = [pos]
+        mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.orders.orders import modify
+        result = modify(12345, sl=148.5, cfg=_cfg(live=True), is_live_intent=True)
+        assert result["ok"] is True
+
+    def test_modify_triple_lock_blocks_when_cfg_live_false(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.orders.orders import modify
+        result = modify(12345, sl=148.5, cfg=_cfg(live=False), is_live_intent=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()
+
+    def test_modify_triple_lock_blocks_when_env_unset(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        from mt5_cli.orders.orders import modify
+        result = modify(12345, sl=148.5, cfg=_cfg(live=True), is_live_intent=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -873,7 +953,7 @@ class TestCancelAllPending:
         ]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=0)
         from mt5_cli.orders.orders import cancel_all_pending
-        result = cancel_all_pending(is_live_intent=False)
+        result = cancel_all_pending(cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["cancelled"] == 2
         assert result["data"]["failed"] == 0
@@ -891,7 +971,7 @@ class TestCancelAllPending:
         ]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=0)
         from mt5_cli.orders.orders import cancel_all_pending
-        result = cancel_all_pending(symbol="GBPUSD", is_live_intent=False)
+        result = cancel_all_pending(symbol="GBPUSD", cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["cancelled"] == 1
         # Verify orders_get was called with symbol kwarg first
@@ -916,7 +996,7 @@ class TestCancelAllPending:
             fail_result,                                 # 4002 fails
         ]
         from mt5_cli.orders.orders import cancel_all_pending
-        result = cancel_all_pending(is_live_intent=False)
+        result = cancel_all_pending(cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True   # outer still ok
         assert result["data"]["cancelled"] == 1
         assert result["data"]["failed"] == 1
@@ -933,8 +1013,45 @@ class TestCancelAllPending:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.orders_get.return_value = []
         from mt5_cli.orders.orders import cancel_all_pending
-        result = cancel_all_pending(is_live_intent=False)
+        result = cancel_all_pending(cfg=_cfg(), is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["per_ticket"] == []
         assert result["data"]["cancelled"] == 0
         assert result["data"]["failed"] == 0
+
+    # ----- Triple-lock matrix on REAL accounts (Codex post-fix P1) -----
+
+    def test_cancel_all_pending_triple_lock_passes_when_all_three_armed(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        mocked_mt5.orders_get.return_value = []  # no pending; gate is the focus
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.orders.orders import cancel_all_pending
+        result = cancel_all_pending(cfg=_cfg(live=True), is_live_intent=True)
+        assert result["ok"] is True  # gate passes; empty list
+
+    def test_cancel_all_pending_triple_lock_blocks_when_cfg_live_false(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.orders.orders import cancel_all_pending
+        result = cancel_all_pending(cfg=_cfg(live=False), is_live_intent=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.orders_get.assert_not_called()  # short-circuited
+
+    def test_cancel_all_pending_triple_lock_blocks_when_env_unset(
+        self, mocked_mt5, monkeypatch,
+    ):
+        _setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        from mt5_cli.orders.orders import cancel_all_pending
+        result = cancel_all_pending(cfg=_cfg(live=True), is_live_intent=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.orders_get.assert_not_called()
