@@ -17,7 +17,7 @@ _lock: threading.Lock = threading.Lock()
 _initialized: bool = False
 
 # ---------------------------------------------------------------------------
-# Re-exported MT5 constants (so no other module needs to import MetaTrader5)
+# Re-exported MT5 constants (so no other module reaches into the MetaTrader5 package directly)
 # ---------------------------------------------------------------------------
 
 TRADE_ACTION_DEAL = mt5.TRADE_ACTION_DEAL

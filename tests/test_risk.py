@@ -606,3 +606,21 @@ class TestDailyLoss:
         mocked_mt5.positions_get.return_value = []
         from mt5_universal.risk.risk import daily_loss
         assert daily_loss(_cfg()) == pytest.approx(95.0)
+
+
+# ---------------------------------------------------------------------------
+# resolve_magic — default collision guard tests (Fix 2)
+# ---------------------------------------------------------------------------
+
+def test_resolve_magic_default_collision_guard_None_strategy_id(mocked_mt5):
+    from mt5_universal.risk import resolve_magic
+    cfg = {"magic": 150000}
+    with pytest.raises(ValueError, match="must be < 100000"):
+        resolve_magic(None, cfg)
+
+
+def test_resolve_magic_default_collision_guard_empty_strategy_id(mocked_mt5):
+    from mt5_universal.risk import resolve_magic
+    cfg = {"magic": 162538}
+    with pytest.raises(ValueError, match="must be < 100000"):
+        resolve_magic("", cfg)

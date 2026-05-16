@@ -109,7 +109,13 @@ def resolve_magic(strategy_id: str | None, cfg: dict) -> int:
             _logged_strategy_ids.add(strategy_id)
         return magic
 
-    return int(cfg["magic"])
+    default_magic = int(cfg.get("magic", 88888))
+    if default_magic >= 100000:
+        raise ValueError(
+            f"Configured default magic {default_magic} must be < 100000 "
+            "to avoid collision with auto-derived range [100000, 180000)."
+        )
+    return default_magic
 
 
 # ---------------------------------------------------------------------------

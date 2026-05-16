@@ -108,6 +108,20 @@ _AGENT_MAGIC_MAX = 180000
 # Private helpers
 # ---------------------------------------------------------------------------
 
+def _normalize_side(side: str) -> tuple[str | None, dict | None]:
+    """Return (lowercased_side, None) on valid input or (None, fail_envelope)
+    on invalid. side must be exactly 'buy' or 'sell' (case-insensitive).
+    Anything else returns a fail envelope — silently treating typos as
+    sells is a production safety bug for an agent-facing trading API.
+    """
+    if not isinstance(side, str):
+        return None, fail("MT5_INVALID_PARAMS", f"side must be a string, got {type(side).__name__}.")
+    side_lower = side.lower()
+    if side_lower not in {"buy", "sell"}:
+        return None, fail("MT5_INVALID_PARAMS", f"side must be one of: buy, sell. got {side!r}.")
+    return side_lower, None
+
+
 def _epoch_to_iso(epoch: int | float | None) -> str | None:
     if not epoch:
         return None
@@ -358,13 +372,17 @@ def place_market(
     Returns:
         ok({"ticket": ..., "symbol": ..., ...}) on success, or fail envelope.
     """
+    side_lower, side_err = _normalize_side(side)
+    if side_err is not None:
+        return side_err
+
     if not ensure_symbol(symbol):
         return fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} is not available in MT5.")
 
     tick = mt5_call("symbol_info_tick", symbol)
     if tick is None:
         return fail("MT5_NO_DATA", f"No tick data for {symbol!r}.")
-    entry_price = tick.ask if side.lower() == "buy" else tick.bid
+    entry_price = tick.ask if side_lower == "buy" else tick.bid
 
     risk_result = check_order(
         symbol=symbol,
@@ -381,7 +399,7 @@ def place_market(
 
     resolved_magic = magic if magic is not None else resolve_magic(strategy_id, cfg)
     resolved_filling = _resolve_filling(symbol, filling)
-    order_type = ORDER_TYPE_BUY if side.lower() == "buy" else ORDER_TYPE_SELL
+    order_type = ORDER_TYPE_BUY if side_lower == "buy" else ORDER_TYPE_SELL
 
     request = {
         "action": TRADE_ACTION_DEAL,
@@ -443,6 +461,10 @@ def place_limit(
     Returns:
         ok({"ticket": ..., ...}) on success, or fail envelope.
     """
+    side_lower, side_err = _normalize_side(side)
+    if side_err is not None:
+        return side_err
+
     if not ensure_symbol(symbol):
         return fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} is not available in MT5.")
 
@@ -462,7 +484,7 @@ def place_limit(
     resolved_magic = magic if magic is not None else resolve_magic(strategy_id, cfg)
     resolved_filling = _resolve_pending_filling(filling)
     order_type = (
-        ORDER_TYPE_BUY_LIMIT if side.lower() == "buy" else ORDER_TYPE_SELL_LIMIT
+        ORDER_TYPE_BUY_LIMIT if side_lower == "buy" else ORDER_TYPE_SELL_LIMIT
     )
 
     request = {
@@ -529,6 +551,10 @@ def dryrun(
     Returns:
         ok({"dry_run": True, "margin": ..., ...}) on success, or fail envelope.
     """
+    side_lower, side_err = _normalize_side(side)
+    if side_err is not None:
+        return side_err
+
     order_type_lower = order_type.lower()
     if order_type_lower not in {"market", "limit", "stop"}:
         return fail("MT5_INVALID_PARAMS", "order_type must be one of: market, limit, stop.")
@@ -542,7 +568,7 @@ def dryrun(
         tick = mt5_call("symbol_info_tick", symbol)
         if tick is None:
             return fail("MT5_NO_DATA", f"No tick data for {symbol!r}.")
-        entry_price = tick.ask if side.lower() == "buy" else tick.bid
+        entry_price = tick.ask if side_lower == "buy" else tick.bid
     else:
         entry_price = float(price)
 
@@ -568,11 +594,11 @@ def dryrun(
     )
 
     if order_type_lower == "market":
-        mt5_order_type = ORDER_TYPE_BUY if side.lower() == "buy" else ORDER_TYPE_SELL
+        mt5_order_type = ORDER_TYPE_BUY if side_lower == "buy" else ORDER_TYPE_SELL
         action = TRADE_ACTION_DEAL
     elif order_type_lower == "limit":
         mt5_order_type = (
-            ORDER_TYPE_BUY_LIMIT if side.lower() == "buy" else ORDER_TYPE_SELL_LIMIT
+            ORDER_TYPE_BUY_LIMIT if side_lower == "buy" else ORDER_TYPE_SELL_LIMIT
         )
         action = TRADE_ACTION_PENDING
     else:
@@ -580,7 +606,7 @@ def dryrun(
         # (imported via bridge __init__ but not imported here; use the int constants)
         from mt5_universal.bridge import ORDER_TYPE_BUY_STOP, ORDER_TYPE_SELL_STOP
         mt5_order_type = (
-            ORDER_TYPE_BUY_STOP if side.lower() == "buy" else ORDER_TYPE_SELL_STOP
+            ORDER_TYPE_BUY_STOP if side_lower == "buy" else ORDER_TYPE_SELL_STOP
         )
         action = TRADE_ACTION_PENDING
 

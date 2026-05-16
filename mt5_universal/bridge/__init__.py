@@ -1,4 +1,4 @@
-"""Bridge layer — the ONLY module in the codebase allowed to import MetaTrader5."""
+"""Bridge layer; direct MetaTrader5 access lives only in mt5_backend."""
 from .mt5_backend import (
     connect, is_connected, mt5_call, ensure_symbol, reconnect_once,
     ORDER_FILLING_FOK, ORDER_FILLING_IOC, ORDER_FILLING_RETURN,

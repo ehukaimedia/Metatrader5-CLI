@@ -327,7 +327,7 @@ var NODE_CLI = {
   univ_bridge: '# only this module touches MetaTrader5\nfrom MetaTrader5 import initialize, order_send, ...',
   univ_market: 'mt5 --json market info USDJPY',
   univ_orders: 'mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500',
-  univ_risk: '# every order passes:\nrisk.check_order(symbol, side, volume, sl, ..., is_live_intent=False)',
+  univ_risk: '# every order passes:\nrisk.check_order(symbol=symbol, side=side, volume=volume, sl=sl, cfg=cfg, is_live_intent=False)',
   univ_broker_tc: '# config.json:\n{ "broker_profile": "trading_com" }',
   mql5_compiler: 'mt5 ea compile my_strategy\nmt5 indicator compile my_signal',
   mql5_deployer: 'mt5 ea deploy my_strategy\nmt5 indicator deploy my_signal',
@@ -570,7 +570,7 @@ var PHASES = [
     bannerTitle:'Phase 2 — Build the agnostic universal core',
     bannerDesc:'Create mt5_universal/ as a pip-installable Python library. Submodules: bridge, broker, market, rates, orders, positions, account, history, risk, config, reports. Broker layer abstracts Trading.com (canonical default) and generic_mt5 (permissive). Every module is domain-neutral. The tool ships NO indicator math, NO EAs, NO strategies — users author their own MQL5; the tool provides hands to compile/deploy/test/attach/detach/screenshot/place-orders/manage-positions.',
     pattern:[ tb('CLI-Anything pattern: single utils/<app>_backend.py. '), tk('CLI-Anything mandates exactly one backend module per CLI. We already had '), tc('utils/mt5_backend.py'), tk(' as the only file importing MetaTrader5 — reinforced as the '), tb('only'), tk(' module in '), tc('mt5_universal/bridge/'), tk(' allowed to touch the MT5 package. Broker quirks (FOK, hedging, retcodes, rollover) move out of bridge into '), tc('broker/trading_com.py'), tk(' + '), tc('broker/generic_mt5.py'), tk(' behind a '), tc('BrokerProfile'), tk(' ABC.') ],
-    capability:[ tb('Capability gained: '), tk('Agents now have a clean neutral surface — '), tc('mt5_universal.market.info()'), tk(', '), tc('.rates.fetch()'), tk(', '), tc('.orders.market()'), tk('. Risk gate still enforced on every order call. Trading.com still works exactly as before; it is now the '), tb('default BrokerProfile'), tk(', not hardcoded.') ],
+    capability:[ tb('Capability gained: '), tk('Agents now have a clean neutral surface — '), tc('mt5_universal.market.info()'), tk(', '), tc('.rates.fetch()'), tk(', '), tc('.orders.place_market()'), tk('. Risk gate still enforced on every order call. Trading.com still works exactly as before; it is now the '), tb('default BrokerProfile'), tk(', not hardcoded.') ],
   },
   {
     id:3, title:'MQL5 plugin host', sub:'tool reaches into user workspace',

@@ -600,3 +600,49 @@ class TestPollFill:
         result = poll_fill(333, timeout_ms=500)
         assert result["ok"] is True
         assert result["data"]["filled"] is False
+
+
+# ---------------------------------------------------------------------------
+# _normalize_side / invalid side rejection tests (Fix 1)
+# ---------------------------------------------------------------------------
+
+def test_place_market_rejects_invalid_side(mocked_mt5):
+    from mt5_universal.orders import place_market
+    cfg = _cfg()
+    env = place_market(symbol="USDJPY", side="long", volume=0.01, sl=149.5,
+                      cfg=cfg, is_live_intent=False)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    mocked_mt5.order_send.assert_not_called()
+
+
+def test_place_limit_rejects_invalid_side(mocked_mt5):
+    from mt5_universal.orders import place_limit
+    cfg = _cfg()
+    env = place_limit(symbol="USDJPY", side="LONG", price=150.0, volume=0.01,
+                     sl=149.5, cfg=cfg, is_live_intent=False)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    mocked_mt5.order_send.assert_not_called()
+
+
+def test_dryrun_rejects_invalid_side(mocked_mt5):
+    from mt5_universal.orders import dryrun
+    cfg = _cfg()
+    env = dryrun(symbol="USDJPY", side="short", volume=0.01, sl=149.5,
+                cfg=cfg, is_live_intent=False)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    mocked_mt5.order_check.assert_not_called()
+
+
+def test_place_market_accepts_uppercase_BUY(mocked_mt5):
+    """Case-insensitive — 'BUY' normalizes to 'buy' and proceeds."""
+    from mt5_universal.orders import place_market
+    _setup_happy_path(mocked_mt5)
+    mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=999)
+    _reset_rl()
+    cfg = _cfg()
+    env = place_market(symbol="EURUSD", side="BUY", volume=0.01, sl=1.0900,
+                      cfg=cfg, is_live_intent=False)
+    assert env["ok"] is True
