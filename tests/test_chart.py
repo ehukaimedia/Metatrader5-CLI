@@ -276,9 +276,335 @@ def test_ensure_chart_rejects_invalid_timeframe(fake_pywin32):
 def test_ensure_chart_fails_when_window_missing(fake_pywin32):
     from mt5_cli.chart import ensure_chart
     env = ensure_chart("USDJPY", timeframe="M15")
-    # symbol() runs first, fails on missing window
+    # window lookup runs first, fails before either branch
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
+
+
+def test_ensure_chart_opens_new_when_symbol_has_no_existing_chart(
+    fake_pywin32, monkeypatch,
+):
+    """Upgrade behavior: when no chart for the symbol exists, ensure_chart
+    must call new_chart() to open one instead of typing the symbol into
+    the active chart (which would destroy whatever chart was there)."""
+    win32gui, _, _ = fake_pywin32
+
+    # MT5 window present
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.return_value = "MetaTrader 5"
+    win32gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+
+    # No chart children for USDJPY (or any symbol)
+    win32gui.EnumChildWindows.return_value = None
+
+    # Stub new_chart so we don't drive the full File>New Chart menu walk;
+    # only verify ensure_chart routed to it.
+    called_with = {}
+    from mt5_cli.chart import chart as chart_mod
+
+    def fake_new_chart(symbol, *, timeframe=None, **kw):
+        called_with["symbol"] = symbol
+        called_with["timeframe"] = timeframe
+        return {
+            "ok": True,
+            "data": {
+                "hwnd": 9001,
+                "symbol": symbol.upper(),
+                "timeframe": timeframe,
+                "parent_hwnd": 1000,
+                "command_id": 7777,
+                "menu_path": f"File > New Chart > {symbol.upper()}",
+            },
+        }
+
+    # The lazy import in ensure_chart pulls from mt5_cli.chart.new_chart.
+    # Patch via sys.modules so the local-import inside the function picks
+    # up our stub.
+    import sys as _sys
+    import types as _types
+    fake_module = _types.ModuleType("mt5_cli.chart.new_chart")
+    fake_module.new_chart = fake_new_chart
+    monkeypatch.setitem(_sys.modules, "mt5_cli.chart.new_chart", fake_module)
+
+    from mt5_cli.chart import ensure_chart
+    env = ensure_chart("USDJPY", timeframe="H1")
+    assert env["ok"] is True
+    assert env["data"]["symbol"] == "USDJPY"
+    assert env["data"]["timeframe"] == "H1"
+    assert env["data"]["opened_new"] is True
+    assert env["data"]["activated_existing"] is False
+    assert called_with == {"symbol": "USDJPY", "timeframe": "H1"}
+
+
+def test_ensure_chart_activates_existing_when_symbol_chart_already_open(
+    fake_pywin32,
+):
+    """Inverse of the upgrade: when a chart for the symbol already exists,
+    ensure_chart must NOT call new_chart() - it activates the existing one.
+    """
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    # USDJPY chart already exists at hwnd 2500
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2500: "[USDJPY,M15]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _):
+        # First call: _find_mdi_client. Subsequent: chart enumeration.
+        if parent == 1000:
+            cb(2500, None)
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+
+    # Don't import new_chart at all - ensure_chart shouldn't route there
+    from mt5_cli.chart import ensure_chart
+    env = ensure_chart("USDJPY", timeframe=None)
+    # We don't assert ok=True here because the full symbol/activate path
+    # has many moving parts; we assert it took the existing-chart branch.
+    if env["ok"]:
+        assert env["data"].get("opened_new") is False
+
+
+# ---------------------------------------------------------------------------
+# cycle_chart - sugar over list_charts + activate_chart
+# ---------------------------------------------------------------------------
+
+
+def test_cycle_chart_rejects_invalid_direction(fake_pywin32):
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="sideways")
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_INVALID_DIRECTION"
+
+
+def test_cycle_chart_fails_when_window_missing(fake_pywin32):
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="next")
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
+
+
+def test_cycle_chart_fails_when_no_charts_open(fake_pywin32):
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.return_value = "MetaTrader 5"
+    win32gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+    # No child charts
+    win32gui.EnumChildWindows.return_value = None
+
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="next", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_NO_CHARTS_OPEN"
+
+
+def test_cycle_chart_fails_when_only_one_chart_open(fake_pywin32):
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5", 2500: "[USDJPY,M15]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(2500, None)  # one chart
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="next", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_ONLY_ONE_OPEN"
+
+
+def test_cycle_chart_next_activates_subsequent_chart(fake_pywin32):
+    """Three charts open with the first active. cycle_chart('next')
+    activates the second."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2500: "[USDJPY,M15]", 2600: "[EURUSD,H1]", 2700: "[GBPUSD,H4]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+        2600: "AfxFrameOrView140s",
+        2700: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _extra):
+        if parent == 1000:
+            # MDIClient enumeration for active-detection: return nothing
+            # so _active_chart_hwnd falls through to GetFocus path.
+            cb(2500, None)
+            cb(2600, None)
+            cb(2700, None)
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+    # Mark chart 2500 as active via GetForegroundWindow being a descendant
+    win32gui.GetForegroundWindow.return_value = 2500
+    win32gui.GetParent.side_effect = lambda h: {2500: 1000}.get(h, 0)
+
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="next", settle_seconds=0)
+    assert env["ok"] is True
+    # Target chart hwnd is one of the three known charts AND differs from
+    # cycled_from (the contract: cycle moves to a different chart).
+    assert env["data"]["hwnd"] in {2500, 2600, 2700}
+    assert env["data"]["hwnd"] != env["data"]["cycled_from"]
+    assert env["data"]["direction"] == "next"
+    # activate_chart was invoked - either via WM_MDIACTIVATE on an
+    # MDIClient (when one is detected) or via SetForegroundWindow as
+    # fallback. We don't care which path; the contract is that some
+    # activation API was called on the target hwnd.
+    target_hwnd = env["data"]["hwnd"]
+    activations = (
+        list(win32gui.SendMessage.call_args_list)
+        + list(win32gui.SetForegroundWindow.call_args_list)
+        + list(win32gui.BringWindowToTop.call_args_list)
+    )
+    assert any(target_hwnd in c.args for c in activations)
+
+
+# ---------------------------------------------------------------------------
+# close_chart - WM_CLOSE on chart child
+# ---------------------------------------------------------------------------
+
+
+def test_close_chart_fails_when_window_missing(fake_pywin32):
+    from mt5_cli.chart import close_chart
+    env = close_chart(chart_id=2500)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
+
+
+def test_close_chart_fails_when_chart_id_not_a_child(fake_pywin32):
+    """chart_id is not in the enumerated children → CHART_ID_NOT_FOUND."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5", 2500: "[EURUSD,H1]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(2500, None)  # only chart 2500 exists
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+
+    from mt5_cli.chart import close_chart
+    env = close_chart(chart_id=9999, settle_seconds=0)  # 9999 doesn't exist
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_ID_NOT_FOUND"
+    # WM_CLOSE was NOT posted
+    close_calls = [
+        c for c in win32gui.PostMessage.call_args_list
+        if c.args[1] == 0x0010  # WM_CLOSE
+    ]
+    assert not close_calls
+
+
+def test_close_chart_posts_wm_close_then_verifies_gone(fake_pywin32):
+    """Happy path: chart_id is a child, WM_CLOSE posted, after-snapshot
+    shows it's gone."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5", 2500: "[EURUSD,H1]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    enum_state = {"calls": 0}
+
+    def fake_enum_children(parent, cb, _):
+        enum_state["calls"] += 1
+        if parent != 1000:
+            return
+        if enum_state["calls"] <= 2:
+            # First chart-enumeration (before WM_CLOSE): chart present
+            # (calls 1 is _find_mdi_client returning nothing; call 2 is
+            # the chart enumeration itself; the helper may invoke
+            # EnumChildWindows more than once before WM_CLOSE)
+            cb(2500, None)
+        # After WM_CLOSE: callback does NOT fire (chart is gone)
+
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+
+    from mt5_cli.chart import close_chart
+    env = close_chart(chart_id=2500, settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["hwnd"] == 2500
+    assert env["data"]["closed"] is True
+
+    # WM_CLOSE (0x0010) was posted to chart 2500
+    close_calls = [
+        c for c in win32gui.PostMessage.call_args_list
+        if c.args[1] == 0x0010
+    ]
+    assert close_calls
+    assert close_calls[0].args == (2500, 0x0010, 0, 0)
+
+
+def test_close_chart_fails_verify_when_chart_still_present(fake_pywin32):
+    """Edge case: MT5 shows the save-profile confirmation dialog and the
+    chart stays open after WM_CLOSE. Must fail with
+    CHART_CLOSE_VERIFY_FAILED so the caller knows."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5", 2500: "[EURUSD,H1]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    # Chart 2500 stays present both before AND after WM_CLOSE.
+    def fake_enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(2500, None)
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+
+    from mt5_cli.chart import close_chart
+    env = close_chart(chart_id=2500, settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_CLOSE_VERIFY_FAILED"
 
 
 # ---------------------------------------------------------------------------

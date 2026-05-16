@@ -226,7 +226,7 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - CI guard: `tests/test_bridge_singleton.py` (AST-based) fails the suite if any module besides `mt5_cli/bridge/mt5_backend.py` imports MetaTrader5.
 - **Acceptance (Phase 2 complete at tag `phase-2-complete`):**
   - `from mt5_cli import market, rates, orders, positions, account, history, risk` — no ImportError
-  - `from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach, new_chart` — no ImportError. `attach` and `new_chart` are GUI menu-poke primitives sharing the helpers in `mt5_cli/chart/_menu.py` (see Task 2.8 for `attach`, Task 2.13 for `new_chart`).
+  - `from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach, attach_ea, new_chart, close_chart, cycle_chart` — no ImportError. The five GUI menu-poke / MDI primitives (`attach`, `attach_ea`, `new_chart`, `close_chart`, `cycle_chart`) share the helpers in `mt5_cli/chart/_menu.py` (see Task 2.8 for `attach`, Task 2.13 for `new_chart`, Task 2.14 for `attach_ea` + `cycle_chart` + `close_chart` + the `ensure_chart` upgrade).
   - `from mt5_cli.screenshot import take, dom, annotate` — no ImportError
   - `MT5_CONFIG=/nonexistent.json python -c "from mt5_cli.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"` prints `FOK 22`
   - `python -m pytest -q` returns 214 passed (or higher as Phase 3+ grows the suite)

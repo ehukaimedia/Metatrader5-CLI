@@ -274,7 +274,7 @@ var NODES = {
   // Phase 2: mt5_cli skeleton
   univ_root:      {label:'mt5_cli/', sub:'pip-installable library',                x:560, y:90, w:200, h:44},
   univ_bridge:    {label:'bridge.mt5_backend', sub:'ONLY file that imports MetaTrader5', x:540, y:580, w:220, h:48},
-  univ_chart:     {label:'chart', sub:'Win32 chart UI + GUI menu pokes (new_chart, indicator attach)', x:280, y:500, w:300, h:40},
+  univ_chart:     {label:'chart', sub:'Win32 chart UI + complete GUI menu-poke surface (new_chart, close_chart, cycle_chart, attach, attach_ea, ensure_chart)', x:280, y:500, w:300, h:40},
   univ_config_tc: {label:'config.trading_com', sub:'single-broker scope · FOK · no hedge · 22:00 UTC', x:600, y:500, w:340, h:40},
   univ_screenshot:{label:'screenshot', sub:'mss capture + DOM panel + annotate',         x:960, y:500, w:240, h:40},
   univ_market:    {label:'market', sub:'mt5_cli/market/',                          x:100, y:280, w:130, h:40},
@@ -329,7 +329,7 @@ var NODE_CLI = {
   univ_orders: 'mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500',
   univ_risk: '# every order passes:\nrisk.check_order(symbol=symbol, side=side, volume=volume, sl=sl, cfg=cfg, is_live_intent=False)',
   univ_config_tc: '# Trading.com is the only broker (single-broker scope).\n# Its defaults merge into config.DEFAULTS:\n#   filling=FOK, allow_hedging=False, rollover_utc_hour=22\n# Override per-call via ~/.config/metatrader5-cli.json or MT5_* env vars.\nfrom mt5_cli.config import retcode_help\nretcode_help(10030)  # => "Wrong filling mode. Trading.com is FOK-only..."',
-  univ_chart: '# Win32 chart UI + GUI menu pokes (indicator attach, new chart)\nfrom mt5_cli.chart import switch_tf, symbol, ensure_chart, attach, new_chart\nnew_chart("USDJPY", timeframe="H4")  # File > New Chart > USDJPY, then switch_tf H4\nswitch_tf("M15")\nattach("Advanced_Wavelet_Entry_Signal")  # Insert > Indicators > Custom menu poke',
+  univ_chart: '# Win32 chart UI + GUI menu pokes (complete chart-control surface)\nfrom mt5_cli.chart import (\n    new_chart, close_chart, cycle_chart, ensure_chart,\n    switch_tf, symbol, attach, attach_ea,\n)\nnew_chart("USDJPY", timeframe="H4")  # File > New Chart > USDJPY, then H4\nattach("Advanced_Wavelet_Entry_Signal")  # Insert > Indicators > Custom > ...\nattach_ea("AdaptiveTrailEA")  # Insert > Experts > AdaptiveTrailEA\ncycle_chart("next")  # MDI Tab equivalent\nensure_chart("EURUSD", timeframe="M15")  # opens new if missing, else activates\nclose_chart(chart_id=2500)  # WM_CLOSE on the chart child',
   univ_screenshot: '# mss capture + DOM panel toggle + PIL annotate\nfrom mt5_cli.screenshot import take, dom, annotate\ntake(window_substring="MT5")  # auto-discovers MT5 window bounds via pygetwindow\ndom(symbol="USDJPY")  # activates chart, opens DOM, captures, closes',
   mql5_compiler: 'mt5 ea compile my_strategy\nmt5 indicator compile my_signal',
   mql5_deployer: 'mt5 ea deploy my_strategy\nmt5 indicator deploy my_signal',

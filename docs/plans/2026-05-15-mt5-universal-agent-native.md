@@ -923,12 +923,97 @@ posting `WM_COMMAND`, then diffs after `settle_seconds` to find the
 newly-opened chart. Falls back to the newly-active chart if the diff
 fails (e.g., enumerate_chart_children raises).
 
-**Out of scope:**
-- `cycle_chart(direction)` — list_charts() + activate_chart(charts[next].hwnd)
-  already covers this; sugar wrapper is a follow-up if useful
-- `attach_ea(expert_name)` — symmetric Insert > Experts > <name> poke,
-  same pattern. Add when needed; not blocking.
-- `close_chart(hwnd)` — WM_CLOSE on the chart child. Trivial follow-up.
+**Follow-ups landed in Task 2.14:**
+- `cycle_chart`, `attach_ea`, `close_chart`, and the `ensure_chart`
+  upgrade-to-use-`new_chart` all shipped as the chart-control
+  completion bundle.
+
+### Task 2.14: Complete the chart-control hands
+
+**Status:** SHIPPED post-Phase-2. User flagged the missing chart
+hands after seeing the MT5 `File > New Chart` and `Insert > Experts`
+menus in screenshots. This task completes the surface so an agent
+can fully manage MT5 chart state via Python.
+
+**Files:**
+- `mt5_cli/chart/attach_ea.py` (new, ~170 LOC) — `Insert > Experts > <name>`
+- `mt5_cli/chart/chart.py` (modified) — adds `cycle_chart`,
+  `close_chart`; upgrades `ensure_chart` to call `new_chart()` when
+  no existing chart matches the symbol (behavior change — see below)
+- `mt5_cli/chart/__init__.py` (modified) — re-exports the four new
+  primitives
+- `tests/test_chart_attach_ea.py` (new, 13 tests)
+- `tests/test_chart.py` (modified, +11 tests covering cycle_chart,
+  close_chart, ensure_chart upgrade)
+
+**Public surface (additions):**
+
+```python
+def attach_ea(
+    expert_name: str, *,
+    chart_id: int | None = None,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+    auto_confirm: bool = True,
+) -> dict:
+    """Attach a deployed .ex5 Expert Advisor via Insert > Experts > <name>.
+    MT5 enforces ONE EA per chart - attaching replaces any existing EA."""
+
+def cycle_chart(
+    direction: str = "next",
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.1,
+) -> dict:
+    """Activate the next/prev chart in MDI tab order. Wraps around."""
+
+def close_chart(
+    chart_id: int,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Close a chart via WM_CLOSE on its child HWND. Verifies the chart
+    is actually gone (MT5 may show a save-profile confirmation dialog)."""
+```
+
+**`ensure_chart` upgrade (behavior change):**
+
+Before this task, `ensure_chart(symbol)` called `symbol(name)` which
+TYPED the symbol into the currently-active chart, OVERWRITING that
+chart's symbol. Destructive — `ensure_chart("USDJPY")` could silently
+destroy a EURUSD chart the user was working in.
+
+After this task, `ensure_chart(symbol)`:
+1. Enumerates existing charts.
+2. If a chart for the symbol exists → activates it (preserved).
+3. If no chart for the symbol exists → calls `new_chart(symbol)` to
+   open a fresh chart. Additive — other charts are preserved.
+
+The `chart_id` keyword still forces the activate-existing branch (the
+caller has named a specific MDI child to operate on).
+
+Envelope additions: `opened_new: bool` flag distinguishes the two
+branches so callers can tell whether a new chart was created or an
+existing one was activated.
+
+**Failure envelopes (new):**
+- `CHART_INVALID_DIRECTION`     `cycle_chart` direction not "next"/"prev"
+- `CHART_NO_CHARTS_OPEN`        `cycle_chart` with zero chart children
+- `CHART_ONLY_ONE_OPEN`         `cycle_chart` with single chart (no-op)
+- `CHART_EA_NOT_FOUND`          `attach_ea` couldn't find EA in menu tree
+- `CHART_CLOSE_VERIFY_FAILED`   `close_chart` posted WM_CLOSE but chart
+                                still present after settle (MT5 may be
+                                showing a save-profile confirmation;
+                                agent should screenshot to check)
+
+**Deliberately out of scope:**
+- `detach_ea(chart_id)` — would require right-click context-menu
+  introspection (Expert Advisors > Remove) or the Experts > Remove
+  hidden menu. MT5's one-EA-per-chart rule means attaching a different
+  EA effectively replaces; users can also detach via right-click.
+- `list_attached_ea(chart_id)` — chart title shows the EA name in
+  some MT5 versions; parse via `chart.current_title()`.
+- Indicator `detach` / `list_attached` (same out-of-scope rationale
+  as before — Indicators List dialog introspection is fragile).
 
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
@@ -1080,7 +1165,7 @@ any leak."
 
 ```bash
 python -c "from mt5_cli import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach, new_chart; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
+python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach, attach_ea, new_chart, close_chart, cycle_chart; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
 
 # Pin MT5_CONFIG to a non-existent path so the user's real config file
 # (if any) does not override DEFAULTS in this purity check.

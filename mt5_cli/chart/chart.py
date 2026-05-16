@@ -786,7 +786,27 @@ def ensure_chart(
     settle_seconds: float = 0.5,
     chart_id: int | None = None,
 ) -> dict:
-    """Ensure the active MT5 chart is on `symbol_name` and optional timeframe."""
+    """Ensure a chart for `symbol_name` (and optional timeframe) is active.
+
+    Behavior:
+      1. If a chart already exists for the symbol → activate it via
+         symbol() (no destructive symbol-typing).
+      2. If no chart exists for the symbol → open a new one via
+         new_chart(symbol_name, timeframe=timeframe). This is additive:
+         the user's other charts are preserved.
+
+    The pre-upgrade implementation (before the new_chart primitive
+    existed) called symbol() which would TYPE the symbol into the
+    currently-active chart, OVERWRITING that chart's symbol. That was
+    destructive - an agent calling ensure_chart("USDJPY") could
+    silently destroy a EURUSD chart the user wanted to keep. The new
+    behavior preserves existing charts.
+
+    If `chart_id` is given, the activate-existing branch is forced
+    (the caller is naming a specific MDI child to operate on). The
+    new-chart branch is skipped because a chart_id implies the chart
+    already exists.
+    """
     normalized_timeframe = None
     if timeframe and str(timeframe).lower() not in {"none", "off", "false"}:
         try:
@@ -794,6 +814,49 @@ def ensure_chart(
         except ValueError as exc:
             return fail("CHART_INVALID_TIMEFRAME", str(exc))
 
+    # Decide which branch: activate-existing vs open-new.
+    # When chart_id is supplied, the caller has named a specific MDI
+    # child - treat that as "use existing", skip the lookup.
+    should_open_new = False
+    if chart_id is None:
+        match = find_window(window_substring)
+        if match:
+            try:
+                existing_charts = enumerate_chart_children(match.hwnd)
+            except Exception:  # noqa: BLE001
+                existing_charts = []
+            symbol_upper = symbol_name.upper()
+            already_exists = any(
+                c.symbol and c.symbol.upper() == symbol_upper
+                for c in existing_charts
+            )
+            should_open_new = not already_exists
+
+    if should_open_new:
+        # Lazy import to avoid the chart.py <-> new_chart.py cycle.
+        from mt5_cli.chart.new_chart import new_chart  # noqa: PLC0415
+        new_result = new_chart(
+            symbol_name,
+            timeframe=normalized_timeframe,
+            window_substring=window_substring,
+            settle_seconds=settle_seconds,
+        )
+        if not new_result.get("ok"):
+            return new_result
+        # new_chart's envelope already contains symbol + timeframe + hwnd
+        # in the shape ensure_chart promises.
+        return ok({
+            "symbol": symbol_name.upper(),
+            "timeframe": normalized_timeframe,
+            "title": new_result.get("data", {}).get("menu_path"),
+            "hwnd": new_result.get("data", {}).get("hwnd"),
+            "parent_hwnd": new_result.get("data", {}).get("parent_hwnd"),
+            "activated_existing": False,
+            "opened_new": True,
+        })
+
+    # Activate-existing branch (chart_id supplied OR a chart already
+    # exists for this symbol).
     symbol_result = symbol(
         symbol_name,
         window_substring=window_substring,
@@ -833,4 +896,183 @@ def ensure_chart(
         "hwnd": title_result.get("data", {}).get("hwnd", symbol_result.get("data", {}).get("hwnd")),
         "parent_hwnd": title_result.get("data", {}).get("parent_hwnd"),
         "activated_existing": bool(symbol_result.get("data", {}).get("activated_existing")),
+        "opened_new": False,
+    })
+
+
+# ---------------------------------------------------------------------------
+# cycle_chart — sugar over list_charts + activate_chart (next/prev)
+# ---------------------------------------------------------------------------
+
+
+def cycle_chart(
+    direction: str = "next",
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.1,
+) -> dict:
+    """Activate the next (or previous) chart in MDI tab order.
+
+    Equivalent to clicking the next chart tab at the bottom of the MT5
+    window. Wraps around: from the last chart, "next" returns to the
+    first; from the first chart, "prev" returns to the last.
+
+    Args:
+        direction: "next" or "prev" (case-insensitive).
+        window_substring: MT5 window matcher (default "MT5").
+        settle_seconds: Delay after WM_MDIACTIVATE before returning.
+
+    Returns ok({hwnd, title, symbol, timeframe, parent_hwnd, direction,
+    cycled_from}) or fail envelope:
+        CHART_INVALID_DIRECTION    direction not in {"next", "prev"}
+        CHART_WINDOW_NOT_FOUND     no MT5 top-level window matched
+        CHART_NO_CHARTS_OPEN       zero chart children to cycle through
+        CHART_ONLY_ONE_OPEN        single chart - cycling is a no-op
+    """
+    direction_lower = direction.lower()
+    if direction_lower not in {"next", "prev"}:
+        return fail(
+            "CHART_INVALID_DIRECTION",
+            f"direction must be 'next' or 'prev', got {direction!r}.",
+        )
+
+    match = find_window(window_substring)
+    if not match:
+        return fail(
+            "CHART_WINDOW_NOT_FOUND",
+            f"No MT5 window matched {window_substring!r}.",
+        )
+
+    try:
+        charts = enumerate_chart_children(match.hwnd)
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            "CHART_WINDOW_NOT_FOUND",
+            f"Could not enumerate chart children: {exc!r}",
+        )
+
+    if not charts:
+        return fail(
+            "CHART_NO_CHARTS_OPEN",
+            "No MT5 chart windows are open. Use chart.new_chart(symbol) "
+            "to open one before cycling.",
+        )
+    if len(charts) == 1:
+        return fail(
+            "CHART_ONLY_ONE_OPEN",
+            "Only one chart is open; cycling is a no-op. Open additional "
+            "charts via chart.new_chart(...) first.",
+        )
+
+    # Find the currently-active chart's index in the MDI order.
+    active_index = None
+    for i, chart_window in enumerate(charts):
+        if chart_window.active:
+            active_index = i
+            break
+    if active_index is None:
+        # No chart is marked active - default to index 0 so "next" goes
+        # to index 1 and "prev" wraps to the last chart.
+        active_index = 0
+
+    n = len(charts)
+    if direction_lower == "next":
+        target_index = (active_index + 1) % n
+    else:
+        target_index = (active_index - 1) % n
+
+    target = charts[target_index]
+    activate_chart(target.hwnd, match.hwnd, settle_seconds=settle_seconds)
+
+    return ok({
+        "hwnd": target.hwnd,
+        "title": target.title,
+        "symbol": target.symbol,
+        "timeframe": target.timeframe,
+        "parent_hwnd": match.hwnd,
+        "direction": direction_lower,
+        "cycled_from": charts[active_index].hwnd,
+    })
+
+
+# ---------------------------------------------------------------------------
+# close_chart — WM_CLOSE on a chart child window
+# ---------------------------------------------------------------------------
+
+
+def close_chart(
+    chart_id: int,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Close an MT5 chart by posting WM_CLOSE to its child HWND.
+
+    Args:
+        chart_id: The MDI child HWND of the chart to close (from
+            list_charts() or any function returning chart_id).
+        window_substring: MT5 window matcher (default "MT5").
+        settle_seconds: Delay before verifying the chart is gone.
+
+    Returns ok({hwnd, parent_hwnd, closed=True}) on success, or:
+        CHART_WINDOW_NOT_FOUND      no MT5 top-level window matched
+        CHART_ID_NOT_FOUND          chart_id is not an MDI child of the
+                                    MT5 window (already closed, or wrong
+                                    parent)
+        CHART_CLOSE_VERIFY_FAILED   WM_CLOSE posted but the chart hwnd
+                                    is still present after settle (MT5
+                                    may have shown a confirmation dialog;
+                                    the agent should screenshot to check)
+
+    MT5 may show a "Save chart profile?" confirmation dialog when
+    closing the last chart of a profile. If that happens, the chart
+    won't actually close on its own. Callers can post Enter to confirm
+    or check the result via screenshot.take().
+    """
+    import win32gui  # noqa: PLC0415
+
+    match = find_window(window_substring)
+    if not match:
+        return fail(
+            "CHART_WINDOW_NOT_FOUND",
+            f"No MT5 window matched {window_substring!r}.",
+        )
+
+    # Verify the chart_id is currently an MDI child of this MT5 window.
+    try:
+        before_charts = enumerate_chart_children(match.hwnd)
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            "CHART_WINDOW_NOT_FOUND",
+            f"Could not enumerate chart children: {exc!r}",
+        )
+    before_hwnds = {c.hwnd for c in before_charts}
+    if chart_id not in before_hwnds:
+        return fail(
+            "CHART_ID_NOT_FOUND",
+            f"chart_id {chart_id} is not an open MDI child of the MT5 window. "
+            f"Detected charts: {_format_detected_charts(before_charts)}",
+        )
+
+    win32gui.PostMessage(chart_id, WM_CLOSE, 0, 0)
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+
+    # Verify the chart is actually gone (MT5 may have shown a save-profile
+    # confirmation dialog and kept the chart open).
+    try:
+        after_charts = enumerate_chart_children(match.hwnd)
+    except Exception:  # noqa: BLE001
+        after_charts = []
+    after_hwnds = {c.hwnd for c in after_charts}
+    if chart_id in after_hwnds:
+        return fail(
+            "CHART_CLOSE_VERIFY_FAILED",
+            f"Posted WM_CLOSE to chart_id {chart_id} but it is still open "
+            "after settle. MT5 may be showing a confirmation dialog; check "
+            "via screenshot.take() and dismiss manually.",
+        )
+
+    return ok({
+        "hwnd": chart_id,
+        "parent_hwnd": match.hwnd,
+        "closed": True,
     })
