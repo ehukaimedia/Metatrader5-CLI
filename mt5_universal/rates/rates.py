@@ -8,11 +8,12 @@ Pattern-ported from archive/legacy-mt5/core/rates.py with absolute imports
 from mt5_universal.bridge and ok()/fail() envelopes from mt5_universal.reports.
 
 Deliberate divergences from legacy:
-- ``_bar_to_dict`` and ``_tick_to_dict`` use attribute access (``row.time``)
-  rather than subscript (``row["time"]``). Real MT5 returns numpy structured
-  arrays which support both; MagicMock test doubles expose attributes only.
-  Attribute access is safe for both production NamedTuples/structured arrays
-  and test MagicMock objects.
+- ``_bar_to_dict`` and ``_tick_to_dict`` use subscript access (``row["time"]``)
+  because ``copy_rates_*`` and ``copy_ticks_*`` return numpy structured arrays
+  whose rows are ``numpy.void`` objects — subscript access only. Attribute
+  access (``row.time``) raises ``AttributeError`` on real MT5 data.
+  Distinct from ``copy_deals_*`` / ``market_book_get`` which return NamedTuples
+  and do support attribute access (see history.py, market.py).
 - Local ``_fail`` helper dropped; replaced with ``fail()`` from
   mt5_universal.reports (the new envelope API).
 - ``_TIMEFRAME_MAP`` values come from bridge re-exports (TIMEFRAME_M1 …
@@ -70,29 +71,34 @@ def _epoch_to_iso(epoch: int | float) -> str:
 def _bar_to_dict(row) -> dict:
     """Normalise an OHLCV bar to a plain dict with an ISO-8601 timestamp.
 
-    Uses attribute access (``row.time``) rather than subscript so the same
-    helper works with both real MT5 numpy structured-array rows (which support
-    both styles) and MagicMock test doubles (attributes only).
+    Uses subscript access (``row["time"]``) because ``copy_rates_*`` returns
+    numpy structured arrays whose rows are ``numpy.void`` objects — subscript
+    access only. Attribute access raises ``AttributeError`` on real MT5 data.
     """
     return {
-        "time":        _epoch_to_iso(row.time),
-        "open":        float(row.open),
-        "high":        float(row.high),
-        "low":         float(row.low),
-        "close":       float(row.close),
-        "tick_volume": int(row.tick_volume),
+        "time":        _epoch_to_iso(row["time"]),
+        "open":        float(row["open"]),
+        "high":        float(row["high"]),
+        "low":         float(row["low"]),
+        "close":       float(row["close"]),
+        "tick_volume": int(row["tick_volume"]),
     }
 
 
 def _tick_to_dict(row) -> dict:
-    """Normalise a tick to a plain dict with an ISO-8601 timestamp."""
+    """Normalise a tick to a plain dict with an ISO-8601 timestamp.
+
+    Uses subscript access (``row["time"]``) because ``copy_ticks_*`` returns
+    numpy structured arrays whose rows are ``numpy.void`` objects — subscript
+    access only. Attribute access raises ``AttributeError`` on real MT5 data.
+    """
     return {
-        "time":   _epoch_to_iso(row.time),
-        "bid":    float(row.bid),
-        "ask":    float(row.ask),
-        "last":   float(row.last),
-        "volume": int(row.volume),
-        "flags":  int(row.flags),
+        "time":   _epoch_to_iso(row["time"]),
+        "bid":    float(row["bid"]),
+        "ask":    float(row["ask"]),
+        "last":   float(row["last"]),
+        "volume": int(row["volume"]),
+        "flags":  int(row["flags"]),
     }
 
 

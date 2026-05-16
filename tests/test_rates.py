@@ -43,8 +43,8 @@ def mocked_mt5(monkeypatch):
 
 def _bar(time_epoch=1700000000, open_=150.0, high=150.1, low=149.9, close=150.05,
          tick_volume=100, spread=2, real_volume=0):
-    return MagicMock(time=time_epoch, open=open_, high=high, low=low, close=close,
-                     tick_volume=tick_volume, spread=spread, real_volume=real_volume)
+    return {"time": time_epoch, "open": open_, "high": high, "low": low, "close": close,
+            "tick_volume": tick_volume, "spread": spread, "real_volume": real_volume}
 
 
 def test_fetch_returns_envelope_with_bars(mocked_mt5):
@@ -107,7 +107,7 @@ def test_range_passes_datetime(mocked_mt5):
 def test_ticks_returns_envelope(mocked_mt5):
     mocked_mt5.symbol_select.return_value = True
     mocked_mt5.copy_ticks_from.return_value = [
-        MagicMock(time=1700000000, bid=150.0, ask=150.005, last=150.002, volume=10, time_msc=1700000000000, flags=2, volume_real=10.0),
+        {"time": 1700000000, "bid": 150.0, "ask": 150.005, "last": 150.002, "volume": 10, "flags": 2},
     ]
     from mt5_universal.rates import ticks
     env = ticks("USDJPY", 1)
