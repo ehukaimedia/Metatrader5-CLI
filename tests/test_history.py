@@ -1,6 +1,10 @@
 import sys
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 import pytest
+
+_FROM = datetime(2026, 1, 1, tzinfo=timezone.utc)
+_TO = datetime(2026, 1, 31, tzinfo=timezone.utc)
 
 
 @pytest.fixture
@@ -32,15 +36,17 @@ def mocked_mt5(monkeypatch):
 
 
 def _deal(ticket=1, time_epoch=1700000000, symbol="USDJPY", type_=0, volume=0.1,
-          price=150.0, profit=10.0, magic=88888, comment="test"):
+          price=150.0, profit=10.0, magic=88888, comment="test",
+          commission=0.0, swap=0.0, order=1001):
     return MagicMock(ticket=ticket, time=time_epoch, symbol=symbol, type=type_,
-                     volume=volume, price=price, profit=profit, magic=magic, comment=comment)
+                     volume=volume, price=price, profit=profit, magic=magic, comment=comment,
+                     commission=commission, swap=swap, order=order)
 
 
 def test_orders_returns_envelope(mocked_mt5):
     mocked_mt5.history_orders_get.return_value = []
     from mt5_universal.history import orders
-    env = orders(date_from="2026-01-01", date_to="2026-01-31")
+    env = orders(date_from=_FROM, date_to=_TO)
     assert env["ok"] is True
     assert isinstance(env["data"], list)
 
@@ -51,7 +57,7 @@ def test_deals_filters_by_symbol(mocked_mt5):
         _deal(symbol="EURUSD", profit=-5.0),
     ]
     from mt5_universal.history import deals
-    env = deals(date_from="2026-01-01", date_to="2026-01-31", symbol="USDJPY")
+    env = deals(date_from=_FROM, date_to=_TO, symbol="USDJPY")
     assert env["ok"] is True
     assert all(d["symbol"] == "USDJPY" for d in env["data"])
     assert len(env["data"]) == 1
@@ -65,7 +71,7 @@ def test_deals_filters_by_strategy_id_via_magic(mocked_mt5):
     ]
     cfg = {"strategy_ids": {"my_strategy": 162538}}
     from mt5_universal.history import deals
-    env = deals(date_from="2026-01-01", date_to="2026-01-31",
+    env = deals(date_from=_FROM, date_to=_TO,
                 strategy_id="my_strategy", cfg=cfg)
     assert env["ok"] is True
     assert len(env["data"]) == 1
@@ -75,7 +81,7 @@ def test_deals_filters_by_strategy_id_via_magic(mocked_mt5):
 def test_deals_iso_timestamps(mocked_mt5):
     mocked_mt5.history_deals_get.return_value = [_deal(time_epoch=1700000000)]
     from mt5_universal.history import deals
-    env = deals(date_from="2026-01-01", date_to="2026-01-31")
+    env = deals(date_from=_FROM, date_to=_TO)
     assert env["ok"] is True
     # 1700000000 epoch → 2023-11-14T22:13:20+00:00 (UTC)
     t = env["data"][0]["time"]
@@ -90,7 +96,7 @@ def test_stats_computes_win_rate_and_pf(mocked_mt5):
         _deal(profit=-5), _deal(profit=-5),
     ]
     from mt5_universal.history import stats
-    env = stats(date_from="2026-01-01", date_to="2026-01-31")
+    env = stats(date_from=_FROM, date_to=_TO)
     assert env["ok"] is True
     assert env["data"]["win_rate"] == 0.6
     assert env["data"]["profit_factor"] == 3.0
@@ -99,6 +105,23 @@ def test_stats_computes_win_rate_and_pf(mocked_mt5):
 def test_orders_fails_when_mt5_returns_none(mocked_mt5):
     mocked_mt5.history_orders_get.return_value = None
     from mt5_universal.history import orders
-    env = orders(date_from="2026-01-01", date_to="2026-01-31")
+    env = orders(date_from=_FROM, date_to=_TO)
     assert env["ok"] is False
     assert env["error"]["code"] == "MT5_CONNECTION_ERROR"
+
+
+def test_deal_envelope_includes_order_commission_swap(mocked_mt5):
+    """_deal_to_dict must include order, commission, and swap for Phase 5 net P&L."""
+    mocked_mt5.history_deals_get.return_value = [
+        _deal(ticket=42, order=1001, commission=-1.5, swap=-0.25, profit=10.0)
+    ]
+    from mt5_universal.history import deals
+    env = deals(date_from=_FROM, date_to=_TO)
+    assert env["ok"] is True
+    d = env["data"][0]
+    assert "order" in d
+    assert "commission" in d
+    assert "swap" in d
+    assert d["order"] == 1001
+    assert d["commission"] == -1.5
+    assert d["swap"] == -0.25

@@ -9,6 +9,7 @@ construction rewritten for mt5_universal.
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 
 from mt5_universal.bridge import mt5_call
@@ -32,8 +33,12 @@ def _resolve_magic(strategy_id: str | None, cfg: dict | None) -> int:
     - Does NOT log auto-derived magics (no _logged_strategy_ids tracking).
     - Checks `if strategy_id is None` for the fallback (vs legacy's `if strategy_id:` truthy
       check — semantically equivalent for None/non-None but differs on empty string "").
+
+    MT5_NO_DATA → MT5_CONNECTION_ERROR rename (intentional): mt5.history_*_get returning
+    None indicates a connection/terminal failure, not an empty result set. An empty result
+    returns an empty tuple, not None. The rename makes the error semantically correct so
+    2.3.E implementers do not silently revert it when the real risk module lands.
     """
-    import hashlib
     cfg = cfg or {}
     if strategy_id is None:
         return int(cfg.get("magic", 88888))
@@ -101,11 +106,14 @@ def _order_to_dict(order, cfg: dict | None) -> dict:
 def _deal_to_dict(deal) -> dict:
     return {
         "ticket": deal.ticket,
+        "order": deal.order,
         "symbol": deal.symbol,
         "type": _DEAL_TYPE_STR.get(deal.type, str(deal.type)),
         "volume": deal.volume,
         "price": deal.price,
         "profit": deal.profit,
+        "commission": deal.commission,
+        "swap": deal.swap,
         "time": _epoch_to_iso(deal.time),
         "magic": deal.magic,
     }
@@ -115,9 +123,10 @@ def _deal_to_dict(deal) -> dict:
 # orders
 # ---------------------------------------------------------------------------
 
+# date_from/date_to are datetime objects (UTC). CLI/MCP coerces user strings before this layer.
 def orders(
-    date_from,
-    date_to,
+    date_from: datetime,
+    date_to: datetime,
     symbol: str | None = None,
     strategy_id: str | None = None,
     cfg: dict | None = None,
@@ -150,8 +159,8 @@ def orders(
 # ---------------------------------------------------------------------------
 
 def deals(
-    date_from,
-    date_to,
+    date_from: datetime,
+    date_to: datetime,
     symbol: str | None = None,
     strategy_id: str | None = None,
     cfg: dict | None = None,
@@ -184,20 +193,16 @@ def deals(
 # ---------------------------------------------------------------------------
 
 def stats(
-    date_from,
-    date_to,
-    symbol: str | None = None,
+    date_from: datetime,
+    date_to: datetime,
     strategy_id: str | None = None,
     cfg: dict | None = None,
 ) -> dict:
     """Compute performance statistics for deals in [date_from, date_to].
 
-    Optionally scoped to one symbol and/or strategy_id (matched via resolved magic).
+    Optionally scoped to one strategy_id (matched via resolved magic).
     ``cfg`` is required when ``strategy_id`` is supplied.
     Returns zeros (not NaN) when there are no deals.
-
-    Note: ``symbol`` filter is not present in the legacy core/history.py; it is
-    added here to match the mt5_universal public API contract.
     """
     if strategy_id and cfg is None:
         return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
@@ -207,8 +212,6 @@ def stats(
         return fail("MT5_CONNECTION_ERROR", "history_deals_get returned None.")
 
     deal_list = sorted(raw, key=lambda d: d.time)
-    if symbol:
-        deal_list = [d for d in deal_list if d.symbol == symbol]
     if strategy_id:
         # TODO Task 2.3.E: replace _resolve_magic with `from mt5_universal.risk import resolve_magic`
         magic = _resolve_magic(strategy_id, cfg)
