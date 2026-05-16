@@ -25,6 +25,7 @@ These were settled during brainstorming (see spec §4). A reviewer flagging them
 | 6 | **Trading.com is the default `BrokerProfile`,** not removed and not hardcoded. | "Strip Trading.com defaults" — No. It's the user's actual broker and the MT5-native default. |
 | 7 | **Portability rails are mandatory** — no hardcoded user paths in `mt5_universal/`, `mt5/`, `mt5_mcp/`. CI-enforced. | "This is overkill for a single-user repo" — No. Explicit user constraint. |
 | 8 | **Existing `metatrader5_cli/mt5/skills/SKILL.md` is migrated, not replaced.** | "Phase 5 should rebuild SKILL.md from a CLI-Anything template" — No. The 11k-char manifest stays as the workflow narrative; only the command-group tables are auto-regenerated. |
+| 9 | **Tool, not workspace.** Repo ships only the tool (CLI, MCP server, library, MQL5 scaffold templates). No shipped EAs/indicators/strategy docs/backtest results. User dirs (`ea/`, `indicators/`, `presets/`, `results/`) are USER-side; the CLI discovers them in the user's CWD or config dir. Strategy-flavored history lives under `archive/legacy-docs/`. | "Ship example EAs / strategy plans / playgrounds with the repo so new users see how it works" — No. Examples and strategy docs live in user repos and external tutorials; this repo is the tool only. |
 
 ## 3. What feedback IS welcome
 

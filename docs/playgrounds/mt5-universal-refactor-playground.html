@@ -293,9 +293,9 @@ var NODES = {
   mql5_deployer:   {label:'mql5.deployer', sub:'copy to terminal Experts/ + Indicators/', x:380, y:160, w:290, h:40},
   mql5_discovery:  {label:'mql5.discovery', sub:'discover user .mq5 + .ex5 files',       x:690, y:160, w:260, h:40},
   mql5_templates:  {label:'mql5.scaffold', sub:'scaffold EAs/indicators from templates/*.mq5', x:970, y:160, w:240, h:40},
-  user_ea_dir:     {label:'ea/', sub:'user MQL5 EAs (auto-discovered)',                  x:80,  y:90, w:280, h:40},
-  user_ind_dir:    {label:'indicators/', sub:'user MQL5 indicators (auto-discovered)',   x:380, y:90, w:280, h:40},
-  user_presets:    {label:'presets/', sub:'tester .set files per strategy',              x:680, y:90, w:260, h:40},
+  user_ea_dir:     {label:'./ea/  (USER workspace)', sub:'user-side dir auto-discovered by mt5 from CWD or ~/.config/mt5-universal/ea/', x:80,  y:90, w:340, h:40},
+  user_ind_dir:    {label:'./indicators/  (USER workspace)', sub:'user-side dir auto-discovered by mt5 from CWD or ~/.config/mt5-universal/indicators/', x:440, y:90, w:380, h:40},
+  user_presets:    {label:'./presets/  (USER workspace)', sub:'user-side .set files for the tester', x:840, y:90, w:280, h:40},
 
   // Phase 4: Strategy Tester driver
   tester_ea:        {label:'tester.ea', sub:'single · optimize · genetic · forward · scanner · stress', x:80, y:430, w:430, h:42},
@@ -563,7 +563,7 @@ var PHASES = [
   {
     id:1, title:'Archive legacy', sub:'hard fork — move out',
     bannerTitle:'Phase 1 — Archive the domain-coupled layer',
-    bannerDesc:'Move every Ehukai/TDA-flavored module under archive/legacy-core/. Move the full MQL5 tree under archive/legacy-mql5/: Experts/ (AdaptiveTrailEA.mq5, EhukaiTDAEA.mq5), Hybrid_WPVS_MT5_Bundle/ with its .set presets, the Advanced_Wavelet_Entry_System/ (commit it first so the move is captured), Indicators/, and the WF_FractalPredictor zip. Stop importing the legacy modules from mt5_cli.py. The bridge, market, rates, orders, positions, account, history, risk primitives stay in place but get re-homed in Phase 2.',
+    bannerDesc:'Two sweeps. PRE-IMPLEMENTATION (done): archive every strategy-flavored doc — specs, plans, playgrounds, handoffs, skills, superpowers, root MT5.md, untracked wavelet/orderflow files, and the Advanced_Wavelet_Entry_System/ MQL5 dir — under archive/legacy-docs/ and archive/legacy-mql5/. PHASE 1 (this phase): move every Ehukai/TDA-flavored core module under archive/legacy-core/ and the rest of the MQL5 tree (Experts/, Hybrid_WPVS_MT5_Bundle/, Indicators/) under archive/legacy-mql5/. Stop importing the legacy modules from mt5_cli.py. The bridge, market, rates, orders, positions, account, history, risk primitives stay in place but get re-homed in Phase 2. Nothing strategy-flavored survives in the live tree.',
     pattern:[ tb('CLI-Anything pattern: clean agent-harness/ root. '), tk('In CLI-Anything every CLI lives under '), tc('agent-harness/cli_anything/<app>/'), tk(' with one clear root. We mirror that: '), tb('everything domain-specific moves to archive/'), tk(' so the new '), tc('mt5_universal/'), tk(' root has nothing competing with it. Your in-flight Advanced_Wavelet_Entry / Hybrid_WPVS sources are preserved as archived reference — you re-author them in Phase 3 as user-dir plugins.') ],
     capability:[ tb('Capability gained: '), tk('None yet — this is the empty-the-room step. The agent surface temporarily shrinks; it is restored in Phase 2.') ],
   },
@@ -575,11 +575,11 @@ var PHASES = [
     capability:[ tb('Capability gained: '), tk('Agents now have a clean neutral surface — '), tc('mt5_universal.market.info()'), tk(', '), tc('.rates.fetch()'), tk(', '), tc('.orders.market()'), tk('. Risk gate still enforced on every order call. Trading.com still works exactly as before; it is now the '), tb('default BrokerProfile'), tk(', not hardcoded.') ],
   },
   {
-    id:3, title:'MQL5 plugin host', sub:'ea/ + indicators/ user dirs',
-    bannerTitle:'Phase 3 — MQL5 plugin host (you author EAs and indicators)',
-    bannerDesc:'Add ea/ and indicators/ user dirs for MQL5 source. CLI scaffolds with mt5 ea new <name> / mt5 indicator new <name>. CLI compiles with mt5 ea compile <name> / mt5 indicator compile <name> (wraps metaeditor64.exe). CLI deploys with mt5 ea deploy <name> / mt5 indicator deploy <name> (copies .mq5 + .ex5 into terminal Experts/Indicators folders). Auto-discovery scans the dirs + ~/.config/mt5-universal/{ea,indicators}/.',
-    pattern:[ tb('CLI-Anything patterns: CLI-Hub registry + templates/ scaffolding + skill_generator. '), tk('CLI-Hub uses '), tc('pip install cli-anything-<app>'), tk(' with per-app entry points. We adapt this for in-repo plugins: '), tb('EAs and indicators auto-register from on-disk discovery'), tk('. '), tc('mt5 ea list / new / compile / deploy'), tk(' mirrors '), tc('cli-hub list / install'), tk('. Templates ship the boilerplate so an agent can author a working EA in one CLI command and one source-file edit.') ],
-    capability:[ tb('Capability gained: '), tk('Agents author MQL5 source. '), tc('mt5 ea new my_strategy --template scalper'), tk(' creates '), tc('ea/my_strategy.mq5'), tk(' from a template. '), tc('mt5 ea compile my_strategy'), tk(' runs MetaEditor. '), tc('mt5 ea deploy my_strategy'), tk(' copies into the terminal. Same flow for indicators (replace '), tc('ea'), tk(' with '), tc('indicator'), tk(').') ],
+    id:3, title:'MQL5 plugin host', sub:'tool reaches into user workspace',
+    bannerTitle:'Phase 3 — MQL5 plugin host (tool reaches into the USER\'s workspace)',
+    bannerDesc:'This repo ships ONLY the tool (compiler + deployer + discovery + scaffold templates). The ea/, indicators/, presets/ directories live in the USER\'s workspace (CWD where they run mt5, or ~/.config/mt5-universal/). mt5 ea new <name> scaffolds USER-side from packaged MQL5 templates. mt5 ea compile <name> wraps metaeditor64.exe to build .mq5 -> .ex5 in the USER\'s dir. mt5 ea deploy <name> copies into the terminal Experts/Indicators folders. Auto-discovery first-match scans: ./ea (CWD) -> ~/.config/mt5-universal/ea/.',
+    pattern:[ tb('CLI-Anything patterns: CLI-Hub registry + templates/ scaffolding + skill_generator. '), tk('CLI-Hub uses '), tc('pip install cli-anything-<app>'), tk(' with per-app entry points. We adapt: '), tb('the tool ships only the scaffold templates and the discovery/compile/deploy machinery; the user\'s EA source lives in their workspace, not this repo'), tk('. '), tc('mt5 ea list / new / compile / deploy'), tk(' mirrors '), tc('cli-hub list / install'), tk(' but operates over the user\'s workspace.') ],
+    capability:[ tb('Capability gained: '), tk('Agents author MQL5 in the USER\'s workspace. From the user\'s project dir: '), tc('mt5 ea new my_strategy --template scalper'), tk(' creates '), tc('./ea/my_strategy.mq5'), tk('. '), tc('mt5 ea compile my_strategy'), tk(' runs MetaEditor. '), tc('mt5 ea deploy my_strategy'), tk(' copies into the terminal. Same flow for indicators (replace '), tc('ea'), tk(' with '), tc('indicator'), tk('). Nothing about this work touches this repo.') ],
   },
   {
     id:4, title:'Strategy Tester driver', sub:'EA + indicator backtests',

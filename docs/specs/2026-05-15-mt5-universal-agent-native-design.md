@@ -35,6 +35,7 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 - Transpiling Python to MQL5 or wrapping MQL5 in a Python DSL. Authors write MQL5 directly.
 - Live multi-broker abstraction at the protocol level. Other brokers go through MT5 too; the broker layer just captures broker-quirk differences (filling mode, hedging, retcodes, rollover).
 - Rewriting any in-flight Ehukai / Wavelet / Hybrid-WPVS strategy. Those archive as-is and can be re-introduced as user-dir plugins later.
+- **Shipping any custom EA, indicator, strategy doc, backtest result, or workspace dir.** `metatrader5-cli` is a pip-installable tool that gives AI agents (and humans) hands to MT5. Users install via pip and operate `mt5` (CLI) or `mt5-mcp` (MCP server) **from their own external workspace** — they don't clone this repo or edit its code. The `ea/`, `indicators/`, `presets/`, `results/` discovery dirs live in the user's CWD or `~/.config/mt5-universal/`, **never in this repo**.
 
 ## 4. Locked decisions (from brainstorm)
 
