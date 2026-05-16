@@ -129,20 +129,22 @@ What actually lives at `metatrader5_cli/mt5/mql5/` today, all bound for `archive
 | `Experts/AdaptiveTrailEA.mq5` | ✅ | Trail EA (BE + Chandelier reference) |
 | `Experts/EhukaiTDAEA.mq5` | ✅ | TDA sniper EA |
 | `Hybrid_WPVS_MT5_Bundle/` | ✅ | Hybrid WPVS Diagnostic + Top3 Execution EAs + .set presets + README |
-| `Hybrid_WPVS_MT5_Bundle.zip` | ✅ | Snapshot zip of the bundle |
+| `Hybrid_WPVS_MT5_Bundle.zip` | ❌ ignored by `.gitignore: *.zip` | Snapshot zip on disk; not tracked |
 | `Advanced_Wavelet_Entry_System/` | ❌ untracked | In-flight wavelet research (commit before archive) |
-| `Advanced_Wavelet_Entry_System.zip` | ❌ untracked | Snapshot zip |
+| `Advanced_Wavelet_Entry_System.zip` | ❌ ignored by `.gitignore: *.zip` | Snapshot zip on disk; not tracked |
 | `Indicators/` | ✅ | Custom MT5 indicators |
-| `WF_FractalPredictor_MQ5_v1_10.zip` | ✅ | Fractal predictor zip |
+| `WF_FractalPredictor_MQ5_v1_10.zip` | ❌ ignored by `.gitignore: *.zip` | Snapshot zip on disk; not tracked |
 
-**Critical Phase 1 prerequisite:** the untracked Advanced Wavelet files must be committed *before* the archive move so the move is captured in git history.
+**Critical Phase 1 prerequisites:**
+1. The untracked Advanced Wavelet source dir must be committed *before* the archive move so the move is captured in git history.
+2. The three `.zip` snapshots are *not* in git history; Phase 1 may either drop them (recoverable from the directories) or `git add -f` them as part of the archive move if a frozen artifact is wanted. Default: drop.
 
 ### 6.3 Module boundary rules
 
 - `mt5_universal/bridge/mt5_backend.py` is the **only** module that imports `MetaTrader5`. CI test enforces this.
 - `mt5_universal/risk/` is called from `orders/` for **every** order call. CLI, MCP, plugin code, direct library import — all paths flow through it. Non-negotiable; preserved from [mt5-cli-spec.md](mt5-cli-spec.md) §1.
 - Plugins (user EAs/indicators) never import from `mt5/` (CLI) or `mt5_mcp/`. Read-only relationship.
-- `strategies/` and `indicators/` user dirs are searched in this order: repo root → `~/.config/mt5-universal/{ea,indicators}/` → installed entry points. First-match wins.
+- `ea/` and `indicators/` user dirs are searched in this order: repo root → `~/.config/mt5-universal/{ea,indicators}/` → installed entry points. First-match wins.
 
 ## 7. Strategy Tester contract (Phase 4)
 
@@ -218,8 +220,8 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - Remove `archive/` from `.gitignore` (currently excluded — would silently swallow the moved files).
 - `git mv` Ehukai/TDA-flavored core modules → `archive/legacy-core/`.
 - `git mv` the full `metatrader5_cli/mt5/mql5/` tree → `archive/legacy-mql5/`.
-- Strip the corresponding imports from `mt5_cli.py` (or quarantine the whole CLI behind a deprecation entry-point named `mt5-legacy` until Phase 5 takes over).
-- **Acceptance:** unit tests still green for the surviving modules; archived modules are reachable in git history but not imported.
+- Strip the corresponding imports from `mt5_cli.py`. Delete the now-orphaned commands directly — **no `mt5-legacy` compat shim, no quarantine entry point** (per the locked hard-fork rule). Tests that exercise archived modules either move with the modules into `archive/legacy-core/tests/` (kept as historical reference, not run by default) or are deleted.
+- **Acceptance:** unit tests still green for the surviving modules; archived modules are reachable in git history but not imported by any live module; no new entry points or compat shims introduced.
 
 ### Phase 2 — `mt5_universal/` skeleton
 - Create the submodule tree from §6.1.
@@ -248,7 +250,7 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - **Acceptance:** `mt5-mcp` runs as a stdio MCP server; `claude mcp add mt5 mt5-mcp` makes the tools visible to Claude Code; banner shows SKILL.md path.
 
 ### Phase 6 — Portability + tests + harness doc
-- `mt5_universal/config/paths.py` resolves `MT5_CONFIG`, `MT5_STRATEGIES_DIR`, `MT5_INDICATORS_DIR`, `MT5_CACHE_DIR`, `MT5_LOG_DIR` against XDG / APPDATA / HOME.
+- `mt5_universal/config/paths.py` resolves `MT5_CONFIG`, `MT5_EA_DIR`, `MT5_INDICATORS_DIR`, `MT5_PRESETS_DIR`, `MT5_RESULTS_DIR`, `MT5_CACHE_DIR`, `MT5_LOG_DIR` against XDG / APPDATA / HOME.
 - `tests/test_no_hardcoded_paths.py` greps `mt5_universal/`, `mt5/`, `mt5_mcp/` for `C:\Users\`, `/home/`, `/Users/`, hardcoded drive letters. Fails on any hit.
 - Full pytest pyramid: unit (mocked bridge) + tester smoke (gated on `MT5_DEMO_INTEGRATION=1`).
 - Write `MT5_HARNESS.md` documenting the 7-phase methodology for adding new commands or new EAs.

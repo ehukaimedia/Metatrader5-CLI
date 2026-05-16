@@ -39,4 +39,3 @@ Compared against: `master` at `4d26992`
 - `git diff --check master...HEAD` -> passed
 - Playwright `file://` smoke of `docs/playgrounds/mt5-universal-refactor-playground.html` -> no console errors; all seven phase buttons rendered non-empty node/edge sets; modal comment save updated the prompt; desktop screenshot looked usable.
 - Static security scan found no `innerHTML`, `insertAdjacentHTML`, `document.write`, or `eval`; comment and prompt rendering use `textContent` / explicit DOM nodes.
-
