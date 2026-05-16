@@ -38,6 +38,7 @@ from __future__ import annotations
 import collections
 import hashlib
 import logging
+import os
 import time
 from datetime import datetime, timezone
 
@@ -230,6 +231,7 @@ def check_order(
     volume: float,
     sl: float | None,
     tp: float | None = None,  # accepted for API forward-compat, not used in gates
+    entry_price: float | None = None,
     strategy_id: str | None = None,
     cfg: dict,
     is_live_intent: bool,
@@ -259,9 +261,16 @@ def check_order(
         Optional strategy identifier (max 31 chars).
     cfg:
         Effective configuration dict.
+    entry_price:
+        Optional expected execution price. For PENDING orders (limit /
+        stop), pass the order's trigger price so the SL-distance gate
+        is measured from the actual entry, not from the current ask
+        (which can be far from the trigger). When None, the current
+        symbol_info_tick.ask is used (correct for market orders).
     is_live_intent:
         Pass True only when the caller has confirmed live trading intent.
-        When False AND the account is REAL, Gate 2 blocks the order.
+        Combined with cfg["live"] and the MT5_LIVE env var, this forms
+        the preserved live-trading triple lock — see Guard 2.
     consume_rate_limit:
         When False the rate-limit window is still checked but no slot is
         consumed. Pass False from dry-run calls so they never reduce real
@@ -278,7 +287,13 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 2 — Live gate (legacy line 236–243)
+    # Guard 2 — Live trading triple lock (spec §9, preserved from legacy)
+    # When account is REAL, ALL THREE of these must be armed:
+    #   1. cfg["live"] is True
+    #   2. MT5_LIVE env var == "1"
+    #   3. is_live_intent=True (the CLI/library caller's --live proxy)
+    # Library is a first-class surface; the gate enforces all three here
+    # so direct mt5_cli.orders.place_market(...) calls cannot bypass.
     # ------------------------------------------------------------------
     account_info = mt5_call("account_info")
     if account_info is None:
@@ -286,11 +301,25 @@ def check_order(
             "RISK_INVALID_INPUT",
             "account_info unavailable — MT5 may be disconnected.",
         )
-    if not is_live_intent and account_info.trade_mode == ACCOUNT_TRADE_MODE_REAL:
-        return fail(
-            "RISK_LIVE_GATE_BLOCKED",
-            "This is a live (real-money) account. Pass --live to confirm intentional live trading.",
-        )
+    if account_info.trade_mode == ACCOUNT_TRADE_MODE_REAL:
+        if not is_live_intent:
+            return fail(
+                "RISK_LIVE_GATE_BLOCKED",
+                "This is a live (real-money) account. Pass is_live_intent=True "
+                "(--live on the CLI) to confirm intentional live trading.",
+            )
+        if not cfg.get("live"):
+            return fail(
+                "RISK_LIVE_GATE_BLOCKED",
+                'Live trading requires cfg["live"]=true. Set it in your config '
+                "file or pass overrides={'live': True} to load().",
+            )
+        if os.environ.get("MT5_LIVE") != "1":
+            return fail(
+                "RISK_LIVE_GATE_BLOCKED",
+                "Live trading requires MT5_LIVE=1 in the environment. Export "
+                "MT5_LIVE=1 (or set it in your shell profile) to arm live trading.",
+            )
 
     # ------------------------------------------------------------------
     # Guard 3 — Symbol allowlist (legacy line 248–250)
@@ -332,9 +361,13 @@ def check_order(
             "RISK_INVALID_INPUT",
             "Symbol info unavailable or point size is zero.",
         )
-    entry_price = tick.ask  # spec: use ask for both sides
+    # For market orders (entry_price=None), use the current ask as the
+    # entry proxy. For pending orders (limit/stop), the caller passes the
+    # trigger price so SL distance is measured from the actual entry, not
+    # from the current ask (which can be far from the trigger).
+    sl_reference_price = entry_price if entry_price is not None else tick.ask
 
-    sl_distance_points = abs(entry_price - sl) / sym_info.point
+    sl_distance_points = abs(sl_reference_price - sl) / sym_info.point
     if sl_distance_points < cfg["min_sl_distance_points"]:
         return fail(
             "RISK_NO_STOP_LOSS",

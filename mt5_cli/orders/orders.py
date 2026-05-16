@@ -476,6 +476,7 @@ def place_limit(
         volume=volume,
         sl=sl,
         tp=tp,
+        entry_price=float(price),  # pending: measure SL from trigger, not ask
         strategy_id=strategy_id,
         cfg=cfg,
         is_live_intent=is_live_intent,
@@ -574,12 +575,16 @@ def dryrun(
     else:
         entry_price = float(price)
 
+    # Pending orders: SL distance is measured from the trigger price, not
+    # from the current ask. Market orders: let check_order default to ask.
+    risk_entry_price = float(price) if order_type_lower in {"limit", "stop"} else None
     risk_result = check_order(
         symbol=symbol,
         side=side,
         volume=volume,
         sl=sl,
         tp=tp,
+        entry_price=risk_entry_price,
         strategy_id=strategy_id,
         cfg=cfg,
         is_live_intent=is_live_intent,
@@ -784,6 +789,7 @@ def place_stop(
         volume=volume,
         sl=sl,
         tp=tp,
+        entry_price=float(price),  # pending: measure SL from trigger, not ask
         strategy_id=strategy_id,
         cfg=cfg,
         is_live_intent=is_live_intent,

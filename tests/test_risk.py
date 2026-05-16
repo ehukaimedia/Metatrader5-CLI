@@ -258,18 +258,69 @@ class TestCheckOrderGates:
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
 
-    def test_check_order_gate_live_passes_when_intent_true(self, mocked_mt5):
-        """Gate 2: REAL account + is_live_intent=True → gate passes (no live block)."""
+    def test_check_order_gate_live_passes_when_triple_lock_armed(self, mocked_mt5, monkeypatch):
+        """Gate 2 triple lock: REAL + is_live_intent=True + cfg['live']=True +
+        MT5_LIVE=1 → gate passes. All three must be armed."""
         self._setup_happy_path(mocked_mt5)
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        monkeypatch.setenv("MT5_LIVE", "1")
         from mt5_cli.risk.risk import check_order, _reset_rate_limiter
         _reset_rate_limiter()
         result = check_order(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0990, strategy_id=None,
-            cfg=_cfg(), is_live_intent=True,  # True → passes gate 2
+            cfg=_cfg(live=True), is_live_intent=True,  # all three armed
         )
-        # Should not fail on gate 2 specifically (may pass or fail a later gate)
+        if not result["ok"]:
+            assert result["error"]["code"] != "RISK_LIVE_GATE_BLOCKED"
+
+    def test_check_order_gate_live_blocked_when_cfg_live_false(self, mocked_mt5, monkeypatch):
+        """Gate 2 triple lock: REAL + is_live_intent=True + MT5_LIVE=1 +
+        cfg['live']=False → BLOCKS. cfg["live"] must also be armed."""
+        self._setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        monkeypatch.setenv("MT5_LIVE", "1")
+        from mt5_cli.risk.risk import check_order, _reset_rate_limiter
+        _reset_rate_limiter()
+        result = check_order(
+            symbol="EURUSD", side="buy", volume=0.1,
+            sl=1.0990, strategy_id=None,
+            cfg=_cfg(live=False), is_live_intent=True,  # cfg["live"] not armed
+        )
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        assert 'cfg["live"]' in result["error"]["message"]
+
+    def test_check_order_gate_live_blocked_when_env_unset(self, mocked_mt5, monkeypatch):
+        """Gate 2 triple lock: REAL + is_live_intent=True + cfg['live']=True +
+        MT5_LIVE unset → BLOCKS. MT5_LIVE=1 env must also be armed."""
+        self._setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        from mt5_cli.risk.risk import check_order, _reset_rate_limiter
+        _reset_rate_limiter()
+        result = check_order(
+            symbol="EURUSD", side="buy", volume=0.1,
+            sl=1.0990, strategy_id=None,
+            cfg=_cfg(live=True), is_live_intent=True,  # env not armed
+        )
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        assert "MT5_LIVE" in result["error"]["message"]
+
+    def test_check_order_gate_live_demo_passes_regardless(self, mocked_mt5, monkeypatch):
+        """Gate 2 triple lock is REAL-account-only. DEMO passes with no arming."""
+        self._setup_happy_path(mocked_mt5)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=0)  # DEMO
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        from mt5_cli.risk.risk import check_order, _reset_rate_limiter
+        _reset_rate_limiter()
+        result = check_order(
+            symbol="EURUSD", side="buy", volume=0.1,
+            sl=1.0990, strategy_id=None,
+            cfg=_cfg(live=False), is_live_intent=False,  # nothing armed
+        )
+        # DEMO accounts bypass the triple lock entirely
         if not result["ok"]:
             assert result["error"]["code"] != "RISK_LIVE_GATE_BLOCKED"
 
@@ -314,6 +365,7 @@ class TestCheckOrderGates:
 
     def test_check_order_gate_sl_distance(self, mocked_mt5):
         """Gate 5b: SL too close to entry → RISK_NO_STOP_LOSS (distance variant).
+        Market order (entry_price=None): uses tick.ask as the reference price.
         ask=1.1001, sl=1.10009, distance=0.1 pts < min_sl_distance_points=5.
         """
         self._setup_happy_path(mocked_mt5)
@@ -329,6 +381,55 @@ class TestCheckOrderGates:
         )
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_NO_STOP_LOSS"
+
+    def test_check_order_gate_sl_distance_pending_measures_from_trigger(self, mocked_mt5):
+        """Gate 5b for PENDING orders: SL distance is measured from the
+        caller-provided entry_price (trigger), NOT from current ask.
+
+        This is the exact Codex P1 #2 case: a far-away pending order whose
+        SL is close to the trigger but far from the ask.
+
+        ask=1.1001 (current market), entry_price=1.2000 (limit trigger far
+        above), sl=1.19995. SL-to-trigger distance = 0.5 pts < min 5,
+        but SL-to-ask distance = 996.5 pts > min 5.
+
+        Pre-fix: gate would compute from ask (996.5 pts) and PASS.
+        Post-fix: gate computes from trigger (0.5 pts) and BLOCKS.
+        """
+        self._setup_happy_path(mocked_mt5)
+        mocked_mt5.symbol_info_tick.return_value = _tick(bid=1.1000, ask=1.1001)
+        mocked_mt5.symbol_info.return_value = _sym_info(point=0.0001)
+        from mt5_cli.risk.risk import check_order, _reset_rate_limiter
+        _reset_rate_limiter()
+        result = check_order(
+            symbol="EURUSD", side="buy", volume=0.1,
+            sl=1.19995,         # 0.5 pts below the trigger
+            entry_price=1.2000, # pending trigger price (far above current ask)
+            strategy_id=None,
+            cfg=_cfg(min_sl_distance_points=5), is_live_intent=False,
+        )
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_NO_STOP_LOSS"
+
+    def test_check_order_gate_sl_distance_pending_passes_when_far(self, mocked_mt5):
+        """Gate 5b for PENDING orders: SL far from trigger passes even
+        when current ask is much closer or farther than the trigger.
+        """
+        self._setup_happy_path(mocked_mt5)
+        mocked_mt5.symbol_info_tick.return_value = _tick(bid=1.1000, ask=1.1001)
+        mocked_mt5.symbol_info.return_value = _sym_info(point=0.0001)
+        from mt5_cli.risk.risk import check_order, _reset_rate_limiter
+        _reset_rate_limiter()
+        result = check_order(
+            symbol="EURUSD", side="buy", volume=0.1,
+            sl=1.1900,           # 100 pts below the trigger
+            entry_price=1.2000,  # pending trigger
+            strategy_id=None,
+            cfg=_cfg(min_sl_distance_points=5), is_live_intent=False,
+        )
+        # Should not fail on SL distance specifically
+        if not result["ok"]:
+            assert result["error"]["code"] != "RISK_NO_STOP_LOSS"
 
     def test_check_order_gate_spread(self, mocked_mt5):
         """Gate 6: spread > max_spread_points → RISK_SPREAD_TOO_WIDE."""
