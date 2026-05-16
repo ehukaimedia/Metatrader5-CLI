@@ -11,8 +11,14 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0a0c10;color:#d1
 .tag{background:#1f2937;color:#9ca3af;padding:2px 8px;border-radius:10px;font-size:11px}
 .tag.green{background:#064e3b;color:#a7f3d0}
 .tag.orange{background:#7c2d12;color:#fed7aa}
-#workspace{display:flex;flex:1;overflow:hidden}
+#workspace{display:flex;flex:1;overflow:hidden;min-width:0}
 #sidebar{width:310px;background:#0e1117;border-right:1px solid #1f2937;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+@media (max-width:900px){
+  #workspace{flex-direction:column}
+  #sidebar{width:100%;max-height:42vh;border-right:none;border-bottom:1px solid #1f2937}
+  #legend{display:none}
+  #phase-banner{max-width:calc(100vw - 28px)}
+}
 #sidebar-inner{flex:1;overflow-y:auto;padding:14px}
 #sidebar-inner::-webkit-scrollbar{width:4px}
 #sidebar-inner::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
@@ -236,7 +242,7 @@ var NODES = {
   legacy_mfe:     {label:'core/mfe',         sub:'core/mfe.py',                          x:610, y:170, w:140, h:42},
   legacy_tester:  {label:'core/tester',      sub:'core/tester.py · hardcodes EhukaiTDA/AdaptiveTrail', x:760, y:170, w:330, h:42},
   legacy_ea:      {label:'core/ea',          sub:'core/ea.py · vendor EA controls',      x:1100, y:170, w:170, h:42},
-  legacy_mql5:    {label:'mql5/Experts/*.mq5', sub:'AdaptiveTrailEA + EhukaiTDAEA + Advanced_Wavelet_Entry + Hybrid_WPVS', x:80,  y:230, w:600, h:42},
+  legacy_mql5:    {label:'mql5/ MQL5 assets', sub:'Experts/ (AdaptiveTrailEA, EhukaiTDAEA) + Hybrid_WPVS_MT5_Bundle/ + Advanced_Wavelet_Entry_System/ (untracked) + Indicators/ + WF_FractalPredictor zip', x:80,  y:230, w:830, h:42},
   legacy_market:  {label:'core/market',      sub:'core/market.py',                       x:320, y:290, w:130, h:38},
   legacy_rates:   {label:'core/rates',       sub:'core/rates.py',                        x:460, y:290, w:130, h:38},
   legacy_ind:     {label:'core/indicator',   sub:'core/indicator.py',                    x:600, y:290, w:150, h:38},
@@ -535,14 +541,14 @@ var PHASES = [
   {
     id:0, title:'Current state', sub:'where we are today',
     bannerTitle:'Phase 0 — Current state (the starting point)',
-    bannerDesc:'Monolithic mt5_cli.py (1869 LOC) wired to a domain-coupled core/. Ehukai / TDA / sniper / wavelet semantics baked into "agnostic" modules. core/tester.py only knows EhukaiTDAEA + AdaptiveTrailEA. mql5/Experts/ ships your Advanced_Wavelet_Entry and Hybrid_WPVS source. One downstream consumer (adaptive-forex-mt5/) shells out via subprocess.',
+    bannerDesc:'Monolithic mt5_cli.py (1869 LOC) wired to a domain-coupled core/. Ehukai / TDA / sniper / wavelet semantics baked into "agnostic" modules. core/tester.py only knows EhukaiTDAEA + AdaptiveTrailEA. MQL5 assets are split: Experts/ holds AdaptiveTrailEA.mq5 + EhukaiTDAEA.mq5; Hybrid_WPVS lives under mql5/Hybrid_WPVS_MT5_Bundle/; Advanced_Wavelet_Entry_System/ is on disk but untracked. The downstream adaptive-forex-mt5/ consumer has been moved to its own repo.',
     pattern:[ tk('No CLI-Anything pattern applied yet — this is the starting state. The Ehukai/TDA semantics are tangled into '), tc('core/'), tk(': '), tc('analyze.py'), tk(' is 1098 LOC, '), tc('ehukai.py'), tk(' is 944 LOC, '), tc('tda_manifest.py'), tk(' exists, '), tc('tester.py'), tk(' only knows two specific EAs. An agent cannot "use MT5 generally" without inheriting all of this domain code.') ],
-    capability:[ tb('Agent capability today: '), tk('Agent can shell out '), tc('mt5 --json ...'), tk(' but is locked into the Ehukai/TDA workflow. Cannot author a new EA without editing '), tc('core/tester.py'), tk('. No '), tc('SKILL.md'), tk(' manifest, no MCP server, no scaffolding.') ],
+    capability:[ tb('Agent capability today: '), tk('Agent can shell out '), tc('mt5 --json ...'), tk(' but is locked into the Ehukai/TDA workflow. Cannot author a new EA without editing '), tc('core/tester.py'), tk('. There is already a '), tc('metatrader5_cli/mt5/skills/SKILL.md'), tk(' (pre-trade workflow + risk gates + JSON envelope contract), but no MCP server, no scaffolding, and the manifest is hand-maintained.') ],
   },
   {
     id:1, title:'Archive legacy', sub:'hard fork — move out',
     bannerTitle:'Phase 1 — Archive the domain-coupled layer',
-    bannerDesc:'Move every Ehukai/TDA-flavored module under archive/legacy-core/. Move mql5/Experts/* (AdaptiveTrailEA, EhukaiTDAEA, Advanced_Wavelet_Entry, Hybrid_WPVS) under archive/legacy-mql5/. Stop importing them from mt5_cli.py. The bridge, market, rates, orders, positions, account, history, risk primitives stay in place but get re-homed in Phase 2.',
+    bannerDesc:'Move every Ehukai/TDA-flavored module under archive/legacy-core/. Move the full MQL5 tree under archive/legacy-mql5/: Experts/ (AdaptiveTrailEA.mq5, EhukaiTDAEA.mq5), Hybrid_WPVS_MT5_Bundle/ with its .set presets, the Advanced_Wavelet_Entry_System/ (commit it first so the move is captured), Indicators/, and the WF_FractalPredictor zip. Stop importing the legacy modules from mt5_cli.py. The bridge, market, rates, orders, positions, account, history, risk primitives stay in place but get re-homed in Phase 2.',
     pattern:[ tb('CLI-Anything pattern: clean agent-harness/ root. '), tk('In CLI-Anything every CLI lives under '), tc('agent-harness/cli_anything/<app>/'), tk(' with one clear root. We mirror that: '), tb('everything domain-specific moves to archive/'), tk(' so the new '), tc('mt5_universal/'), tk(' root has nothing competing with it. Your in-flight Advanced_Wavelet_Entry / Hybrid_WPVS sources are preserved as archived reference — you re-author them in Phase 3 as user-dir plugins.') ],
     capability:[ tb('Capability gained: '), tk('None yet — this is the empty-the-room step. The agent surface temporarily shrinks; it is restored in Phase 2.') ],
   },
@@ -570,8 +576,8 @@ var PHASES = [
   {
     id:5, title:'Agent surface', sub:'SKILL.md + MCP + ReplSkin',
     bannerTitle:'Phase 5 — Agent surface: SKILL.md, MCP server, ReplSkin',
-    bannerDesc:'Add mt5_universal/skills/SKILL.md (agent-discoverable manifest with For AI Agents usage protocol). Add mt5_mcp/server.py (FastMCP exposing the library as MCP tools). Upgrade ReplSkin to the CLI-Anything pattern so the banner prints the absolute SKILL.md path. Add skill_generator.py that introspects the Click tree and regenerates SKILL.md so it never drifts.',
-    pattern:[ tb('Four CLI-Anything cherry-picks here: '), tk('(1) '), tc('skills/SKILL.md'), tk(' template with YAML frontmatter, command-group tables, examples, "For AI Agents" usage protocol. (2) '), tc('ReplSkin'), tk(' with banner that auto-prints the SKILL.md absolute path so agents can read it. (3) '), tc('skill_generator.py'), tk(' introspects Click groups and regenerates SKILL.md — single source of truth. (4) '), tc('mcp-backend.md'), tk(' guide, inverted: instead of consuming an MCP backend, we publish the universal core as an MCP server.') ],
+    bannerDesc:'Migrate the existing metatrader5_cli/mt5/skills/SKILL.md (pre-trade workflow + risk gates + JSON envelope contract) into mt5_universal/skills/SKILL.md and add YAML frontmatter to make it agent-discoverable. Add mt5_mcp/server.py (FastMCP exposing the library as MCP tools). Upgrade ReplSkin to the CLI-Anything pattern so the banner prints the absolute SKILL.md path. Add skill_generator.py that introspects the Click tree and regenerates the command-group tables so they never drift; the curated workflow narrative stays hand-edited.',
+    pattern:[ tb('Four CLI-Anything cherry-picks here: '), tk('(1) '), tc('skills/SKILL.md'), tk(' template with YAML frontmatter, command-group tables, examples, "For AI Agents" usage protocol — applied to the existing 11k-char manifest, not built from scratch. (2) '), tc('ReplSkin'), tk(' with banner that auto-prints the SKILL.md absolute path so agents can read it. (3) '), tc('skill_generator.py'), tk(' introspects Click groups and regenerates the command-group tables — single source of truth for that section. (4) '), tc('mcp-backend.md'), tk(' guide, inverted: instead of consuming an MCP backend, we publish the universal core as an MCP server.') ],
     capability:[ tb('Agents have hands. '), tk('Claude Code / Cursor / Claude Desktop discover MT5 tools via MCP with typed schemas — no subprocess overhead. Shell-based agents still get '), tc('mt5 --json ...'), tk(' with SKILL.md describing every command group. '), tc('mt5 ea new'), tk(' and '), tc('mt5 indicator new'), tk(' let an agent author and register MQL5 in one turn, then test it via '), tc('mt5 tester ea single ...'), tk('.') ],
   },
   {
@@ -905,11 +911,29 @@ function updatePrompt() {
 }
 
 function copyPrompt() {
-  navigator.clipboard.writeText(document.getElementById('prompt-text').textContent).then(function(){
-    var fb = document.getElementById('copy-feedback');
-    fb.textContent = 'Copied!';
-    setTimeout(function(){ fb.textContent = ''; }, 1500);
-  });
+  var text = document.getElementById('prompt-text').textContent;
+  var fb = document.getElementById('copy-feedback');
+  function flash(msg, ok) {
+    fb.textContent = msg;
+    fb.style.color = ok ? '#34d399' : '#fbbf24';
+    setTimeout(function(){ fb.textContent = ''; }, 2200);
+  }
+  function fallbackSelect() {
+    var range = document.createRange();
+    range.selectNodeContents(document.getElementById('prompt-text'));
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    flash('Selected — press Ctrl+C / Cmd+C', false);
+  }
+  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+    fallbackSelect();
+    return;
+  }
+  navigator.clipboard.writeText(text).then(
+    function(){ flash('Copied!', true); },
+    function(){ fallbackSelect(); }
+  );
 }
 
 // ----- Phase switch --------------------------------------------------------
