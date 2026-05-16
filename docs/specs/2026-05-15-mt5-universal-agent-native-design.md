@@ -6,6 +6,7 @@
 | Branch | `mt5-universal` |
 | Status | Draft (brainstorm done, ready for review → plan) |
 | Companion | [docs/playgrounds/mt5-universal-refactor-playground.html](../playgrounds/mt5-universal-refactor-playground.html) |
+| **Reviewers — read first** | [2026-05-15-mt5-universal-review-context.md](2026-05-15-mt5-universal-review-context.md) (locked decisions, scope rules, what feedback is in/out of bounds) |
 | Supersedes (when shipped) | [docs/specs/mt5-cli-spec.md](mt5-cli-spec.md) (the v0.5 spec keeps as historical reference for the legacy core) |
 
 ## 1. Problem
