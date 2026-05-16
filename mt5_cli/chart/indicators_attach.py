@@ -22,10 +22,13 @@ Bridge isolation: this module never touches the MT5 SDK. Win32 only.
 """
 from __future__ import annotations
 
-import ctypes
 import time
-from ctypes import wintypes
 
+from mt5_cli.chart._menu import (
+    find_leaf_command_id,
+    find_submenu,
+    normalize_menu_text,
+)
 from mt5_cli.chart.chart import activate_chart, find_window
 from mt5_cli.reports import fail, ok
 
@@ -34,64 +37,12 @@ WM_COMMAND = 0x0111
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 VK_RETURN = 0x0D
-MF_BYPOSITION = 0x0400
 
 # The menu path to a user-deployed custom indicator. Names are
 # normalized (lowercased, '&' stripped, whitespace collapsed) before
 # comparison so accelerator-key prefixes and label variants do not
-# break the walk.
+# break the walk. See _menu.normalize_menu_text.
 _INDICATOR_MENU_PATH: tuple[str, ...] = ("insert", "indicators", "custom")
-
-
-def _normalize_menu_text(text: str) -> str:
-    """Lowercase, strip '&' accelerator markers, collapse whitespace,
-    and drop the shortcut text after the tab character."""
-    return " ".join(text.replace("&", "").split()).split("\t", 1)[0].strip().lower()
-
-
-def _menu_string(hmenu: int, index: int) -> str:
-    """Read a menu item's display text via GetMenuStringW (Win32 ctypes)."""
-    user32 = ctypes.windll.user32
-    buffer = ctypes.create_unicode_buffer(256)
-    user32.GetMenuStringW(
-        wintypes.HMENU(hmenu),
-        wintypes.UINT(index),
-        buffer,
-        ctypes.sizeof(buffer) // ctypes.sizeof(ctypes.c_wchar),
-        wintypes.UINT(MF_BYPOSITION),
-    )
-    return buffer.value
-
-
-def _find_submenu(parent_hmenu: int, name_lower: str):
-    """Return the submenu hmenu under `parent_hmenu` whose normalized
-    label exactly matches `name_lower`, or None if not found.
-
-    Exact match (not substring) is critical: substring would let "atr"
-    in a user indicator name match the built-in "ATR" first and post
-    the wrong WM_COMMAND.
-    """
-    import win32gui  # noqa: PLC0415 (lazy; mocked in tests via sys.modules)
-    count = win32gui.GetMenuItemCount(parent_hmenu)
-    for i in range(count):
-        if _normalize_menu_text(_menu_string(parent_hmenu, i)) == name_lower:
-            submenu = win32gui.GetSubMenu(parent_hmenu, i)
-            if submenu:
-                return submenu
-    return None
-
-
-def _find_leaf_command_id(parent_hmenu: int, leaf_name_lower: str):
-    """Return the WM_COMMAND id for a leaf menu item whose normalized
-    label exactly matches `leaf_name_lower`, or None if not found."""
-    import win32gui  # noqa: PLC0415
-    count = win32gui.GetMenuItemCount(parent_hmenu)
-    for i in range(count):
-        if _normalize_menu_text(_menu_string(parent_hmenu, i)) == leaf_name_lower:
-            command_id = win32gui.GetMenuItemID(parent_hmenu, i)
-            if command_id != -1:
-                return int(command_id)
-    return None
 
 
 def attach(
@@ -160,7 +111,7 @@ def attach(
     cursor = menu
     walked: list[str] = []
     for segment in _INDICATOR_MENU_PATH:
-        submenu = _find_submenu(cursor, segment)
+        submenu = find_submenu(cursor, segment)
         if submenu is None:
             return fail(
                 "CHART_MENU_PATH_NOT_FOUND",
@@ -171,8 +122,8 @@ def attach(
         walked.append(segment.title())
         cursor = submenu
 
-    leaf_lower = _normalize_menu_text(indicator_name)
-    command_id = _find_leaf_command_id(cursor, leaf_lower)
+    leaf_lower = normalize_menu_text(indicator_name)
+    command_id = find_leaf_command_id(cursor, leaf_lower)
     if command_id is None:
         return fail(
             "CHART_INDICATOR_NOT_FOUND",

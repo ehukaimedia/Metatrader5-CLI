@@ -876,6 +876,60 @@ at each path segment, not substring. Substring match would let `"atr"`
 in a user indicator name collide with the built-in `ATR` first and
 post the wrong `WM_COMMAND`.
 
+### Task 2.13: Open a new chart via File > New Chart menu poke
+
+**Status:** SHIPPED post-Phase-2. Added after user flagged the menu
+gap from screenshots of `File > New Chart > <symbol>` (favorites at
+top level + nested Forex/Indices/etc. category submenus).
+
+**Files:**
+- `mt5_cli/chart/_menu.py` (~80 LOC, EXTRACTED from
+  `indicators_attach.py` into a private shared helper module —
+  `normalize_menu_text`, `menu_string`, `find_submenu`,
+  `find_leaf_command_id`, `find_leaf_command_id_recursive`)
+- `mt5_cli/chart/new_chart.py` (~150 LOC, pure Win32)
+- `tests/test_chart_new_chart.py` (13 tests, fake menu tree with
+  top-level favorites + nested category submenus)
+- `mt5_cli/chart/indicators_attach.py` (refactored to import the
+  helpers from `_menu.py` instead of duplicating them)
+
+**Public surface:**
+
+```python
+def new_chart(
+    symbol: str,
+    *,
+    timeframe: str | None = None,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+) -> dict:
+    """Open a new MT5 chart for symbol via File > New Chart > <symbol>.
+    Optional timeframe arg switches TF on the new chart via switch_tf.
+    Returns ok({hwnd, symbol, timeframe, parent_hwnd, command_id, menu_path}).
+    """
+```
+
+Failure envelopes:
+- `CHART_WINDOW_NOT_FOUND` — no MT5 top-level window matched
+- `CHART_MENU_NOT_FOUND` — MT5 window has no menu bar
+- `CHART_MENU_PATH_NOT_FOUND` — File or New Chart submenu missing
+- `CHART_SYMBOL_NOT_FOUND_IN_MENU` — symbol absent from every New
+  Chart submenu (suggests adding to Market Watch first)
+- Partial success: chart opened but `switch_tf` failed — returns
+  `ok(...)` with a `tf_switch_warning` field carrying the TF error
+
+**hwnd identification:** snapshots the chart-children set before
+posting `WM_COMMAND`, then diffs after `settle_seconds` to find the
+newly-opened chart. Falls back to the newly-active chart if the diff
+fails (e.g., enumerate_chart_children raises).
+
+**Out of scope:**
+- `cycle_chart(direction)` — list_charts() + activate_chart(charts[next].hwnd)
+  already covers this; sugar wrapper is a follow-up if useful
+- `attach_ea(expert_name)` — symmetric Insert > Experts > <name> poke,
+  same pattern. Add when needed; not blocking.
+- `close_chart(hwnd)` — WM_CLOSE on the chart child. Trivial follow-up.
+
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
 **Files:**
@@ -1026,7 +1080,7 @@ any leak."
 
 ```bash
 python -c "from mt5_cli import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
+python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach, new_chart; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
 
 # Pin MT5_CONFIG to a non-existent path so the user's real config file
 # (if any) does not override DEFAULTS in this purity check.

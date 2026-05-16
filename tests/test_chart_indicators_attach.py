@@ -86,11 +86,13 @@ def fake_pywin32(monkeypatch):
 
     _install_fake_menus(monkeypatch, fake_win32gui=fake_gui)
 
-    # Replace _menu_string so tests don't hit ctypes/GetMenuStringW.
-    from mt5_cli.chart import indicators_attach
+    # Replace menu_string in the shared _menu module so tests don't hit
+    # ctypes/GetMenuStringW. Both indicators_attach and new_chart import
+    # from mt5_cli.chart._menu, so patching there covers both.
+    from mt5_cli.chart import _menu
     monkeypatch.setattr(
-        indicators_attach,
-        "_menu_string",
+        _menu,
+        "menu_string",
         lambda hmenu, index: _FAKE_MENU_TREE[hmenu][index][0],
     )
 
@@ -210,10 +212,10 @@ def test_attach_fails_when_indicators_submenu_missing(fake_pywin32, monkeypatch)
     broken_tree = dict(_FAKE_MENU_TREE)
     # Replace Insert's children: drop Indicators
     broken_tree[200] = [("Objects", 210, -1), ("Scripts", 220, -1)]
-    from mt5_cli.chart import indicators_attach
+    from mt5_cli.chart import _menu
     monkeypatch.setattr(
-        indicators_attach,
-        "_menu_string",
+        _menu,
+        "menu_string",
         lambda hmenu, index: broken_tree[hmenu][index][0],
     )
     fake_pywin32.GetMenuItemCount.side_effect = lambda h: len(broken_tree.get(h, []))
