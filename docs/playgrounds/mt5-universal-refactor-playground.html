@@ -284,7 +284,7 @@ var NODES = {
   univ_orders:    {label:'orders', sub:'mt5_universal/orders/',                          x:680, y:280, w:140, h:40},
   univ_positions: {label:'positions', sub:'mt5_universal/positions/',                    x:830, y:280, w:160, h:40},
   univ_risk:      {label:'risk', sub:'risk gate · every order passes through',           x:1000, y:280, w:200, h:40},
-  univ_indicators_py:{label:'indicators (python quicklook)', sub:'ema, atr, rsi, fvg, swing — ad-hoc agent queries', x:100, y:380, w:380, h:40},
+  univ_indicators_py:{label:'indicators (python quicklook)', sub:'ema, sma, rsi, atr, bbands — ad-hoc agent queries (fvg/swing stayed in archive)', x:100, y:380, w:380, h:40},
   univ_config:    {label:'config', sub:'4-layer resolution + portability',               x:500, y:380, w:170, h:40},
   univ_reports:   {label:'reports', sub:'JSON envelopes',                                x:690, y:380, w:160, h:40},
 
@@ -292,7 +292,7 @@ var NODES = {
   mql5_compiler:   {label:'mql5.compiler', sub:'metaeditor64.exe wrapper · .mq5 to .ex5', x:80, y:160, w:280, h:40},
   mql5_deployer:   {label:'mql5.deployer', sub:'copy to terminal Experts/ + Indicators/', x:380, y:160, w:290, h:40},
   mql5_discovery:  {label:'mql5.discovery', sub:'discover user .mq5 + .ex5 files',       x:690, y:160, w:260, h:40},
-  mql5_templates:  {label:'mql5.templates', sub:'EA + indicator scaffolding',            x:970, y:160, w:240, h:40},
+  mql5_templates:  {label:'mql5.scaffold', sub:'scaffold EAs/indicators from templates/*.mq5', x:970, y:160, w:240, h:40},
   user_ea_dir:     {label:'ea/', sub:'user MQL5 EAs (auto-discovered)',                  x:80,  y:90, w:280, h:40},
   user_ind_dir:    {label:'indicators/', sub:'user MQL5 indicators (auto-discovered)',   x:380, y:90, w:280, h:40},
   user_presets:    {label:'presets/', sub:'tester .set files per strategy',              x:680, y:90, w:260, h:40},
