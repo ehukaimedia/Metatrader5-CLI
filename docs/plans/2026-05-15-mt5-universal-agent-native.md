@@ -488,16 +488,18 @@ def test_defaults_when_nothing_overrides(clean_env, tmp_path, monkeypatch):
     assert cfg["live"] is False
     assert cfg["magic"] == 88888
     assert cfg["max_positions"] == 5
-    assert cfg["broker_profile"] == "trading_com"
+    # Single-broker scope: no broker_profile field. Task 2.5 merges
+    # TRADING_COM_DEFAULTS in; multi-broker is a later addition.
+    assert "broker_profile" not in cfg
 
 
 def test_file_overrides_defaults(clean_env, tmp_path, monkeypatch):
     cfg_path = tmp_path / "cfg.json"
-    cfg_path.write_text('{"max_positions": 7, "broker_profile": "generic_mt5"}')
+    cfg_path.write_text('{"max_positions": 7, "max_lot_per_order": 1.0}')
     monkeypatch.setenv("MT5_CONFIG", str(cfg_path))
     cfg = load()
     assert cfg["max_positions"] == 7
-    assert cfg["broker_profile"] == "generic_mt5"
+    assert cfg["max_lot_per_order"] == 1.0
 
 
 def test_env_overrides_file(clean_env, tmp_path, monkeypatch):
@@ -511,7 +513,8 @@ def test_env_overrides_file(clean_env, tmp_path, monkeypatch):
     assert cfg["server"] == "EnvServer"
 
 
-def test_overrides_arg_overrides_env(clean_env, monkeypatch):
+def test_overrides_arg_takes_highest_precedence(clean_env, tmp_path, monkeypatch):
+    monkeypatch.setenv("MT5_CONFIG", str(tmp_path / "missing.json"))
     monkeypatch.setenv("MT5_LOGIN", "22222")
     cfg = load(overrides={"login": 33333})
     assert cfg["login"] == 33333
@@ -541,7 +544,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULTS: dict[str, Any] = {
-    "broker_profile": "trading_com",
+    # NO broker_profile field — single-broker scope. Task 2.5 merges
+    # TRADING_COM_DEFAULTS in here; multi-broker is a later addition.
     "server": "Trading.comMarkets-MT5",
     "login": None,
     "password": None,
@@ -997,11 +1001,12 @@ any leak."
 
 ```bash
 python -c "from mt5_universal import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_universal.broker import get_profile; p = get_profile('trading_com'); print(p.name, p.preferred_filling)"
-python -c "from mt5_universal.config import load; cfg = load(); print(cfg['broker_profile'])"
+python -c "from mt5_universal.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"
 ```
 
-All three must print without ImportError.
+Both must print without ImportError. The second confirms Task 2.5's
+Trading.com merge landed (`filling='FOK'`, `rollover_utc_hour=22`) and that
+`retcode_help` is exported from the single-broker config surface.
 
 - [ ] **Step 2: Full suite green**
 

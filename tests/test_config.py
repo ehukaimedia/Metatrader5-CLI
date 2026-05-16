@@ -41,14 +41,16 @@ def test_env_overrides_file(clean_env, tmp_path, monkeypatch):
     assert cfg["server"] == "EnvServer"
 
 
-def test_overrides_arg_takes_highest_precedence(clean_env, monkeypatch):
+def test_overrides_arg_takes_highest_precedence(clean_env, tmp_path, monkeypatch):
+    monkeypatch.setenv("MT5_CONFIG", str(tmp_path / "missing.json"))
     monkeypatch.setenv("MT5_LOGIN", "22222")
     cfg = load(overrides={"login": 33333})
     assert cfg["login"] == 33333
 
 
-def test_overrides_None_is_skipped(clean_env, monkeypatch):
+def test_overrides_None_is_skipped(clean_env, tmp_path, monkeypatch):
     """overrides={'login': None} should NOT clobber the env-resolved value."""
+    monkeypatch.setenv("MT5_CONFIG", str(tmp_path / "missing.json"))
     monkeypatch.setenv("MT5_LOGIN", "22222")
     cfg = load(overrides={"login": None})
     assert cfg["login"] == 22222

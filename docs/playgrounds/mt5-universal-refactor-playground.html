@@ -328,7 +328,7 @@ var NODE_CLI = {
   univ_market: 'mt5 --json market info USDJPY',
   univ_orders: 'mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500',
   univ_risk: '# every order passes:\nrisk.check_order(symbol=symbol, side=side, volume=volume, sl=sl, cfg=cfg, is_live_intent=False)',
-  univ_broker_tc: '# config.json:\n{ "broker_profile": "trading_com" }',
+  univ_broker_tc: '# Trading.com is the only broker (single-broker scope).\n# Its defaults merge into config.DEFAULTS:\n#   filling=FOK, allow_hedging=False, rollover_utc_hour=22\n# Override per-call via config.json or MT5_* env vars.',
   mql5_compiler: 'mt5 ea compile my_strategy\nmt5 indicator compile my_signal',
   mql5_deployer: 'mt5 ea deploy my_strategy\nmt5 indicator deploy my_signal',
   mql5_templates: 'mt5 ea new my_strategy\nmt5 indicator new my_signal',
