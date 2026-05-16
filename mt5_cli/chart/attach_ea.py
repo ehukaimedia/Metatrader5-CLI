@@ -29,7 +29,12 @@ from mt5_cli.chart._menu import (
     find_submenu,
     normalize_menu_text,
 )
-from mt5_cli.chart.chart import activate_chart, find_window
+from mt5_cli.chart.chart import (
+    _format_detected_charts,
+    activate_chart,
+    enumerate_chart_children,
+    find_window,
+)
 from mt5_cli.reports import fail, ok
 
 # Win32 message constants (avoid pulling win32con at module-import time)
@@ -107,11 +112,35 @@ def attach_ea(
         )
 
     if chart_id is not None:
-        # Capture activate_chart()'s bool result. If it could not activate
-        # the requested chart (stale hwnd, wrong parent, MDIClient lookup
-        # failed) we MUST NOT post WM_COMMAND - the EA would attach to
-        # whichever chart happens to be active, which is the exact wrong-
-        # chart bug the explicit chart_id arg exists to prevent.
+        # Verify chart_id is actually an enumerated MDI chart child of
+        # this MT5 window BEFORE activating. MDIClient accepts
+        # SendMessage(WM_MDIACTIVATE, hwnd, 0) for ANY hwnd without
+        # checking parentage and returns success, which makes
+        # activate_chart's bool insufficient on its own - a stale or
+        # wrong-parent hwnd would pass the bool check, the post-activate
+        # WM_COMMAND would fire on the MT5 parent, and MT5 would attach
+        # the EA to whichever chart is actually active. That is the exact
+        # wrong-chart bug the explicit chart_id arg exists to prevent.
+        # Mirror close_chart's enumerate-then-verify pattern.
+        try:
+            chart_children = enumerate_chart_children(match.hwnd)
+        except Exception as exc:  # noqa: BLE001
+            return fail(
+                "CHART_ID_NOT_FOUND",
+                f"Could not enumerate MT5 chart children to verify "
+                f"chart_id {chart_id} before EA attach ({exc!r}). "
+                "Refusing to post the menu command.",
+            )
+        if chart_id not in {c.hwnd for c in chart_children}:
+            return fail(
+                "CHART_ID_NOT_FOUND",
+                f"chart_id {chart_id} is not an open MDI child of the "
+                f"matched MT5 window. Detected charts: "
+                f"{_format_detected_charts(chart_children)}",
+            )
+        # Even after enumeration confirms the hwnd, activate_chart can
+        # still fail at the Win32 layer (e.g., MDIClient SendMessage
+        # raises). Keep the bool check as a second gate.
         if not activate_chart(chart_id, match.hwnd, settle_seconds=0):
             return fail(
                 "CHART_ID_NOT_FOUND",

@@ -235,14 +235,23 @@ def test_attach_ea_fails_when_ea_not_found(fake_pywin32):
 
 
 def test_attach_ea_activates_chart_when_chart_id_given(fake_pywin32):
+    """Happy path: chart_id IS an enumerated MDI child of the MT5 window.
+    enumerate-then-activate succeeds; WM_MDIACTIVATE goes to MDIClient
+    (7777) with chart_id (5555) as wParam, and the EA menu command posts
+    to the MT5 main window."""
     def enum_children(parent, cb, _):
         if parent == 1000:
-            cb(7777, None)  # this hwnd will be the MDIClient
-
+            cb(7777, None)   # MDIClient (for WM_MDIACTIVATE routing)
+            cb(5555, None)   # the requested chart child
     fake_pywin32.EnumChildWindows.side_effect = enum_children
-    fake_pywin32.GetClassName.side_effect = (
-        lambda h: "MDIClient" if h == 7777 else "MetaQuotes::MetaTrader::Frame"
-    )
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        5555: "[EURUSD,M15]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        7777: "MDIClient",
+        5555: "AfxFrameOrView140s",
+    }.get(h, "MetaQuotes::MetaTrader::Frame")
 
     from mt5_cli.chart import attach_ea
     env = attach_ea("MyTrendEA", chart_id=5555, settle_seconds=0)
@@ -257,12 +266,77 @@ def test_attach_ea_activates_chart_when_chart_id_given(fake_pywin32):
     assert mdi_calls[0].args == (7777, 0x0222, 5555, 0)
 
 
+def test_attach_ea_fails_when_chart_id_not_an_enumerated_child(fake_pywin32):
+    """Stale or wrong-parent chart_id: MDIClient happily accepts
+    SendMessage(WM_MDIACTIVATE, hwnd, 0) for ANY hwnd without verifying
+    parentage and returns success, so activate_chart's bool alone is
+    not enough - the EA menu poke would still fire on the MT5 parent
+    and MT5 would attach the EA to whichever chart is actually active.
+    Must verify chart_id against enumerate_chart_children BEFORE
+    activating, and fail closed with CHART_ID_NOT_FOUND if absent.
+    Neither WM_MDIACTIVATE nor WM_COMMAND must fire."""
+    def enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(7777, None)   # MDIClient
+            cb(2000, None)   # the only real chart child
+    fake_pywin32.EnumChildWindows.side_effect = enum_children
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2000: "[EURUSD,M15]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        7777: "MDIClient",
+        2000: "AfxFrameOrView140s",
+    }.get(h, "MetaQuotes::MetaTrader::Frame")
+
+    from mt5_cli.chart import attach_ea
+    # 9999 is NOT an enumerated chart child
+    env = attach_ea("MyTrendEA", chart_id=9999, settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_ID_NOT_FOUND"
+    assert "9999" in env["error"]["message"]
+
+    # Neither WM_MDIACTIVATE (0x0222) nor WM_COMMAND (0x0111) must fire
+    mdi_calls = [
+        c for c in fake_pywin32.SendMessage.call_args_list
+        if c.args[1] == 0x0222
+    ]
+    wm_command_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0111
+    ]
+    assert not mdi_calls, (
+        "attach_ea sent WM_MDIACTIVATE for a non-child hwnd; should have "
+        "fail-closed at the enumerate-then-verify gate"
+    )
+    assert not wm_command_calls, (
+        "attach_ea posted WM_COMMAND for a non-child chart_id; the EA "
+        "would have attached to whatever chart is actually active"
+    )
+
+
 def test_attach_ea_fails_when_activate_chart_returns_false(fake_pywin32, monkeypatch):
-    """If activate_chart() returns False (stale hwnd, wrong parent), the
-    EA menu poke MUST NOT fire — otherwise MT5 attaches the EA to
-    whichever chart is currently active, which is the precise wrong-
-    chart bug the explicit chart_id arg exists to prevent. Must return
-    CHART_ID_NOT_FOUND with the requested chart_id in the message."""
+    """Second gate of the fail-closed contract: even after the
+    enumerate-then-verify check passes (chart_id IS a real MDI child),
+    activate_chart can still fail at the Win32 layer (MDIClient
+    SendMessage raises, MDIClient lookup hits an edge case). When that
+    happens we still MUST NOT post WM_COMMAND. Stub activate_chart to
+    return False on a verified child, assert fail envelope + no WM_COMMAND."""
+    # Setup: chart 9999 IS an enumerated MDI child of MT5 (1000).
+    def enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(7777, None)   # MDIClient
+            cb(9999, None)   # the requested chart child
+    fake_pywin32.EnumChildWindows.side_effect = enum_children
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        9999: "[EURUSD,M15]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        7777: "MDIClient",
+        9999: "AfxFrameOrView140s",
+    }.get(h, "MetaQuotes::MetaTrader::Frame")
+
     # The chart package's __init__ re-exports attach_ea as a function, so
     # `import mt5_cli.chart.attach_ea as alias` resolves to the function,
     # not the submodule. Reach the submodule via sys.modules and patch
