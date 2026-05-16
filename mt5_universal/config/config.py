@@ -39,8 +39,9 @@ DEFAULTS: dict[str, Any] = {
     "strategy_ids": {},
 
     # Trading.com broker-specific defaults (single-broker scope).
-    # The spread takes precedence over any literal key above with the
-    # same name (filling, allow_hedging) and adds rollover_utc_hour.
+    # The spread re-asserts allow_hedging=False (no-op merge), adds
+    # filling="FOK", and adds rollover_utc_hour=22. There is intentionally
+    # no literal "filling" key above; the broker policy is the only source.
     **TRADING_COM_DEFAULTS,
 }
 
