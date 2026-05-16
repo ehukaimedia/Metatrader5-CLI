@@ -3,13 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="metatrader5-cli",
     version="0.1.0",
-    packages=find_packages(),
-    package_data={
-        "metatrader5_cli.mt5": [
-            "mql5/Indicators/*.mq5",
-            "mql5/Experts/*.mq5",
-        ],
-    },
+    packages=find_packages(exclude=("archive", "archive.*", "tests", "tests.*")),
     install_requires=[
         "MetaTrader5>=5.0.45",
         "click>=8.0.0",
@@ -22,10 +16,9 @@ setup(
         "pygetwindow>=0.0.9",
         "pywin32>=306; platform_system=='Windows'",
     ],
-    entry_points={
-        "console_scripts": [
-            "mt5 = metatrader5_cli.mt5.mt5_cli:main",
-        ],
-    },
+    # Console scripts intentionally omitted until Phase 3 (`mt5 = mt5.cli:main`)
+    # and Phase 5 (`mt5-mcp = mt5_mcp.server:main`) wire them. The legacy
+    # `mt5 = metatrader5_cli.mt5.mt5_cli:main` entry point is removed because
+    # the metatrader5_cli/ package no longer exists in the live tree.
     python_requires=">=3.10",
 )
