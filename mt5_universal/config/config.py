@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .trading_com import TRADING_COM_DEFAULTS
+
 DEFAULTS: dict[str, Any] = {
     # Connection
     "server": "Trading.comMarkets-MT5",
@@ -16,11 +18,11 @@ DEFAULTS: dict[str, Any] = {
     "password": None,
     "live": False,
 
-    # Order placement defaults (Task 2.5 will add Trading.com-specific
-    # overrides via trading_com.TRADING_COM_DEFAULTS merged here)
+    # Order placement defaults - Trading.com-specific values from
+    # TRADING_COM_DEFAULTS (filling=FOK, allow_hedging=False,
+    # rollover_utc_hour=22) are merged in at the end of this dict.
     "magic": 88888,
     "deviation": 20,
-    "filling": "auto",   # _resolve_filling translates "auto" to FOK for Trading.com
 
     # Risk-gate thresholds
     "max_positions": 5,
@@ -35,6 +37,11 @@ DEFAULTS: dict[str, Any] = {
     "symbol_allowlist": [],
     "allow_hedging": False,
     "strategy_ids": {},
+
+    # Trading.com broker-specific defaults (single-broker scope).
+    # The spread takes precedence over any literal key above with the
+    # same name (filling, allow_hedging) and adds rollover_utc_hour.
+    **TRADING_COM_DEFAULTS,
 }
 
 ENV_MAP: dict[str, tuple[str, Any]] = {
