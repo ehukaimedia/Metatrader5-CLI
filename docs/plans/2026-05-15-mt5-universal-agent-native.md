@@ -760,29 +760,20 @@ def test_broker_profile_is_abstract():
         BrokerProfile()
 
 
-def test_get_profile_returns_trading_com_by_default():
-    profile = get_profile("trading_com")
-    assert profile.name == "trading_com"
-    assert profile.allows_hedging is False
-    assert profile.preferred_filling == "FOK"
-
-
 def test_get_profile_unknown_raises():
     with pytest.raises(ValueError):
         get_profile("does-not-exist")
-
-
-def test_profile_retcode_help_returns_string():
-    p = get_profile("trading_com")
-    assert isinstance(p.retcode_help(10030), str)
-    assert "filling" in p.retcode_help(10030).lower()
 ```
+
+(Trading-com- and generic-specific tests land in Tasks 2.6 and 2.7 — same commits where the profiles get implemented and registered. Every commit on this branch stays green.)
 
 - [ ] **Step 2: Run test — fails (broker module empty)**
 
 ```bash
 python -m pytest metatrader5_cli/mt5/tests/test_broker_base.py -v
 ```
+
+Expected: 2 FAIL with ImportError on `BrokerProfile` / `get_profile`.
 
 - [ ] **Step 3: Implement BrokerProfile ABC**
 
@@ -824,29 +815,31 @@ def get_profile(name: str) -> BrokerProfile:
     return _REGISTRY[name]
 ```
 
-Wire `mt5_universal/broker/__init__.py`:
+Wire `mt5_universal/broker/__init__.py` (ABC + registry only — concrete profile imports get *added* by Tasks 2.6 and 2.7, not commented out here):
 
 ```python
 from .base import BrokerProfile, register, get_profile
-from . import trading_com  # noqa: F401 (registers on import)
-from . import generic_mt5  # noqa: F401 (registers on import)
 
 __all__ = ["BrokerProfile", "register", "get_profile"]
 ```
 
-- [ ] **Step 4: Tests fail because trading_com / generic_mt5 don't exist yet**
+- [ ] **Step 4: Run test — passes**
 
-That's expected — Tasks 2.6 and 2.7 will satisfy them. For now, comment out the two `from . import ...` lines and leave a note. The first two tests (ABC + unknown raises) should pass; the trading_com test fails.
+```bash
+python -m pytest metatrader5_cli/mt5/tests/test_broker_base.py -v
+```
 
-- [ ] **Step 5: Commit (intermediate state — full broker registry lands in Task 2.7)**
+Expected: 2 PASS. The ABC is abstract (TypeError on instantiation); the empty registry returns the expected ValueError on unknown lookup.
+
+- [ ] **Step 5: Commit (green)**
 
 ```bash
 git add mt5_universal/broker/ metatrader5_cli/mt5/tests/test_broker_base.py
-git commit -m "Phase 2: add BrokerProfile ABC + registry
+git commit -m "Phase 2: add BrokerProfile ABC + registry (green commit)
 
-Concrete profiles (trading_com, generic_mt5) land in the next two
-tasks. The ABC defines the contract: name, allows_hedging,
-preferred_filling, rollover_utc_hour, retcode_help."
+ABC + register/get_profile registry shipped without concrete profiles.
+trading_com (Task 2.6) and generic_mt5 (Task 2.7) add themselves via
+register(...) at import time + the matching tests."
 ```
 
 ### Task 2.6: Implement Trading.com broker profile
@@ -935,19 +928,24 @@ class TradingComProfile(BrokerProfile):
 register(TradingComProfile())
 ```
 
-- [ ] **Step 4: Re-enable the import in `mt5_universal/broker/__init__.py`** (was commented out in Task 2.5)
+- [ ] **Step 4: Add the import to `mt5_universal/broker/__init__.py`**
+
+Edit `mt5_universal/broker/__init__.py` so it becomes:
 
 ```python
+from .base import BrokerProfile, register, get_profile
 from . import trading_com  # noqa: F401 (registers on import)
+
+__all__ = ["BrokerProfile", "register", "get_profile"]
 ```
 
 - [ ] **Step 5: Run tests**
 
 ```bash
-python -m pytest metatrader5_cli/mt5/tests/test_broker_trading_com.py -v
+python -m pytest metatrader5_cli/mt5/tests/test_broker_trading_com.py metatrader5_cli/mt5/tests/test_broker_base.py -v
 ```
 
-Expected: 4 PASS.
+Expected: 4 PASS in `test_broker_trading_com.py` + 2 PASS in `test_broker_base.py`. All green.
 
 - [ ] **Step 6: Commit**
 
@@ -1013,10 +1011,16 @@ class GenericMt5Profile(BrokerProfile):
 register(GenericMt5Profile())
 ```
 
-- [ ] **Step 4: Re-enable the import in `mt5_universal/broker/__init__.py`**
+- [ ] **Step 4: Add the import to `mt5_universal/broker/__init__.py`**
+
+Edit `mt5_universal/broker/__init__.py` so it becomes:
 
 ```python
+from .base import BrokerProfile, register, get_profile
+from . import trading_com  # noqa: F401 (registers on import)
 from . import generic_mt5  # noqa: F401 (registers on import)
+
+__all__ = ["BrokerProfile", "register", "get_profile"]
 ```
 
 - [ ] **Step 5: Run tests + full broker suite**
@@ -5170,5 +5174,3 @@ mt5 --json tester show <run-id>
 ```
 
 Same flow via MCP from a tool-using agent: `mt5_ea_list`, then `mt5_tester_ea_single(...)`.
-
-
