@@ -226,7 +226,7 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - CI guard: `tests/test_bridge_singleton.py` (AST-based) fails the suite if any module besides `mt5_cli/bridge/mt5_backend.py` imports MetaTrader5.
 - **Acceptance (Phase 2 complete at tag `phase-2-complete`):**
   - `from mt5_cli import market, rates, orders, positions, account, history, risk` — no ImportError
-  - `from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title` — no ImportError
+  - `from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach` — no ImportError (`attach` is the GUI-menu-poke indicator attach; see Task 2.8)
   - `from mt5_cli.screenshot import take, dom, annotate` — no ImportError
   - `MT5_CONFIG=/nonexistent.json python -c "from mt5_cli.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"` prints `FOK 22`
   - `python -m pytest -q` returns 214 passed (or higher as Phase 3+ grows the suite)

@@ -817,38 +817,64 @@ Cherry-pick:
 
 Same cache-safe fixture pattern. Detailed steps follow Task 2.3.C shape.
 
-### Task 2.8: Chart-indicator attach/detach primitives — **REMOVED**
+### Task 2.8: Chart-indicator attach (GUI menu poking)
 
-**Status:** REMOVED post-Phase-2 per Codex Phase 2 review finding P1 #1
-([docs/code-reviews/codex-mt5-universal-phase-2-complete-review-2026-05-16.md](../code-reviews/codex-mt5-universal-phase-2-complete-review-2026-05-16.md#1-p1-critical---phase-28-chart-indicator-primitives-call-mt5-sdk-functions-that-are-not-exposed-by-the-installed-python-package)).
+**Status:** ITERATED. Original `cfe1c23` (mt5_call against
+nonexistent SDK functions) was removed at `3811cd6` per Codex P1 #1.
+Reimplemented via Win32 GUI menu poking — same pattern as
+`mt5_cli/screenshot/screenshot.py::_open_dom_panel`.
 
-**Why:** The MetaTrader5 Python SDK (verified at 5.0.5260, latest stable)
+**Why GUI poking:** The MetaTrader5 Python SDK (verified at 5.0.5260)
 does NOT expose `iCustom`, `ChartIndicatorAdd`, `ChartIndicatorDelete`,
 `ChartIndicatorsTotal`, or `ChartIndicatorName`. Those are MQL5-language
-functions that run inside the MT5 terminal process; the Python SDK
-covers account / symbols / rates / orders / positions / history /
-market_book only.
+functions that run inside the terminal process. The realistic
+alternative is to walk MT5's main-menu chain `Insert > Indicators >
+Custom > <name>` and post `WM_COMMAND`.
 
-Task 2.8 was implemented at `cfe1c23` against MagicMocked SDK
-attributes. The mocks accepted any attribute, so unit tests passed —
-but the module would `AttributeError` on every real call.
-`mt5_cli/chart/indicators_attach.py` and `tests/test_chart_indicators.py`
-were deleted post-Phase-2.
+**Files:**
+- `mt5_cli/chart/indicators_attach.py` (~180 LOC, pure Win32)
+- `tests/test_chart_indicators_attach.py` (12 tests, fake menu tree)
 
-**Where the agent's hands end for indicators:**
-- Phase 3 `mt5 indicator compile <name>` → builds `.ex5`
-- Phase 3 `mt5 indicator deploy <name>` → copies `.ex5` into
-  the terminal's `Indicators/` folder
-- User opens MT5, drags the indicator from Navigator onto a chart
-- Agent verifies the result via `screenshot.take(window_substring="MT5")`
+**Public surface (minimal, attach-only):**
 
-**If programmatic attach becomes a hard requirement later:** the
-realistic path is Win32 GUI menu-poking, using the pattern in
-`mt5_cli/screenshot/screenshot.py::_open_dom_panel` (find the
-`Insert > Indicators > Custom > <name>` menu item via
-`_find_menu_command_id`, post `WM_COMMAND`). Listing attached
-indicators would require GUI introspection of chart child windows.
-That's a future task, not Phase 2.
+```python
+def attach(
+    indicator_name: str,
+    *,
+    chart_id: int | None = None,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.5,
+    auto_confirm: bool = True,
+) -> dict:
+    """Attach a deployed .ex5 indicator to a chart via the Insert >
+    Indicators > Custom menu. Returns ok({command_id, menu_path, ...}).
+    """
+```
+
+Failure envelopes:
+- `CHART_WINDOW_NOT_FOUND` — no MT5 top-level window matched
+- `CHART_MENU_NOT_FOUND` — MT5 window has no menu bar
+- `CHART_MENU_PATH_NOT_FOUND` — Insert / Indicators / Custom missing
+- `CHART_INDICATOR_NOT_FOUND` — indicator name not in Custom submenu
+
+**Deliberately out of scope (`detach`, `list_attached`):**
+
+Both would require MT5's Indicators List dialog (Ctrl+I) introspection
+— fragile across MT5 versions. Users remove indicators via right-click
+"Delete Indicator" or Ctrl+I. Agents verify attachment via
+`screenshot.take()`. If the asymmetry becomes painful, a future task
+can add them via the LB_GETTEXT cross-process pattern (see
+`mt5_cli/chart/chart.py::_toolbar_button_id` for the precedent).
+
+**Default-params only:** `attach()` posts Enter after `settle_seconds`
+to accept the indicator's parameter dialog with default inputs. For
+custom inputs, the user either sets MQL5 `input` defaults or attaches
+manually for one-offs.
+
+**Menu-walk exactness:** the helper uses normalized **exact** match
+at each path segment, not substring. Substring match would let `"atr"`
+in a user indicator name collide with the built-in `ATR` first and
+post the wrong `WM_COMMAND`.
 
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
@@ -1000,7 +1026,7 @@ any leak."
 
 ```bash
 python -c "from mt5_cli import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
+python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title, attach; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
 
 # Pin MT5_CONFIG to a non-existent path so the user's real config file
 # (if any) does not override DEFAULTS in this purity check.
