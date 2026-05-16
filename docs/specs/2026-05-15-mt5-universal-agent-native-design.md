@@ -236,21 +236,44 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 
 Phase 3 ships in two sub-phases:
 
-**3a (SHIPPED): `mt5` CLI scaffolding around the Phase 2 library.**
-- Create `mt5/` package (`cli.py`, `emit.py`, `__init__.py`, `__main__.py`).
-- Register `mt5 = mt5.cli:main` console_script in `setup.py`.
+**3a (SHIPPED, tag `phase-3a-complete` at `854f9dd`): `mt5` CLI around the Phase 2 library.**
+- `mt5/` package shipped (`cli.py`, `emit.py`, `__init__.py`, `__main__.py`).
+- `mt5 = mt5.cli:main` console_script registered in `setup.py`.
 - 11 command groups exposing the full Phase 2 library:
   `connect`, `status`, `account`, `market`, `rates`, `order`, `position`,
   `history`, `chart`, `screenshot`, `config`. Global `--json` flag for
   agent-parseable output; per-command `--live` flag on mutating order /
   position commands (one third of the live triple lock).
-- Every command returns the standard envelope; exit code is always 0
-  (envelope's `ok` field carries success).
-- **Acceptance (3a):** `mt5 --help` lists all 11 groups; `mt5 --json
-  config show` prints the resolved DEFAULTS; `mt5 --json status` against
-  a live MT5 returns the account envelope; the `mt5` binary is installed
-  by `pip install -e .` and replaces the legacy stale entry point.
-  Verified end-to-end against live Trading.com demo (commit landing this).
+- `EnvelopeGroup` wraps every Click `UsageError` into an
+  `MT5_INVALID_PARAMS` envelope (post-Codex P1 #2 fix at `804ec03`), so
+  invalid args produce structured failure on stdout with exit 0 — never
+  the default Click usage-text-to-stderr-with-exit-2 path.
+- Three Codex review cycles ran on this phase (`384bd17` → `8fc6227` →
+  `854f9dd`); all 11 findings closed across two Kirk fix commits
+  (`804ec03`, `3269f7b`, `6515738`).
+- **Acceptance (3a) — verified at `854f9dd`:**
+  - `pytest -q` → **367 passed**
+  - `mt5 --help` → all 11 groups listed
+  - `mt5 --json config show` → resolved DEFAULTS with `filling=FOK`,
+    `rollover_utc_hour=22`, login/password masked by default
+  - `mt5 --json status` → live account envelope (`trade_allowed=True`)
+  - `mt5 --json order poll-fill <ticket> --timeout 0.5` → `ok=true`
+    envelope, exit 0 (P1 #1 regression-watch)
+  - `mt5 --json order market <sym> junk ...` → `MT5_INVALID_PARAMS`
+    envelope, exit 0 (P1 #2 regression-watch)
+  - `mt5 --json history orders --from garbage` →
+    `MT5_INVALID_PARAMS` envelope, exit 0, NO MT5 connection
+    attempted (P2 #7 regression-watch)
+  - `mt5 --json chart close <stale-hwnd>` → `CHART_ID_NOT_FOUND`
+    envelope, exit 0, zero Win32 messages posted (post-Codex
+    attach_ea-pattern regression-watch at `6515738`)
+  - Full 24-row live smoke matrix passed against Trading.com demo
+    (`mt5 chart find-window` / `chart list` / `chart cycle` /
+    `market info / tick / search` / `rates fetch` / `order dryrun`
+    / `history stats` / `screenshot take`). 3 live charts enumerated,
+    real OHLCV bars, 186 KB PNG captured.
+  - Bridge singleton holds: `git grep "import MetaTrader5" -- mt5_cli mt5`
+    returns only `mt5_cli/bridge/mt5_backend.py:10`.
 
 **3b (TODO): MQL5 plugin host.**
 - Add `mt5_cli/mql5/{compiler,deployer,discovery,templates}.py`.
