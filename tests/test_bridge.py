@@ -63,9 +63,7 @@ def test_ensure_symbol_returns_bool(mocked_mt5):
 
 
 def test_filling_constants_re_exported(mocked_mt5):
-    import importlib
     import mt5_universal.bridge as br
-    importlib.reload(br)
     assert br.ORDER_FILLING_FOK == 1
     assert br.ORDER_FILLING_IOC == 2
     assert br.ORDER_FILLING_RETURN == 3
