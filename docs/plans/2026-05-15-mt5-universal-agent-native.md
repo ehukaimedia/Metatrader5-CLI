@@ -1522,9 +1522,16 @@ from pathlib import Path
 
 
 def _search_paths(kind: str) -> list[Path]:
-    """kind is 'ea' or 'indicators'."""
+    """kind is 'ea' or 'indicators'.
+
+    Phase 3 placeholder resolution. Phase 6 paths.py replaces this with
+    the full XDG_DATA_HOME / APPDATA / HOME chain. The fallback root is
+    XDG_DATA_HOME-style (~/.local/share/metatrader5-cli/), NOT the
+    config dir, since EAs/indicators are user-authored DATA, not
+    settings.
+    """
     cwd = Path.cwd() / kind
-    user = Path(os.path.expanduser("~")) / ".config" / "mt5-universal" / kind
+    user = Path(os.path.expanduser("~")) / ".local" / "share" / "metatrader5-cli" / kind
     return [p for p in (cwd, user) if p.exists()]
 
 
@@ -1851,10 +1858,13 @@ def ea_list(ctx):
 
 @ea_group.command("new")
 @click.argument("name")
-@click.option("--template", default="scalper", help="Template: scalper | swing")
+@click.option("--template", default="minimal", help="Template: minimal (only option)")
 @click.option("--target-dir", default="ea", type=click.Path(file_okay=False))
 @click.pass_context
 def ea_new(ctx, name, template, target_dir):
+    # Single template per asset type — minimal MQL5 skeleton (OnInit /
+    # OnDeinit / OnTick). No strategy-flavored variants ship; users author
+    # their own logic. Locked decision: hands, not strategies.
     _emit(scaffold.create_ea(name, template=template, target_dir=Path(target_dir)), ctx.obj["json"])
 
 
@@ -1893,10 +1903,13 @@ def indicator_list(ctx):
 
 @indicator_group.command("new")
 @click.argument("name")
-@click.option("--template", default="overlay", help="Template: overlay | oscillator")
+@click.option("--template", default="minimal", help="Template: minimal (only option)")
 @click.option("--target-dir", default="indicators", type=click.Path(file_okay=False))
 @click.pass_context
 def indicator_new(ctx, name, template, target_dir):
+    # Single template per asset type — minimal MQL5 skeleton (OnInit /
+    # OnCalculate). No oscillator/overlay/etc variants ship; users author
+    # their own indicator math.
     _emit(scaffold.create_indicator(name, template=template, target_dir=Path(target_dir)), ctx.obj["json"])
 
 
@@ -4233,7 +4246,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_NAME = "mt5-universal"
+APP_NAME = "metatrader5-cli"
 
 
 def _home() -> Path:
@@ -4241,13 +4254,17 @@ def _home() -> Path:
 
 
 def config_file() -> Path:
+    """Config FILE (flat JSON in XDG_CONFIG_HOME). User chose the flat
+    form (~/.config/metatrader5-cli.json) over a subdir layout in the
+    naming sweep at e359d0b. EAs/indicators/presets/results are user
+    DATA, so they live under XDG_DATA_HOME via the helpers below."""
     if "MT5_CONFIG" in os.environ:
         return Path(os.environ["MT5_CONFIG"])
     if "XDG_CONFIG_HOME" in os.environ:
-        return Path(os.environ["XDG_CONFIG_HOME"]) / APP_NAME / "config.json"
+        return Path(os.environ["XDG_CONFIG_HOME"]) / f"{APP_NAME}.json"
     if sys.platform == "win32" and "APPDATA" in os.environ:
-        return Path(os.environ["APPDATA"]) / APP_NAME / "config.json"
-    return _home() / ".config" / APP_NAME / "config.json"
+        return Path(os.environ["APPDATA"]) / f"{APP_NAME}.json"
+    return _home() / ".config" / f"{APP_NAME}.json"
 
 
 def _under(base_env: str, fallback_subdir: str) -> Path:
@@ -4484,13 +4501,28 @@ The tool ships exactly one minimal EA template (`ea_minimal.mq5`) and one minima
 
 Do not add `ea_scalper.mq5`, `indicator_oscillator.mq5`, or similar variants. The tool ships hands, not strategies. Users author parameters / logic / indicator math in their own workspace copy of the minimal skeleton.
 
-## Adding a new broker profile
+## Adding a new broker (deferred — single-broker scope today)
 
-1. Create `mt5_cli/broker/<name>.py`.
-2. Subclass `BrokerProfile`. Set `name`, `allows_hedging`, `preferred_filling`, `rollover_utc_hour`. Implement `retcode_help`.
-3. Call `register(YourProfile())` at module bottom.
-4. Add `from . import <name>  # noqa: F401` to `mt5_cli/broker/__init__.py`.
-5. Add a test in `tests/`.
+Current scope is Trading.com only. Quirks (FOK filling, no hedging,
+22:00 UTC rollover, retcode help) live in `mt5_cli/config/trading_com.py`
+and merge into `config.DEFAULTS`. There is no `mt5_cli/broker/` package
+and no `BrokerProfile` ABC — the user-locked decision is to NOT
+pre-build the abstraction.
+
+When a second broker is added later:
+
+1. Create `mt5_cli/broker/base.py` with a `BrokerProfile` ABC capturing
+   the fields that actually differ between the two brokers (don't
+   guess in advance; let the second broker drive the shape).
+2. Move `TRADING_COM_DEFAULTS` + `retcode_help()` out of
+   `mt5_cli/config/trading_com.py` into `mt5_cli/broker/trading_com.py`
+   as a `BrokerProfile` subclass.
+3. Create `mt5_cli/broker/<new_broker>.py` as a sibling subclass.
+4. Wire `mt5_cli/config/config.py::load()` to pick the active broker
+   profile (via `cfg["broker"]`) and merge its defaults instead of the
+   hardcoded `TRADING_COM_DEFAULTS` import.
+5. Update `tests/test_config*.py` to cover both brokers + the default
+   resolution path.
 
 ## What never changes
 
