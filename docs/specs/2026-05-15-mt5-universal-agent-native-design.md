@@ -81,7 +81,6 @@ Metatrader5-CLI/
 │   │   └── generic_mt5.py        # permissive default for other brokers
 │   ├── market/                   # info, tick, depth, sessions, search
 │   ├── rates/                    # OHLCV fetch, timeframe enum, pandas DataFrame
-│   ├── indicators/               # python quicklook ONLY (ema/atr/rsi/sma/bbands/fvg/swing_pivots)
 │   ├── orders/                   # market/limit/stop, dryrun, modify, cancel
 │   ├── positions/                # list, close, modify, breakeven
 │   ├── account/                  # info, balance, exposure, daily P&L
@@ -224,7 +223,6 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - Create the submodule tree from §6.1.
 - Recreate the surviving primitives fresh under `mt5_universal/`, cherry-picking patterns from `archive/legacy-mt5/core/` and `archive/legacy-mt5/utils/mt5_backend.py` without importing or moving the archived package back into the live tree.
 - Add `broker/base.py` ABC. Extract Trading.com quirks (FOK, no-hedge, 22:00 UTC rollover, retcode map) from current code into `broker/trading_com.py`. Add a permissive `broker/generic_mt5.py`.
-- Add `indicators/` (python quicklook only — `ema`, `atr`, `rsi`, `sma`, `bbands`, `fvg`, `swing_pivots`).
 - **Acceptance:** unit tests pass against the new module paths; `from mt5_universal import market, rates, orders, risk` works.
 
 ### Phase 3 — MQL5 plugin host

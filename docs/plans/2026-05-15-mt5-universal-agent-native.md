@@ -6,7 +6,7 @@
 
 **Architecture:** Library-first. One Python package (`mt5_universal/`) with submodule-per-concern (bridge, broker, market, rates, orders, positions, account, history, risk, indicators, mql5, tester, config, reports, skills). The `mt5` CLI and `mt5-mcp` MCP server are thin wrappers over the same library. MQL5 is the canonical author format for EAs and indicators; MT5 Strategy Tester is the canonical backtest engine. No Python event-driven backtester. No coexistence shims with the legacy core.
 
-**Tech Stack:** Python 3.10+, Click 8.x (CLI), FastMCP (MCP server), MetaTrader5 Python package (bridge, Windows-only), pandas + pandas-ta (indicators quicklook), pytest (tests), MetaEditor.exe + terminal64.exe (subprocess targets).
+**Tech Stack:** Python 3.10+, Click 8.x (CLI), FastMCP (MCP server), MetaTrader5 Python package (bridge, Windows-only), pytest (tests), MetaEditor.exe + terminal64.exe (subprocess targets). The tool ships no indicator math; pandas/pandas-ta are NOT dependencies of the universal library.
 
 ## References (read before starting)
 
@@ -63,7 +63,6 @@ Metatrader5-CLI/
 │   ├── bridge/mt5_backend.py             # ONLY file that imports MetaTrader5
 │   ├── broker/{base,trading_com,generic_mt5}.py
 │   ├── market/, rates/, orders/, positions/, account/, history/, risk/
-│   ├── indicators/builtins.py            # python quicklook only
 │   ├── mql5/{compiler,deployer,discovery}.py + templates/
 │   ├── tester/{ea,indicator,ini_builder,launcher,results,cache}.py
 │   ├── config/{__init__,paths}.py
@@ -117,7 +116,7 @@ The legacy `metatrader5_cli/` package is fully archived after Phase 1 — nothin
 
 ## Phase 2 — `mt5_universal/` skeleton (12 tasks)
 
-**Goal:** Create the new agnostic library fresh under `mt5_universal/`. Cherry-pick only the useful patterns from `archive/legacy-mt5/core/` into new module names. Add `broker/` abstraction with Trading.com as default. Add `config/` and `indicators/` (python quicklook).
+**Goal:** Create the new agnostic library fresh under `mt5_universal/`. Cherry-pick only the useful patterns from `archive/legacy-mt5/core/` into new module names. Add `broker/` abstraction with Trading.com as default. Add `config/`. **No indicator math ships from this layer** — the tool only provides hands.
 
 ### Task 2.1: Create mt5_universal/ package skeleton
 
@@ -1005,137 +1004,6 @@ config flag. Trading.com profile makes both FOK-only and no-hedge
 the defaults without hardcoding them in the order/risk code."
 ```
 
-### Task 2.9: Add python-quicklook indicators
-
-**Files:**
-- Create: `mt5_universal/indicators/builtins.py`
-- Create: `mt5_universal/indicators/__init__.py`
-- Create: `tests/test_indicators_builtins.py`
-
-(Domain-specific FVG/swing-pivot indicators stay archived. This task ships only the universal small-set: ema, atr, rsi, sma, bbands.)
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-# tests/test_indicators_builtins.py
-import pandas as pd
-import pytest
-
-from mt5_universal.indicators import ema, atr, rsi, sma, bbands
-
-
-@pytest.fixture
-def bars():
-    return pd.DataFrame({
-        "open":  [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9],
-        "high":  [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0],
-        "low":   [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8],
-        "close": [1.05, 1.15, 1.25, 1.35, 1.45, 1.55, 1.65, 1.75, 1.85, 1.95],
-    })
-
-
-def test_ema_returns_series(bars):
-    out = ema(bars["close"], period=3)
-    assert len(out) == len(bars)
-    assert out.iloc[-1] > out.iloc[0]
-
-
-def test_sma_known_value(bars):
-    out = sma(bars["close"], period=3)
-    assert out.iloc[-1] == pytest.approx((1.75 + 1.85 + 1.95) / 3)
-
-
-def test_atr_positive(bars):
-    out = atr(bars, period=3)
-    assert (out.dropna() > 0).all()
-
-
-def test_rsi_in_range(bars):
-    out = rsi(bars["close"], period=3)
-    valid = out.dropna()
-    assert (valid >= 0).all() and (valid <= 100).all()
-
-
-def test_bbands_returns_three_series(bars):
-    upper, middle, lower = bbands(bars["close"], period=3, std=2.0)
-    assert (upper >= middle).all().all() if hasattr(upper, "all") else (upper.dropna() >= middle.dropna()).all()
-    assert (lower.dropna() <= middle.dropna()).all()
-```
-
-- [ ] **Step 2: Run — fails**
-
-```bash
-python -m pytest tests/test_indicators_builtins.py -v
-```
-
-- [ ] **Step 3: Implement using pandas-ta**
-
-Create `mt5_universal/indicators/builtins.py`:
-
-```python
-"""Python quicklook indicators — for ad-hoc agent queries over recent bars.
-
-For real strategy logic, write an MQL5 indicator under indicators/ and run
-visual tests via `mt5 tester indicator visual`.
-"""
-import pandas as pd
-import pandas_ta as ta
-
-
-def ema(series: pd.Series, period: int) -> pd.Series:
-    return ta.ema(series, length=period)
-
-
-def sma(series: pd.Series, period: int) -> pd.Series:
-    return ta.sma(series, length=period)
-
-
-def rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    return ta.rsi(series, length=period)
-
-
-def atr(bars: pd.DataFrame, period: int = 14) -> pd.Series:
-    return ta.atr(bars["high"], bars["low"], bars["close"], length=period)
-
-
-def bbands(series: pd.Series, period: int = 20, std: float = 2.0) -> tuple[pd.Series, pd.Series, pd.Series]:
-    df = ta.bbands(series, length=period, std=std)
-    upper = df.iloc[:, 0]
-    middle = df.iloc[:, 1]
-    lower = df.iloc[:, 2]
-    return upper, middle, lower
-
-
-def list_available() -> list[str]:
-    return ["ema", "sma", "rsi", "atr", "bbands"]
-```
-
-Wire `mt5_universal/indicators/__init__.py`:
-
-```python
-from .builtins import ema, sma, rsi, atr, bbands, list_available
-
-__all__ = ["ema", "sma", "rsi", "atr", "bbands", "list_available"]
-```
-
-- [ ] **Step 4: Run test**
-
-```bash
-python -m pytest tests/test_indicators_builtins.py -v
-```
-
-Expected: 5 PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add mt5_universal/indicators/ tests/test_indicators_builtins.py
-git commit -m "Phase 2: add python quicklook indicators
-
-ema/sma/rsi/atr/bbands via pandas-ta. For ad-hoc agent queries only;
-strategy-grade indicators are MQL5 (Phase 3+)."
-```
-
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
 **Files:**
@@ -1847,91 +1715,36 @@ compiled boolean."
 ### Task 3.5: Add MQL5 templates + scaffolding
 
 **Files:**
-- Create: `mt5_universal/mql5/templates/ea_scalper.mq5`
-- Create: `mt5_universal/mql5/templates/ea_swing.mq5`
-- Create: `mt5_universal/mql5/templates/indicator_oscillator.mq5`
-- Create: `mt5_universal/mql5/templates/indicator_overlay.mq5`
+- Create: `mt5_universal/mql5/templates/ea_minimal.mq5`
+- Create: `mt5_universal/mql5/templates/indicator_minimal.mq5`
 - Create: `mt5_universal/mql5/scaffold.py`
 - Create: `tests/test_mql5_scaffold.py`
 
+The tool ships **only minimal skeleton templates** — no strategy classification, no opinionated parameter suggestions, no trading-style hints. A template is just the smallest MQL5 boilerplate that compiles and loads. The user authors their own strategy / indicator math inside it. metatrader5-cli is hands for agents to control MT5; what the EA/indicator DOES is the user's domain entirely.
+
 - [ ] **Step 1: Write template files**
 
-Create `mt5_universal/mql5/templates/ea_scalper.mq5` as a packaged scaffold template with the strategy name as a placeholder `{{name}}` in the property version line and file header. Do not reference or create repo-local example EA directories; user-side `ea/` directories are external workspace content.
+Create `mt5_universal/mql5/templates/ea_minimal.mq5` — bare EA skeleton with the user-supplied name as a `{{name}}` placeholder. No strategy-flavored input parameters; no trading logic.
 
 ```cpp
 //+------------------------------------------------------------------+
-//| {{name}}.mq5 - scalper EA scaffold                                |
+//| {{name}}.mq5 - minimal EA skeleton (author your strategy here)   |
 //+------------------------------------------------------------------+
 #property strict
 #property version "0.1"
 
-input int    FastPeriod   = 9;
-input int    SlowPeriod   = 21;
-input double LotSize      = 0.01;
-input long   MagicNumber  = 88888;
+input long MagicNumber = 88888;
 
-int handleFast = INVALID_HANDLE;
-int handleSlow = INVALID_HANDLE;
-
-int OnInit()  { handleFast = iMA(_Symbol, _Period, FastPeriod, 0, MODE_EMA, PRICE_CLOSE);
-                handleSlow = iMA(_Symbol, _Period, SlowPeriod, 0, MODE_EMA, PRICE_CLOSE);
-                return (handleFast == INVALID_HANDLE || handleSlow == INVALID_HANDLE) ? INIT_FAILED : INIT_SUCCEEDED; }
-void OnDeinit(const int reason) { if(handleFast != INVALID_HANDLE) IndicatorRelease(handleFast);
-                                   if(handleSlow != INVALID_HANDLE) IndicatorRelease(handleSlow); }
-void OnTick() { /* Implement entry / exit / risk in this body. */ }
+int OnInit()                    { return INIT_SUCCEEDED; }
+void OnDeinit(const int reason) { /* cleanup if needed */ }
+void OnTick()                   { /* author entry / management / exit here */ }
 ```
 
-Create `mt5_universal/mql5/templates/ea_swing.mq5`:
+Create `mt5_universal/mql5/templates/indicator_minimal.mq5` — bare indicator skeleton, one default buffer, no calculation.
 
 ```cpp
 //+------------------------------------------------------------------+
-//| {{name}}.mq5 - swing EA scaffold                                  |
-//+------------------------------------------------------------------+
-#property strict
-#property version "0.1"
-
-input int    AtrPeriod    = 14;
-input double RiskPercent  = 0.5;
-input long   MagicNumber  = 88888;
-
-int handleAtr = INVALID_HANDLE;
-
-int OnInit() { handleAtr = iATR(_Symbol, _Period, AtrPeriod);
-               return handleAtr == INVALID_HANDLE ? INIT_FAILED : INIT_SUCCEEDED; }
-void OnDeinit(const int reason) { if(handleAtr != INVALID_HANDLE) IndicatorRelease(handleAtr); }
-void OnTick() { /* Implement bar-close entry on the new bar. */ }
-```
-
-Create `mt5_universal/mql5/templates/indicator_oscillator.mq5`:
-
-```cpp
-//+------------------------------------------------------------------+
-//| {{name}}.mq5 - oscillator indicator scaffold                      |
-//+------------------------------------------------------------------+
-#property strict
-#property version "0.1"
-#property indicator_separate_window
-#property indicator_buffers 1
-#property indicator_plots   1
-#property indicator_label1  "{{name}}"
-
-input int Period = 14;
-double Buf[];
-
-int OnInit() { SetIndexBuffer(0, Buf, INDICATOR_DATA);
-               IndicatorSetString(INDICATOR_SHORTNAME, "{{name}}(" + IntegerToString(Period) + ")");
-               return INIT_SUCCEEDED; }
-int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[],
-                const double &open[], const double &high[], const double &low[], const double &close[],
-                const long &tick_volume[], const long &volume[], const int &spread[])
-{ /* Compute Buf[i] for i in [prev_calculated, rates_total). */ return rates_total; }
-```
-
-Create `mt5_universal/mql5/templates/indicator_overlay.mq5`:
-
-```cpp
-//+------------------------------------------------------------------+
-//| {{name}}.mq5 - chart-overlay indicator scaffold                   |
+//| {{name}}.mq5 - minimal indicator skeleton (author your math here) |
 //+------------------------------------------------------------------+
 #property strict
 #property version "0.1"
@@ -1940,7 +1753,6 @@ Create `mt5_universal/mql5/templates/indicator_overlay.mq5`:
 #property indicator_plots   1
 #property indicator_label1  "{{name}}"
 
-input int Period = 20;
 double Buf[];
 
 int OnInit() { SetIndexBuffer(0, Buf, INDICATOR_DATA);
@@ -1948,7 +1760,7 @@ int OnInit() { SetIndexBuffer(0, Buf, INDICATOR_DATA);
 int OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[],
                 const double &open[], const double &high[], const double &low[], const double &close[],
                 const long &tick_volume[], const long &volume[], const int &spread[])
-{ /* Compute Buf[i]. */ return rates_total; }
+{ /* author your calculation into Buf[i] here */ return rates_total; }
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -1956,14 +1768,12 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
 ```python
 # tests/test_mql5_scaffold.py
 from pathlib import Path
-
 import pytest
-
 from mt5_universal.mql5 import scaffold
 
 
-def test_scaffold_ea_writes_file(tmp_path):
-    out = scaffold.create_ea("alpha", template="scalper", target_dir=tmp_path)
+def test_scaffold_ea_writes_minimal_file(tmp_path):
+    out = scaffold.create_ea("alpha", target_dir=tmp_path)
     assert out["ok"] is True
     src = Path(out["data"]["source"])
     assert src.exists()
@@ -1972,25 +1782,24 @@ def test_scaffold_ea_writes_file(tmp_path):
     assert "{{name}}" not in text
 
 
-def test_scaffold_ea_unknown_template(tmp_path):
-    out = scaffold.create_ea("alpha", template="nonexistent", target_dir=tmp_path)
-    assert out["ok"] is False
-    assert out["error"]["code"] == "UNKNOWN_TEMPLATE"
-
-
 def test_scaffold_ea_refuses_overwrite(tmp_path):
     (tmp_path / "alpha.mq5").write_text("// existing")
-    out = scaffold.create_ea("alpha", template="scalper", target_dir=tmp_path)
+    out = scaffold.create_ea("alpha", target_dir=tmp_path)
     assert out["ok"] is False
     assert out["error"]["code"] == "ALREADY_EXISTS"
 
 
-def test_scaffold_indicator_writes_file(tmp_path):
-    out = scaffold.create_indicator("rsi_dual", template="oscillator", target_dir=tmp_path)
+def test_scaffold_indicator_writes_minimal_file(tmp_path):
+    out = scaffold.create_indicator("rsi_dual", target_dir=tmp_path)
     assert out["ok"] is True
     text = Path(out["data"]["source"]).read_text()
     assert "rsi_dual" in text
     assert "{{name}}" not in text
+
+
+def test_list_templates_returns_minimal_only():
+    out = scaffold.list_templates()
+    assert out == {"ea": ["ea_minimal.mq5"], "indicator": ["indicator_minimal.mq5"]}
 ```
 
 - [ ] **Step 3: Run — fails**
@@ -2004,44 +1813,47 @@ python -m pytest tests/test_mql5_scaffold.py -v
 Create `mt5_universal/mql5/scaffold.py`:
 
 ```python
-"""Scaffold new MQL5 EAs and indicators from packaged templates."""
+"""Scaffold new MQL5 EAs and indicators from packaged minimal templates.
+
+The tool ships ONE minimal template per asset type. Anything beyond the
+minimal skeleton (parameters, calculation, entry/exit logic) is the user's
+to author in their own workspace.
+"""
 from pathlib import Path
 
 from mt5_universal.reports import ok, fail
 
 _TEMPLATE_ROOT = Path(__file__).parent / "templates"
 
-_EA_TEMPLATES = {"scalper": "ea_scalper.mq5", "swing": "ea_swing.mq5"}
-_IND_TEMPLATES = {"oscillator": "indicator_oscillator.mq5", "overlay": "indicator_overlay.mq5"}
+_EA_TEMPLATE = "ea_minimal.mq5"
+_IND_TEMPLATE = "indicator_minimal.mq5"
 
 
-def _scaffold(name: str, template: str, target_dir: Path, registry: dict[str, str]) -> dict:
-    if template not in registry:
-        return fail("UNKNOWN_TEMPLATE", f"Unknown template {template!r}. Known: {sorted(registry)}")
+def _scaffold(name: str, target_dir: Path, template_filename: str) -> dict:
     target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     dest = target_dir / f"{name}.mq5"
     if dest.exists():
         return fail("ALREADY_EXISTS", f"{dest} already exists; refusing to overwrite")
-    template_path = _TEMPLATE_ROOT / registry[template]
+    template_path = _TEMPLATE_ROOT / template_filename
     text = template_path.read_text(encoding="utf-8").replace("{{name}}", name)
     dest.write_text(text, encoding="utf-8")
-    return ok({"source": str(dest), "template": template})
+    return ok({"source": str(dest)})
 
 
 def list_templates() -> dict[str, list[str]]:
-    return {"ea": sorted(_EA_TEMPLATES), "indicator": sorted(_IND_TEMPLATES)}
+    return {"ea": [_EA_TEMPLATE], "indicator": [_IND_TEMPLATE]}
 
 
-def create_ea(name: str, *, template: str = "scalper", target_dir: Path | str = Path("ea")) -> dict:
-    return _scaffold(name, template, Path(target_dir), _EA_TEMPLATES)
+def create_ea(name: str, *, target_dir: Path | str = Path("ea")) -> dict:
+    return _scaffold(name, Path(target_dir), _EA_TEMPLATE)
 
 
-def create_indicator(name: str, *, template: str = "overlay", target_dir: Path | str = Path("indicators")) -> dict:
-    return _scaffold(name, template, Path(target_dir), _IND_TEMPLATES)
+def create_indicator(name: str, *, target_dir: Path | str = Path("indicators")) -> dict:
+    return _scaffold(name, Path(target_dir), _IND_TEMPLATE)
 ```
 
-- [ ] **Step 5: Update `mt5_universal/mql5/__init__.py` to re-export the public API**
+- [ ] **Step 5: Update `mt5_universal/mql5/__init__.py`** to re-export the public API
 
 ```python
 from . import compiler, deployer, discovery, scaffold
@@ -2049,9 +1861,9 @@ from . import compiler, deployer, discovery, scaffold
 __all__ = ["compiler", "deployer", "discovery", "scaffold"]
 ```
 
-- [ ] **Step 6: Update setup.py package_data so templates ship with the package**
+- [ ] **Step 6: Update setup.py package_data** so templates ship with the package
 
-In `setup.py`, change `package_data` to also include the templates:
+In `setup.py`, change `package_data` to include the templates:
 
 ```python
     package_data={
@@ -2066,12 +1878,14 @@ In `setup.py`, change `package_data` to also include the templates:
 ```bash
 python -m pytest tests/test_mql5_scaffold.py -v
 git add mt5_universal/mql5/ tests/test_mql5_scaffold.py setup.py
-git commit -m "Phase 3: add mql5 templates + scaffold
+git commit -m "Phase 3: add minimal MQL5 templates + scaffold
 
-Two EA templates (scalper, swing) + two indicator templates
-(oscillator, overlay). scaffold.create_ea/create_indicator
-substitutes {{name}} and refuses to overwrite. Templates ship via
-setup.py package_data."
+Ships one minimal EA template (ea_minimal.mq5) and one minimal indicator
+template (indicator_minimal.mq5). No strategy classification, no
+opinionated parameter suggestions — the tool gives agents hands to scaffold
+the boilerplate that MT5 requires; the user authors what the asset
+actually does. scaffold.create_ea / create_indicator substitute {{name}}
+and refuse to overwrite. Templates ship via setup.py package_data."
 ```
 
 ### Task 3.6: Wire `mt5 ea new/compile/deploy/list` CLI commands
@@ -2249,7 +2063,7 @@ python -m pip install -e . --quiet
 mt5 --help
 mt5 ea --help
 mt5 ea list --json   # expect: {"ok": true, "data": [...]}
-mt5 ea new demo --template scalper --target-dir /tmp/eatest
+mt5 ea new demo --target-dir /tmp/eatest
 ls /tmp/eatest/demo.mq5
 ```
 
@@ -2338,10 +2152,10 @@ TMP=$(mktemp -d)                                    # or `mkdir tmp-userdir && c
 cd "$TMP"
 
 mt5 --json ea list                                  # empty list (no ea/ here)
-mt5 --json ea new smoke_alpha --template scalper    # scaffolds ./ea/smoke_alpha.mq5
+mt5 --json ea new smoke_alpha                       # scaffolds ./ea/smoke_alpha.mq5 from the one minimal EA template
 mt5 --json ea list                                  # finds smoke_alpha
 mt5 --json ea compile smoke_alpha                   # if MetaEditor available; else METAEDITOR_NOT_FOUND
-mt5 --json indicator new smoke_signal --template oscillator
+mt5 --json indicator new smoke_signal               # scaffolds ./indicators/smoke_signal.mq5 from the one minimal indicator template
 mt5 --json indicator list                           # finds smoke_signal
 
 cd - && rm -rf "$TMP"                               # cleanup
@@ -4784,11 +4598,11 @@ This is the standing order; a plan that contradicts it is the plan that's wrong.
 4. **Run `mt5 skills regenerate`** so SKILL.md picks up the new command.
 5. **Add an MCP tool in `mt5_mcp/server.py`** if the function makes sense to call from a tool-using agent.
 
-## Adding a new MQL5 EA template
+## Templates are deliberately minimal — do not add strategy variants
 
-1. Drop `mt5_universal/mql5/templates/ea_<style>.mq5`. Use `{{name}}` as the placeholder.
-2. Add the entry to `_EA_TEMPLATES` in `mt5_universal/mql5/scaffold.py`.
-3. Add a test in `tests/test_mql5_scaffold.py`.
+The tool ships exactly one minimal EA template (`ea_minimal.mq5`) and one minimal indicator template (`indicator_minimal.mq5`). They contain only the MQL5 boilerplate required to load (OnInit / OnDeinit / OnTick for EAs; OnInit / OnCalculate for indicators). They carry no strategy-flavored parameters, no entry / exit logic, no analytical math.
+
+Do not add `ea_scalper.mq5`, `indicator_oscillator.mq5`, or similar variants. The tool ships hands, not strategies. Users author parameters / logic / indicator math in their own workspace copy of the minimal skeleton.
 
 ## Adding a new broker profile
 
@@ -4975,7 +4789,7 @@ The shortest path for an agent to use the new system end-to-end:
 
 ```bash
 # 1. Scaffold
-mt5 ea new my_first --template scalper
+mt5 ea new my_first
 
 # 2. Edit ea/my_first.mq5 to taste
 
