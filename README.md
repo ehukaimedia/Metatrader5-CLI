@@ -10,30 +10,6 @@ This project is designed for human operators and coding agents that need to insp
 - Live trading is blocked unless all three live gates are enabled.
 - The global command is `mt5` after installation.
 
-## Bundled portable app: `adaptive-forex-mt5/`
-
-The repo also ships a self-contained portable app at
-[`adaptive-forex-mt5/`](adaptive-forex-mt5/) — a multi-pair scanner +
-trade manager + LLM review pipeline + autopilot consensus + manual-trade
-adoption built entirely on top of the `mt5` and `ehukaiconnect` CLIs.
-
-It does **not** import any code from `metatrader5_cli/`. Every interaction
-with this CLI is `subprocess.run(["mt5", ...])`, every interaction with
-EhukaiConnect is `subprocess.run(["ehukaiconnect", ...])`. The directory
-can be lifted into any other repo as long as both CLIs are on `PATH`.
-
-| Capability | Where |
-|---|---|
-| Multi-pair scan + alerts-only ntfy push | `adaptive-forex-mt5/agent.py` |
-| Python-side BE + Chandelier trade manager (replaces AdaptiveTrailEA) | `adaptive-forex-mt5/trade_manager.py` |
-| LLM review pipeline (advisory-only verdicts) | `adaptive-forex-mt5/dispatch.py` + reviewer skill templates |
-| Autopilot consensus (master flag default OFF) | `adaptive-forex-mt5/autopilot.py` + `consensus.py` |
-| Manual-trade adoption allowlist | `adaptive-forex-mt5/adopt.py` + `managed_positions.json` |
-| Local web dashboard | `adaptive-forex-mt5/dashboard.py` (binds 127.0.0.1:8765) |
-| Interactive architecture map | [`adaptive-forex-mt5/docs/playgrounds/architecture.html`](adaptive-forex-mt5/docs/playgrounds/architecture.html) |
-
-Full docs: [`adaptive-forex-mt5/README.md`](adaptive-forex-mt5/README.md).
-
 ## Install Globally
 
 From any checkout of this repository:
