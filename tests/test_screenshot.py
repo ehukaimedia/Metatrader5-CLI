@@ -227,6 +227,106 @@ def test_dom_with_panels_disabled_still_captures(fake_capture_deps, tmp_path):
         assert env["data"]["panel_closed"] is False
 
 
+def test_dom_with_open_panel_activates_symbol_chart_first(
+    fake_capture_deps, tmp_path, monkeypatch
+):
+    """Codex P2 #7: dom(symbol="USDJPY") with open_panel=True must
+    activate the USDJPY chart BEFORE posting the DOM menu command, so
+    the captured DOM matches the labeled symbol. Pre-fix dom() called
+    _open_dom_panel directly and the active chart drove which DOM
+    actually opened - mismatch between envelope label and reality.
+    """
+    fake_win = MagicMock(
+        title="MetaTrader 5", left=0, top=0, width=400, height=300,
+    )
+    fake_win._hWnd = 1000
+    fake_capture_deps["pygetwindow"].getAllWindows.return_value = [fake_win]
+    fake_capture_deps["win32gui"].GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+
+    # Stub chart.symbol so we don't drive the full Win32 chart-switch
+    # path - only verify it was called with the requested symbol.
+    activated_with: dict = {}
+    from mt5_cli.screenshot import screenshot as sshot_mod
+
+    def fake_chart_symbol(symbol_name, *, window_substring="MT5", **_kwargs):
+        activated_with["symbol"] = symbol_name
+        activated_with["window_substring"] = window_substring
+        return {"ok": True, "data": {"symbol": symbol_name, "activated_existing": True}}
+
+    # Patch the chart.symbol lookup as imported lazily inside dom()
+    import mt5_cli.chart as chart_pkg
+    monkeypatch.setattr(chart_pkg, "symbol", fake_chart_symbol)
+
+    # Also stub _open_dom_panel / _close_dom_panel so we don't drive Win32 menus
+    monkeypatch.setattr(sshot_mod, "_open_dom_panel",
+                        lambda sym, win, settle: {"ok": True, "data": {"hwnd": 1000}})
+    monkeypatch.setattr(sshot_mod, "_close_dom_panel",
+                        lambda sym, win: {"ok": True, "data": {}})
+
+    # Make PIL postprocess succeed (same fixture as the smoke test above)
+    fake_pil = types.ModuleType("PIL")
+    fake_image_module = types.ModuleType("PIL.Image")
+    fake_image_instance = MagicMock(name="image")
+    fake_image_instance.width = 400
+    fake_image_instance.height = 300
+    fake_image_instance.convert.return_value = fake_image_instance
+    fake_image_instance.crop.return_value = fake_image_instance
+    fake_image_instance.resize.return_value = fake_image_instance
+    fake_image_instance.__enter__ = lambda self: fake_image_instance
+    fake_image_instance.__exit__ = lambda self, *a: False
+    fake_image_module.open = MagicMock(return_value=fake_image_instance)
+    fake_pil.Image = fake_image_module
+
+    import unittest.mock as um
+    with um.patch.dict(sys.modules, {"PIL": fake_pil, "PIL.Image": fake_image_module}):
+        from mt5_cli.screenshot import dom
+        out = str(tmp_path / "dom.png")
+        env = dom(symbol="USDJPY", output_path=out, open_panel=True, close_panel=True,
+                  settle_seconds=0)
+        assert env["ok"] is True
+        # The fix: chart.symbol("USDJPY") was called before the DOM menu poke
+        assert activated_with == {"symbol": "USDJPY", "window_substring": "MT5"}
+        # And the activation result is surfaced in the envelope
+        assert env["data"]["activate_result"]["symbol"] == "USDJPY"
+
+
+def test_dom_bubbles_chart_activate_failure_without_opening_panel(
+    fake_capture_deps, tmp_path, monkeypatch
+):
+    """If chart activation fails (e.g., symbol not visible in MarketWatch),
+    dom() must NOT proceed to open the DOM panel or capture - it must
+    bubble the activation error so the agent knows the requested symbol
+    was never on screen."""
+    fake_win = MagicMock(title="MetaTrader 5", left=0, top=0, width=400, height=300)
+    fake_win._hWnd = 1000
+    fake_capture_deps["pygetwindow"].getAllWindows.return_value = [fake_win]
+    fake_capture_deps["win32gui"].GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+
+    import mt5_cli.chart as chart_pkg
+    monkeypatch.setattr(
+        chart_pkg,
+        "symbol",
+        lambda *a, **k: {"ok": False, "error": {"code": "CHART_SYMBOL_VERIFY_FAILED",
+                                                "message": "symbol not visible"}},
+    )
+
+    # If activation fails, _open_dom_panel must NOT be reached. Mark it as
+    # a sentinel that would blow the test if called.
+    from mt5_cli.screenshot import screenshot as sshot_mod
+    called = {"open": False}
+
+    def _open_should_not_be_called(*args, **kwargs):
+        called["open"] = True
+        return {"ok": True, "data": {}}
+    monkeypatch.setattr(sshot_mod, "_open_dom_panel", _open_should_not_be_called)
+
+    from mt5_cli.screenshot import dom
+    env = dom(symbol="ZZZZ", open_panel=True, settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_SYMBOL_VERIFY_FAILED"
+    assert called["open"] is False  # short-circuit verified
+
+
 # ---------------------------------------------------------------------------
 # Bridge isolation
 # ---------------------------------------------------------------------------

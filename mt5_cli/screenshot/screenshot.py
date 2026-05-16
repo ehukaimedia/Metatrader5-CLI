@@ -407,6 +407,22 @@ def dom(
             / f"{safe_symbol}_DOM_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}.png"
         )
 
+    activate_result = None
+    if open_panel:
+        # Activate the symbol's chart BEFORE opening the DOM panel.
+        # Without this, MT5 opens the DOM for whatever chart is currently
+        # active - so dom("USDJPY") on an active EURUSD chart would
+        # capture EURUSD DOM but the envelope would report symbol=USDJPY
+        # (Codex P2 #7: label-vs-reality mismatch).
+        from mt5_cli.chart import symbol as chart_symbol  # noqa: PLC0415
+        activate_result = chart_symbol(
+            symbol,
+            window_substring=target_window,
+            settle_seconds=settle_seconds,
+        )
+        if not activate_result.get("ok"):
+            return activate_result
+
     open_result = None
     if open_panel:
         open_result = _open_dom_panel(symbol, target_window, settle_seconds)
@@ -439,6 +455,8 @@ def dom(
         "panel_opened": bool(open_panel),
         "panel_closed": bool(close_panel and open_panel and close_result and close_result.get("ok")),
     })
+    if activate_result:
+        data["activate_result"] = activate_result.get("data", {})
     if open_result:
         data["open_result"] = open_result.get("data", {})
     if close_result:

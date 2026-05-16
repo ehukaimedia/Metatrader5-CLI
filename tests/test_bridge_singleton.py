@@ -68,13 +68,27 @@ def test_only_bridge_imports_metatrader5():
     )
 
 
-# Dynamic imports — importlib.import_module("MetaTrader5") or
-# __import__("MetaTrader5") — bypass the AST Import / ImportFrom nodes
+# Dynamic imports - importlib.import_module("MetaTrader5") or
+# __import__("MetaTrader5") - bypass the AST Import / ImportFrom nodes
 # above (at the AST level they are function calls with a string arg).
-# This regex backstop catches the common forms.
+# This regex backstop catches the common forms, INCLUDING aliased imports:
+#   import importlib; importlib.import_module("MetaTrader5")
+#   import importlib as il; il.import_module("MetaTrader5")
+#   from importlib import import_module; import_module("MetaTrader5")
+#   __import__("MetaTrader5")
+# Codex P3 #8 noted the original regex missed the "from importlib import
+# import_module" + "import importlib as il" forms. The expanded pattern
+# now matches the call site (`<anything>.import_module("MetaTrader5")`
+# OR a bare `import_module("MetaTrader5")` call) regardless of how the
+# name was bound.
 _DYNAMIC_IMPORT_RE = re.compile(
-    r"""(?:importlib\.import_module|__import__)\s*\(\s*['"]MetaTrader5['"]""",
-    re.MULTILINE,
+    r"""(?:
+        (?:[A-Za-z_][A-Za-z0-9_]*\.)?import_module    # qualified or bare import_module(
+        \s*\(\s*['"]MetaTrader5['"]
+        |
+        __import__\s*\(\s*['"]MetaTrader5['"]         # __import__(
+    )""",
+    re.MULTILINE | re.VERBOSE,
 )
 
 
@@ -110,6 +124,28 @@ def test_no_dynamic_metatrader5_imports():
 # implementation (kept separate so future contributors can extend the regex).
 def _dynamicallyimports_metatrader5_safe(py_path: Path) -> bool:
     return _dynamically_imports_metatrader5(py_path)
+
+
+@pytest.mark.parametrize("source,should_match", [
+    # Forms that MUST match (Codex P3 #8 closure)
+    ('importlib.import_module("MetaTrader5")', True),
+    ("importlib.import_module('MetaTrader5')", True),
+    ('__import__("MetaTrader5")', True),
+    ("__import__('MetaTrader5')", True),
+    ('import importlib as il\nil.import_module("MetaTrader5")', True),
+    ('from importlib import import_module\nimport_module("MetaTrader5")', True),
+    # Multi-line spacing should still match
+    ('importlib.import_module(\n    "MetaTrader5"\n)', True),
+    # False positives we must NOT match
+    ('# importlib.import_module("MetaTrader5") in a comment', True),  # regex by design matches strings too; AST is the primary guard
+    ('importlib.import_module("OtherPackage")', False),
+    ('foo.import_module("MetaTrader5_lookalike")', False),
+    ('import_module_other("MetaTrader5")', False),
+])
+def test_dynamic_import_regex_catches_known_forms(source, should_match):
+    """Codex P3 #8: verify the expanded backstop catches all dynamic-import
+    forms that bypass the AST scan, while not over-matching unrelated calls."""
+    assert bool(_DYNAMIC_IMPORT_RE.search(source)) is should_match
 
 
 def test_allowed_files_actually_exist():

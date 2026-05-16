@@ -72,7 +72,15 @@ def load(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     path = _config_path()
     if path.exists():
         try:
-            cfg.update(json.loads(path.read_text()))
+            parsed = json.loads(path.read_text())
+            # json.loads can return a scalar / list / null for valid-but-
+            # wrong-shaped JSON (file contents like `42` or `[1,2,3]`).
+            # cfg.update() requires a mapping; silently skip the file
+            # layer when the parse result is not a dict, same fall-back
+            # as the corrupt-syntax case. Agents should not crash on a
+            # bad config file edit (Codex P2 #4).
+            if isinstance(parsed, dict):
+                cfg.update(parsed)
         except (OSError, ValueError):
             pass
     for env_key, (cfg_key, caster) in ENV_MAP.items():

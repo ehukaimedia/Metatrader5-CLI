@@ -65,6 +65,23 @@ def test_corrupt_json_file_falls_back_to_defaults(clean_env, tmp_path, monkeypat
     assert cfg["max_positions"] == 5
 
 
+@pytest.mark.parametrize("payload", ["42", "null", "true", '"a string"', "[1, 2, 3]"])
+def test_valid_but_non_object_json_falls_back_to_defaults(
+    clean_env, tmp_path, monkeypatch, payload
+):
+    """Codex P2 #4: valid JSON of the wrong shape (scalar / list / null)
+    must fall through to DEFAULTS the same way corrupt JSON does.
+    cfg.update() would TypeError on non-mapping values; load() must
+    skip the file layer instead so agents don't crash on a bad edit."""
+    cfg_path = tmp_path / "wrong_shape.json"
+    cfg_path.write_text(payload)
+    monkeypatch.setenv("MT5_CONFIG", str(cfg_path))
+    cfg = load()  # must not raise
+    # Falls back to defaults
+    assert cfg["max_positions"] == 5
+    assert cfg["magic"] == 88888
+
+
 def test_mask_secrets_redacts_password_and_login(clean_env):
     """Both password and login must be redacted - the login is an MT5
     account number that uniquely identifies the user to the broker."""
