@@ -3,10 +3,8 @@ orders.py — Order placement, modification, cancellation and fill-polling
 for mt5_universal.
 
 Cherry-picked from archive/legacy-mt5/core/order.py (685 LOC).
-6 public functions only: list_pending, place_market, place_limit,
-dryrun, cancel, poll_fill.
-
-Deferred to later tasks: place_stop, modify, cancel_all_pending.
+9 public functions: list_pending, place_market, place_limit, place_stop,
+dryrun, cancel, cancel_all_pending, modify, poll_fill.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_universal.bridge.mt5_call()``.
@@ -54,9 +52,13 @@ from mt5_universal.bridge import (
     ORDER_TYPE_SELL,
     ORDER_TYPE_BUY_LIMIT,
     ORDER_TYPE_SELL_LIMIT,
+    ORDER_TYPE_BUY_STOP,
+    ORDER_TYPE_SELL_STOP,
     TRADE_ACTION_DEAL,
     TRADE_ACTION_PENDING,
+    TRADE_ACTION_MODIFY,
     TRADE_ACTION_REMOVE,
+    TRADE_ACTION_SLTP,
     TRADE_RETCODE_DONE,
     TRADE_RETCODE_PLACED,
     TRADE_RETCODE_INVALID_FILL,
@@ -602,9 +604,7 @@ def dryrun(
         )
         action = TRADE_ACTION_PENDING
     else:
-        # stop — ORDER_TYPE_BUY_STOP / SELL_STOP is available in bridge
-        # (imported via bridge __init__ but not imported here; use the int constants)
-        from mt5_universal.bridge import ORDER_TYPE_BUY_STOP, ORDER_TYPE_SELL_STOP
+        # stop — ORDER_TYPE_BUY_STOP / SELL_STOP
         mt5_order_type = (
             ORDER_TYPE_BUY_STOP if side_lower == "buy" else ORDER_TYPE_SELL_STOP
         )
@@ -727,3 +727,245 @@ def poll_fill(ticket: int, timeout_ms: int = 5000) -> dict:
         time.sleep(0.1)
 
     return ok({"filled": False, "ticket": ticket})
+
+
+# ---------------------------------------------------------------------------
+# place_stop
+# ---------------------------------------------------------------------------
+
+def place_stop(
+    symbol: str,
+    side: str,
+    price: float,
+    *,
+    volume: float,
+    sl: float,
+    tp: float | None = None,
+    strategy_id: str | None = None,
+    magic: int | None = None,
+    filling: str = "auto",
+    cfg: dict,
+    is_live_intent: bool,
+) -> dict:
+    """Place a stop pending order (TRADE_ACTION_PENDING, BUY_STOP / SELL_STOP).
+
+    Same shape as place_limit but uses the stop order types. Risk gate runs
+    first via check_order (Guard 2 handles the live gate).
+
+    Note: expiry / ORDER_TIME_SPECIFIED is deferred. All stop orders use GTC.
+    # TODO: expiry support pending ORDER_TIME_SPECIFIED bridge widening.
+
+    Args:
+        symbol: Instrument symbol.
+        side: "buy" or "sell".
+        price: Stop trigger price.
+        volume: Lot size.
+        sl: Stop-loss price (required).
+        tp: Take-profit price (optional).
+        strategy_id: Optional strategy identifier.
+        magic: Override magic number.
+        filling: "auto" (FOK) / "FOK" / "IOC". RETURN not valid for pending.
+        cfg: Effective configuration dict.
+        is_live_intent: Pass True to confirm intentional live trading.
+
+    Returns:
+        ok({"ticket": ..., ...}) on success, or fail envelope.
+    """
+    side_lower, side_err = _normalize_side(side)
+    if side_err is not None:
+        return side_err
+
+    if not ensure_symbol(symbol):
+        return fail("MT5_INVALID_SYMBOL", f"Symbol {symbol!r} is not available in MT5.")
+
+    risk_result = check_order(
+        symbol=symbol,
+        side=side,
+        volume=volume,
+        sl=sl,
+        tp=tp,
+        strategy_id=strategy_id,
+        cfg=cfg,
+        is_live_intent=is_live_intent,
+    )
+    if not risk_result["ok"]:
+        return risk_result
+
+    resolved_magic = magic if magic is not None else resolve_magic(strategy_id, cfg)
+    resolved_filling = _resolve_pending_filling(filling)
+    order_type = ORDER_TYPE_BUY_STOP if side_lower == "buy" else ORDER_TYPE_SELL_STOP
+
+    request = {
+        "action": TRADE_ACTION_PENDING,
+        "symbol": symbol,
+        "volume": float(volume),
+        "type": order_type,
+        "price": float(price),
+        "sl": sl,
+        "tp": tp if tp is not None else 0.0,
+        "magic": resolved_magic,
+        "comment": strategy_id or "",
+        "type_time": ORDER_TIME_GTC,
+        "type_filling": resolved_filling,
+    }
+
+    result = mt5_call("order_send", request)
+    return _finalize_order(
+        result, symbol, side, float(volume), float(price), sl, tp,
+        resolved_magic, strategy_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# modify
+# ---------------------------------------------------------------------------
+
+def modify(
+    ticket: int,
+    *,
+    sl: float | None = None,
+    tp: float | None = None,
+    price: float | None = None,
+    expiry=None,
+    is_live_intent: bool,
+) -> dict:
+    """Modify an open position (SL/TP) or a pending order (price/SL/TP).
+
+    Auto-detects ticket type: positions_get first, then orders_get.
+
+    - Open position → TRADE_ACTION_SLTP. Preserves existing sl/tp when
+      caller passes None. price and expiry are ignored for positions.
+    - Pending order → TRADE_ACTION_MODIFY. Preserves existing price/sl/tp
+      when caller passes None. expiry is deferred (GTC always).
+
+    # TODO: expiry support pending ORDER_TIME_SPECIFIED bridge widening.
+
+    Live gate uses _live_gate_check (same pattern as cancel).
+
+    Args:
+        ticket: Order or position ticket.
+        sl: New stop-loss price. None preserves existing.
+        tp: New take-profit price. None preserves existing.
+        price: New pending-order price. None preserves existing.
+        expiry: Deferred — accepted for signature stability but ignored.
+        is_live_intent: Must be True on a live account.
+
+    Returns:
+        ok({"ticket": ..., "action": "SLTP"|"MODIFY", ...}) on success,
+        or fail envelope.
+    """
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
+    # --- Open position branch ---
+    positions = mt5_call("positions_get", ticket=ticket)
+    if positions:
+        pos = positions[0]
+        sl_final = sl if sl is not None else pos.sl
+        tp_final = tp if tp is not None else pos.tp
+        request = {
+            "action": TRADE_ACTION_SLTP,
+            "symbol": pos.symbol,
+            "position": ticket,
+            "sl": sl_final,
+            "tp": tp_final,
+            "magic": pos.magic,
+        }
+        result = mt5_call("order_send", request)
+        if result is None:
+            return fail("MT5_ORDER_REJECTED", "order_send returned None for SLTP modify.")
+        if result.retcode in (TRADE_RETCODE_DONE, TRADE_RETCODE_PLACED):
+            return ok({"ticket": ticket, "action": "SLTP", "sl": sl_final, "tp": tp_final})
+        return fail(
+            "MT5_ORDER_REJECTED",
+            str(getattr(result, "comment", "")),
+            data={"mt5_retcode": result.retcode},
+        )
+
+    # --- Pending order branch ---
+    orders = mt5_call("orders_get", ticket=ticket)
+    if orders:
+        ord_ = orders[0]
+        price_final = price if price is not None else ord_.price_open
+        sl_final = sl if sl is not None else ord_.sl
+        tp_final = tp if tp is not None else ord_.tp
+        request = {
+            "action": TRADE_ACTION_MODIFY,
+            "order": ticket,
+            "symbol": ord_.symbol,
+            "price": price_final,
+            "sl": sl_final,
+            "tp": tp_final,
+            "type_time": ord_.type_time,
+            "expiration": ord_.time_expiration,
+            "magic": ord_.magic,
+        }
+        result = mt5_call("order_send", request)
+        if result is None:
+            return fail("MT5_ORDER_REJECTED", "order_send returned None for MODIFY.")
+        if result.retcode in (TRADE_RETCODE_DONE, TRADE_RETCODE_PLACED):
+            return ok({"ticket": ticket, "action": "MODIFY", "price": price_final,
+                       "sl": sl_final, "tp": tp_final})
+        return fail(
+            "MT5_ORDER_REJECTED",
+            str(getattr(result, "comment", "")),
+            data={"mt5_retcode": result.retcode},
+        )
+
+    return fail(
+        "MT5_TICKET_NOT_FOUND",
+        f"Ticket {ticket} not found in positions or pending orders.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# cancel_all_pending
+# ---------------------------------------------------------------------------
+
+def cancel_all_pending(symbol: str | None = None, *, is_live_intent: bool) -> dict:
+    """Cancel all pending orders, optionally scoped to one symbol.
+
+    Continues on per-ticket failure (fail-soft). Returns per-ticket outcome
+    dicts with cancelled/failed summary counts.
+
+    Deliberate divergence from legacy: return shape uses {"per_ticket": [...],
+    "cancelled": N, "failed": N} instead of legacy's flat list of {"ticket": ...,
+    "result": "canceled"/"error"} entries. The structured shape is easier for
+    agents to parse without iterating to count outcomes.
+
+    Args:
+        symbol: Filter to this symbol only. None cancels all pending orders.
+        is_live_intent: Must be True on a live account.
+
+    Returns:
+        ok({"per_ticket": [...], "cancelled": N, "failed": N}) — outer ok=True
+        even when some tickets fail. fail envelope only if the live gate or
+        orders_get itself fails.
+    """
+    gate = _live_gate_check(is_live_intent)
+    if gate is not None:
+        return gate
+
+    if symbol:
+        pending = mt5_call("orders_get", symbol=symbol)
+    else:
+        pending = mt5_call("orders_get")
+
+    if pending is None:
+        return fail("MT5_CONNECTION_ERROR", "orders_get returned None.")
+
+    results = []
+    cancelled = 0
+    failed = 0
+    for order in pending:
+        ticket = int(order.ticket)
+        result = cancel(ticket, is_live_intent=is_live_intent)
+        if result["ok"]:
+            cancelled += 1
+            results.append({"ticket": ticket, "ok": True})
+        else:
+            failed += 1
+            results.append({"ticket": ticket, "ok": False, "error": result["error"]})
+
+    return ok({"per_ticket": results, "cancelled": cancelled, "failed": failed})
