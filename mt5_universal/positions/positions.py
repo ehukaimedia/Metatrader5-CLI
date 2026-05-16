@@ -24,8 +24,7 @@ from mt5_universal.bridge import (
     mt5_call,
     ORDER_TYPE_BUY,
     ORDER_TYPE_SELL,
-    POSITION_TYPE_BUY,  # noqa: F401 — imported for clarity/completeness
-    POSITION_TYPE_SELL,  # noqa: F401
+    POSITION_TYPE_BUY,
     ORDER_FILLING_FOK,
     TRADE_ACTION_DEAL,
     TRADE_ACTION_SLTP,
@@ -65,7 +64,7 @@ def _pos_to_dict(pos) -> dict:
     return {
         "ticket": pos.ticket,
         "symbol": pos.symbol,
-        "type": "buy" if pos.type == 0 else "sell",
+        "type": "buy" if pos.type == POSITION_TYPE_BUY else "sell",
         "volume": pos.volume,
         "open_price": pos.price_open,
         "sl": pos.sl,
@@ -131,13 +130,13 @@ def close(ticket: int, volume: float | None = None, *, is_live_intent: bool) -> 
 
     pos = positions[0]
     close_volume = volume if volume is not None else pos.volume
-    close_type = ORDER_TYPE_SELL if pos.type == 0 else ORDER_TYPE_BUY
+    close_type = ORDER_TYPE_SELL if pos.type == POSITION_TYPE_BUY else ORDER_TYPE_BUY
 
     tick = mt5_call("symbol_info_tick", pos.symbol)
     if tick is None:
         return fail("MT5_NO_DATA", f"No tick data for {pos.symbol!r}.")
     # BUY closes at bid (sell price); SELL closes at ask (buy price)
-    price = tick.bid if pos.type == 0 else tick.ask
+    price = tick.bid if pos.type == POSITION_TYPE_BUY else tick.ask
 
     request = {
         "action": TRADE_ACTION_DEAL,
@@ -301,7 +300,7 @@ def breakeven(ticket: int, buffer_points: int = 0, *, is_live_intent: bool) -> d
     point = sym_info.point
     open_price = pos.price_open
 
-    if pos.type == 0:  # BUY
+    if pos.type == POSITION_TYPE_BUY:
         new_sl = open_price + buffer_points * point
     else:              # SELL
         new_sl = open_price - buffer_points * point

@@ -16,6 +16,7 @@ from mt5_universal.bridge import (
     ACCOUNT_TRADE_MODE_REAL,
 )
 from mt5_universal.reports import ok, fail
+from mt5_universal.risk import daily_loss
 
 # Map raw MT5 trade_mode integers to human-readable strings.
 _TRADE_MODE_MAP: dict = {
@@ -70,5 +71,36 @@ def balance() -> dict:
     })
 
 
-# TODO Task 2.3.E: add risk(cfg) once mt5_universal.risk.daily_loss exists.
-# Depends on mt5_universal.risk.daily_loss which lands in Task 2.3.E.
+def risk(cfg: dict) -> dict:
+    """Return risk envelope status.
+
+    ``safe_to_trade`` is True iff a minimal subset of risk guards pass:
+    positions count, daily-loss cap, and free-margin percentage.  It does
+    NOT run the full ``check_order`` (which requires a specific symbol and
+    volume); it is an at-a-glance signal only.
+
+    Pattern-ported from archive/legacy-mt5/core/account.py::risk.
+    """
+    acc, err = _account_info_or_fail()
+    if err:
+        return err
+
+    positions = mt5_call("positions_get") or []
+    positions_used = len(positions)
+    daily_loss_used = daily_loss(cfg)
+
+    positions_ok = positions_used < cfg["max_positions"]
+    daily_loss_ok = daily_loss_used > -cfg["max_daily_loss"]
+    if acc.equity <= 0:
+        margin_ok = False
+    else:
+        margin_ok = acc.margin_free / acc.equity * 100 >= cfg["min_free_margin_pct"]
+
+    return ok({
+        "max_positions": cfg["max_positions"],
+        "max_daily_loss": cfg["max_daily_loss"],
+        "daily_loss_used": daily_loss_used,
+        "positions_used": positions_used,
+        "safe_to_trade": positions_ok and daily_loss_ok and margin_ok,
+        "currency": acc.currency,
+    })

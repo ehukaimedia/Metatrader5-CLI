@@ -7,11 +7,25 @@ _FROM = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _TO = datetime(2026, 1, 31, tzinfo=timezone.utc)
 
 
+_MODULES_TO_PURGE = (
+    "mt5_universal.bridge",
+    "mt5_universal.history",
+    "mt5_universal.risk",
+    "mt5_universal.risk.risk",
+)
+
+
+def _purge():
+    for name in list(sys.modules):
+        for prefix in _MODULES_TO_PURGE:
+            if name == prefix or name.startswith(prefix + "."):
+                sys.modules.pop(name, None)
+                break
+
+
 @pytest.fixture
 def mocked_mt5(monkeypatch):
-    for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.history"):
-            sys.modules.pop(name, None)
+    _purge()
 
     fake = MagicMock(name="MetaTrader5")
     fake.initialize.return_value = True
@@ -30,9 +44,7 @@ def mocked_mt5(monkeypatch):
     fake.ORDER_TIME_GTC = 1000
     monkeypatch.setitem(sys.modules, "MetaTrader5", fake)
     yield fake
-    for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.history"):
-            sys.modules.pop(name, None)
+    _purge()
 
 
 def _deal(ticket=1, time_epoch=1700000000, symbol="USDJPY", type_=0, volume=0.1,
@@ -65,17 +77,18 @@ def test_deals_filters_by_symbol(mocked_mt5):
 
 def test_deals_filters_by_strategy_id_via_magic(mocked_mt5):
     """strategy_id filter resolves to a magic int and filters deals by that magic."""
+    # magic must be < 100000 to satisfy canonical resolve_magic collision guard
     mocked_mt5.history_deals_get.return_value = [
         _deal(magic=88888, profit=10.0),
-        _deal(magic=162538, profit=-3.0),
+        _deal(magic=50000, profit=-3.0),
     ]
-    cfg = {"strategy_ids": {"my_strategy": 162538}}
+    cfg = {"strategy_ids": {"my_strategy": 50000}}
     from mt5_universal.history import deals
     env = deals(date_from=_FROM, date_to=_TO,
                 strategy_id="my_strategy", cfg=cfg)
     assert env["ok"] is True
     assert len(env["data"]) == 1
-    assert env["data"][0]["magic"] == 162538
+    assert env["data"][0]["magic"] == 50000
 
 
 def test_deals_iso_timestamps(mocked_mt5):

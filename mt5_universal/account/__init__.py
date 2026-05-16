@@ -1,3 +1,3 @@
-from .account import info, balance
+from .account import info, balance, risk
 
-__all__ = ["info", "balance"]
+__all__ = ["info", "balance", "risk"]
