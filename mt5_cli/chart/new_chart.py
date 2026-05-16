@@ -100,10 +100,18 @@ def new_chart(
 
     # Snapshot existing charts before posting, so we can identify the new
     # one by hwnd diff after the menu activation settles.
+    # Codex post-fix P2 #3: if the before-snapshot fails, we can't reliably
+    # diff afterwards - fail closed rather than silently fabricate a
+    # success envelope from "whichever chart MT5 happens to focus".
     try:
         before = {c.hwnd for c in enumerate_chart_children(match.hwnd)}
-    except Exception:  # noqa: BLE001
-        before = set()
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            "CHART_NEW_CHART_SNAPSHOT_FAILED",
+            f"Could not enumerate existing charts before opening a new one "
+            f"({exc!r}). Refusing to post WM_COMMAND because the resulting "
+            "chart could not be reliably identified.",
+        )
 
     leaf_lower = normalize_menu_text(symbol_upper)
     command_id = find_leaf_command_id_recursive(new_chart_menu, leaf_lower)
@@ -122,21 +130,34 @@ def new_chart(
         time.sleep(settle_seconds)
 
     # Find the newly-opened chart by diffing the child enumeration.
-    new_chart_hwnd = None
+    # Codex post-fix P2 #3: previously fell back to "whichever chart is
+    # active" when the diff produced no new hwnd. That fallback let
+    # new_chart() return ok with a fabricated chart_id - the same
+    # label-vs-reality class of bug fixed for dom() at da5ebc4. Fail
+    # closed instead: the menu post may not have opened a chart (e.g.,
+    # MT5 refused, focused an existing chart instead, or the symbol
+    # is in Market Watch but disabled).
     try:
         after = enumerate_chart_children(match.hwnd)
-    except Exception:  # noqa: BLE001
-        after = []
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            "CHART_NEW_CHART_VERIFY_FAILED",
+            f"Posted WM_COMMAND for {symbol_upper!r} but could not enumerate "
+            f"charts afterwards to verify the new chart ({exc!r}).",
+        )
+    new_chart_hwnd = None
     for chart_window in after:
         if chart_window.hwnd not in before:
             new_chart_hwnd = chart_window.hwnd
             break
     if new_chart_hwnd is None:
-        # Fallback: assume the newly active chart is the one we just opened.
-        for chart_window in after:
-            if chart_window.active:
-                new_chart_hwnd = chart_window.hwnd
-                break
+        return fail(
+            "CHART_NEW_CHART_NOT_DETECTED",
+            f"Posted WM_COMMAND for {symbol_upper!r} (cmd id {command_id}) "
+            "but no new chart appeared. MT5 may have focused an existing "
+            "chart, refused the command, or the symbol may be disabled in "
+            "Market Watch.",
+        )
 
     base_data = {
         "hwnd": new_chart_hwnd,

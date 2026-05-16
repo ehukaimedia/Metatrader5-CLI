@@ -80,16 +80,48 @@ def fake_pywin32(monkeypatch):
 
     fake_gui = MagicMock(name="win32gui")
     fake_gui.IsWindowVisible.return_value = True
-    fake_gui.GetWindowText.return_value = "MetaTrader 5"
     fake_gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
     fake_gui.EnumWindows.side_effect = lambda cb, _: cb(1000, None)
-    # By default no chart children. Individual tests override via
-    # EnumChildWindows.side_effect when they need a chart-list diff.
-    fake_gui.EnumChildWindows.return_value = None
     fake_gui.GetParent.return_value = 0
+
+    # Default chart-list diff: before-snapshot returns no charts; after the
+    # WM_COMMAND post we simulate ONE new chart appearing (hwnd 5500).
+    # Tests that need a different diff (e.g., to verify hwnd identification
+    # with multiple charts) override fake_gui.EnumChildWindows.side_effect
+    # themselves.
+    new_chart_state = {"posted": False}
+    NEW_CHART_HWND = 5500
+
+    def fake_enum_child_default(parent, cb, _extra):
+        # _find_mdi_client calls EnumChildWindows looking for MDIClient;
+        # we return nothing so _active_chart_hwnd falls through to None.
+        # The chart-enumeration calls then drive the diff.
+        if not new_chart_state["posted"]:
+            return  # before-snapshot: zero charts
+        # after-snapshot: the new chart appears
+        cb(NEW_CHART_HWND, None)
+
+    fake_gui.EnumChildWindows.side_effect = fake_enum_child_default
+
+    def remember_post(hwnd, msg, *args):
+        # Mark "posted" so the next EnumChildWindows call reports the new chart.
+        if msg == 0x0111:  # WM_COMMAND
+            new_chart_state["posted"] = True
+        return 1
+    fake_gui.PostMessage.side_effect = remember_post
+
+    # GetWindowText: hwnd 1000 = main MT5 window; 5500 = the new chart
+    fake_gui.GetWindowText.side_effect = lambda hwnd: {
+        1000: "MetaTrader 5",
+        NEW_CHART_HWND: "[NEW,M1]",
+    }.get(hwnd, "")
+    # GetClassName: hwnd 1000 = MT5 main; 5500 = chart child class
+    fake_gui.GetClassName.side_effect = lambda hwnd: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        NEW_CHART_HWND: "AfxFrameOrView140s",
+    }.get(hwnd, "")
     fake_gui.GetFocus.return_value = 0
     fake_gui.GetForegroundWindow.return_value = 0
-    fake_gui.PostMessage.return_value = 1
     fake_gui.SendMessage.return_value = 0
     fake_gui.GetMenu.return_value = 100
 
@@ -344,6 +376,99 @@ def test_new_chart_fails_when_symbol_not_in_any_submenu(fake_pywin32):
     assert env["error"]["code"] == "CHART_SYMBOL_NOT_FOUND_IN_MENU"
     assert "XXXYYY" in env["error"]["message"]
     assert "Market Watch" in env["error"]["message"]  # actionable hint
+
+
+# ---------------------------------------------------------------------------
+# Codex post-fix P2 #3: fail-closed when the new chart can't be identified
+# ---------------------------------------------------------------------------
+
+
+def test_new_chart_fails_closed_when_no_new_hwnd_appeared(fake_pywin32):
+    """If the menu post does NOT result in a new chart (MT5 focused an
+    existing chart, refused the command, or the symbol is disabled),
+    return CHART_NEW_CHART_NOT_DETECTED rather than fabricating success."""
+    # Override the default fixture behavior: both before and after
+    # enumerations return the same set of charts (no diff).
+    existing_chart_hwnd = 2000
+
+    def fake_enum_unchanged(parent, cb, _extra):
+        # _find_mdi_client iterates too; return nothing so it falls through
+        # to other paths, then both chart enumerations return the existing
+        # chart only - no diff regardless of how many times we're called.
+        cb(existing_chart_hwnd, None)
+
+    fake_pywin32.EnumChildWindows.side_effect = fake_enum_unchanged
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        existing_chart_hwnd: "[EURUSD,H1]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        existing_chart_hwnd: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    from mt5_cli.chart import new_chart
+    env = new_chart("USDJPY", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_NEW_CHART_NOT_DETECTED"
+    assert "USDJPY" in env["error"]["message"]
+
+
+def test_new_chart_fails_closed_when_before_snapshot_raises(fake_pywin32):
+    """If the before-snapshot enumerate_chart_children raises, refuse to
+    post WM_COMMAND - we can't reliably identify the result."""
+    import importlib
+    new_chart_mod = importlib.import_module("mt5_cli.chart.new_chart")
+
+    def raising_enum(*args, **kwargs):
+        raise RuntimeError("simulated Win32 failure")
+
+    # Patch enumerate_chart_children at the new_chart module level
+    # (it was imported there from chart.chart).
+    import pytest as _pytest
+    monkey = _pytest.MonkeyPatch()
+    monkey.setattr(new_chart_mod, "enumerate_chart_children", raising_enum)
+    try:
+        from mt5_cli.chart import new_chart
+        env = new_chart("USDJPY", settle_seconds=0)
+    finally:
+        monkey.undo()
+
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_NEW_CHART_SNAPSHOT_FAILED"
+    # And critically: WM_COMMAND was NOT posted (no chart-id to verify)
+    wm_command_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0111
+    ]
+    assert not wm_command_calls
+
+
+def test_new_chart_fails_when_after_snapshot_raises(fake_pywin32):
+    """before-snapshot succeeds (empty), WM_COMMAND posted, but the
+    after-snapshot raises. Should return CHART_NEW_CHART_VERIFY_FAILED."""
+    import importlib
+    new_chart_mod = importlib.import_module("mt5_cli.chart.new_chart")
+
+    call_state = {"n": 0}
+
+    def flaky_enum(parent):
+        call_state["n"] += 1
+        if call_state["n"] == 1:
+            return []  # before-snapshot succeeds with empty list
+        raise RuntimeError("simulated post-post enum failure")
+
+    import pytest as _pytest
+    monkey = _pytest.MonkeyPatch()
+    monkey.setattr(new_chart_mod, "enumerate_chart_children", flaky_enum)
+    try:
+        from mt5_cli.chart import new_chart
+        env = new_chart("USDJPY", settle_seconds=0)
+    finally:
+        monkey.undo()
+
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_NEW_CHART_VERIFY_FAILED"
 
 
 # ---------------------------------------------------------------------------

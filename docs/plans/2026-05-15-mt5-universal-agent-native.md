@@ -2054,7 +2054,7 @@ def test_ea_new_then_list_finds_it(tmp_path):
     runner = CliRunner()
     target = tmp_path / "ea"
     res1 = runner.invoke(main, ["--json", "ea", "new", "smoke_alpha",
-                                "--template", "scalper",
+                                "--template", "minimal",
                                 "--target-dir", str(target)])
     assert res1.exit_code == 0
     assert json.loads(res1.output)["ok"] is True
@@ -2074,7 +2074,7 @@ def test_indicator_new_then_list(tmp_path, monkeypatch):
     runner = CliRunner()
     target = tmp_path / "indicators"
     res1 = runner.invoke(main, ["--json", "indicator", "new", "smoke_donch",
-                                "--template", "overlay",
+                                "--template", "minimal",
                                 "--target-dir", str(target)])
     assert json.loads(res1.output)["ok"] is True
     assert (target / "smoke_donch.mq5").exists()
@@ -4268,14 +4268,14 @@ def test_ea_dir_uses_env(monkeypatch, tmp_path):
 def test_cache_dir_uses_xdg_then_appdata_then_home(monkeypatch, tmp_path):
     monkeypatch.delenv("MT5_CACHE_DIR", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
-    assert paths.cache_dir() == tmp_path / "xdg" / "mt5-universal"
+    assert paths.cache_dir() == tmp_path / "xdg" / "metatrader5-cli"
 
 
 def test_cache_dir_appdata_fallback_on_windows(monkeypatch, tmp_path):
     monkeypatch.delenv("MT5_CACHE_DIR", raising=False)
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "lad"))
-    assert paths.cache_dir() == tmp_path / "lad" / "mt5-universal" / "cache"
+    assert paths.cache_dir() == tmp_path / "lad" / "metatrader5-cli" / "cache"
 
 
 def test_results_dir_uses_env(monkeypatch, tmp_path):

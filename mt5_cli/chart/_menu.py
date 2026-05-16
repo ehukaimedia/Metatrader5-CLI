@@ -20,10 +20,20 @@ MF_BYPOSITION = 0x0400
 
 
 def normalize_menu_text(text: str) -> str:
-    """Lowercase, strip '&' accelerator markers, collapse whitespace,
-    and drop the keyboard-shortcut suffix after the tab character.
-    Used to compare menu labels against caller-supplied target names."""
-    return " ".join(text.replace("&", "").split()).split("\t", 1)[0].strip().lower()
+    """Lowercase, strip '&' accelerator markers, drop the keyboard-shortcut
+    suffix after the tab character, then collapse remaining whitespace.
+
+    Used to compare menu labels against caller-supplied target names. The
+    tab split MUST come first: str.split() (no args) treats tab as
+    whitespace and would collapse it into a space, leaving the shortcut
+    text glued to the label (Codex post-fix P2 #2: "&New Chart\\tCtrl+N"
+    previously normalized to "new chart ctrl+n", breaking exact-match
+    walks of File > New Chart).
+    """
+    # 1. Drop the shortcut suffix (everything after the first tab).
+    label_only = text.split("\t", 1)[0]
+    # 2. Strip the '&' accelerator markers and collapse whitespace.
+    return " ".join(label_only.replace("&", "").split()).strip().lower()
 
 
 def menu_string(hmenu: int, index: int) -> str:
