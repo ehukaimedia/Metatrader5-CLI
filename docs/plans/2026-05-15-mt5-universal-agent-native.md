@@ -817,38 +817,38 @@ Cherry-pick:
 
 Same cache-safe fixture pattern. Detailed steps follow Task 2.3.C shape.
 
-### Task 2.8: Chart-indicator attach/detach primitives
+### Task 2.8: Chart-indicator attach/detach primitives — **REMOVED**
 
-**Files:**
-- Create: `mt5_cli/chart/indicators_attach.py` (or extend `chart.py`)
-- Modify: `tests/test_chart.py` (add attach/detach test class)
+**Status:** REMOVED post-Phase-2 per Codex Phase 2 review finding P1 #1
+([docs/code-reviews/codex-mt5-universal-phase-2-complete-review-2026-05-16.md](../code-reviews/codex-mt5-universal-phase-2-complete-review-2026-05-16.md#1-p1-critical---phase-28-chart-indicator-primitives-call-mt5-sdk-functions-that-are-not-exposed-by-the-installed-python-package)).
 
-The tool gives agents hands to attach a user-compiled MQL5 indicator (`.ex5`) to the active chart, detach one by name, or list what's currently attached. The user's indicator math is unchanged; the tool just manages chart-state attachment.
+**Why:** The MetaTrader5 Python SDK (verified at 5.0.5260, latest stable)
+does NOT expose `iCustom`, `ChartIndicatorAdd`, `ChartIndicatorDelete`,
+`ChartIndicatorsTotal`, or `ChartIndicatorName`. Those are MQL5-language
+functions that run inside the MT5 terminal process; the Python SDK
+covers account / symbols / rates / orders / positions / history /
+market_book only.
 
-**MT5 API surface:**
-- `mt5.ChartIndicatorAdd(chart_id, sub_window, indicator_handle)` — attach
-- `mt5.ChartIndicatorDelete(chart_id, sub_window, indicator_short_name)` — detach
-- `mt5.ChartIndicatorsTotal(chart_id, sub_window)` — count
-- `mt5.ChartIndicatorName(chart_id, sub_window, index)` — name lookup
-- `mt5.iCustom(symbol, timeframe, name, ...)` — load indicator handle (then attach)
+Task 2.8 was implemented at `cfe1c23` against MagicMocked SDK
+attributes. The mocks accepted any attribute, so unit tests passed —
+but the module would `AttributeError` on every real call.
+`mt5_cli/chart/indicators_attach.py` and `tests/test_chart_indicators.py`
+were deleted post-Phase-2.
 
-Public surface:
+**Where the agent's hands end for indicators:**
+- Phase 3 `mt5 indicator compile <name>` → builds `.ex5`
+- Phase 3 `mt5 indicator deploy <name>` → copies `.ex5` into
+  the terminal's `Indicators/` folder
+- User opens MT5, drags the indicator from Navigator onto a chart
+- Agent verifies the result via `screenshot.take(window_substring="MT5")`
 
-```python
-def attach(chart_id: int, indicator_name: str, params: list | None = None,
-           sub_window: int = 0) -> dict:
-    """Load user's compiled indicator and attach to the active chart's sub-window."""
-
-def detach(chart_id: int, indicator_short_name: str, sub_window: int = 0) -> dict:
-    """Remove a named indicator from the chart's sub-window."""
-
-def list_attached(chart_id: int, sub_window: int = 0) -> dict:
-    """List indicators currently attached to the chart's sub-window."""
-```
-
-Bridge widening: re-export `iCustom`, `ChartIndicatorAdd`, `ChartIndicatorDelete`, `ChartIndicatorsTotal`, `ChartIndicatorName` from the bridge package boundary if not already present.
-
-Tests follow the same cache-safe pattern. Use MagicMock for the MT5 chart calls; verify the right MT5 API was invoked with the right arguments.
+**If programmatic attach becomes a hard requirement later:** the
+realistic path is Win32 GUI menu-poking, using the pattern in
+`mt5_cli/screenshot/screenshot.py::_open_dom_panel` (find the
+`Insert > Indicators > Custom > <name>` menu item via
+`_find_menu_command_id`, post `WM_COMMAND`). Listing attached
+indicators would require GUI introspection of chart child windows.
+That's a future task, not Phase 2.
 
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
@@ -1000,7 +1000,7 @@ any leak."
 
 ```bash
 python -c "from mt5_cli import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_cli.chart import switch_tf, attach, detach, list_attached, find_window; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
+python -c "from mt5_cli.chart import switch_tf, symbol, ensure_chart, find_window, current_title; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
 
 # Pin MT5_CONFIG to a non-existent path so the user's real config file
 # (if any) does not override DEFAULTS in this purity check.

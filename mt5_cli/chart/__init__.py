@@ -1,10 +1,15 @@
-"""Chart submodule.
+"""Chart submodule. Pure Win32 chart UI control; bridge layer not referenced.
 
-Two layers:
-- chart.py: pure Win32 GUI control (no MT5 SDK touch)
-- indicators_attach.py: bridge-mediated SDK calls for chart indicators
+The MetaTrader5 Python SDK does NOT expose chart-indicator manipulation
+(iCustom / ChartIndicatorAdd / ChartIndicatorDelete / ChartIndicatorsTotal
+/ ChartIndicatorName are MQL5-language functions, not Python SDK
+functions). The tool's HANDS for indicators end at Phase 3 compile +
+deploy; users attach the resulting .ex5 via MT5's Navigator UI and
+verify the attachment via screenshot.take().
 
-Together they give agents hands to control MT5 chart state.
+If programmatic attach becomes a hard requirement later, the Win32 GUI
+poking path (see screenshot._open_dom_panel for the pattern) is the
+realistic implementation - not the MT5 Python SDK.
 """
 from .chart import (
     ChartWindow,
@@ -21,14 +26,8 @@ from .chart import (
     symbol,
     title_has_symbol_tf,
 )
-from .indicators_attach import (
-    attach,
-    detach,
-    list_attached,
-)
 
 __all__ = [
-    # Win32 primitives
     "ChartWindow",
     "WindowMatch",
     "activate_chart",
@@ -42,8 +41,4 @@ __all__ = [
     "switch_tf",
     "symbol",
     "title_has_symbol_tf",
-    # Indicator attach/detach (bridge-mediated)
-    "attach",
-    "detach",
-    "list_attached",
 ]
