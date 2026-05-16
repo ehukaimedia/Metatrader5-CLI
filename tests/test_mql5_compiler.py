@@ -101,7 +101,7 @@ def test_compile_reports_compile_failed_on_errors(monkeypatch, tmp_path):
     )
     result = compiler.compile_source(src)
     assert result["ok"] is False
-    assert result["error"]["code"] == "COMPILE_FAILED"
+    assert result["error"]["code"] == "MQL5_COMPILE_FAILED"
     assert "log" in result["error"]["data"]
     assert "undefined identifier" in result["error"]["data"]["log"]
 
@@ -119,7 +119,62 @@ def test_compile_handles_timeout(monkeypatch, tmp_path):
     monkeypatch.setattr(compiler.subprocess, "run", raise_timeout)
     result = compiler.compile_source(src, timeout=1)
     assert result["ok"] is False
-    assert result["error"]["code"] == "COMPILE_TIMEOUT"
+    assert result["error"]["code"] == "MQL5_COMPILE_TIMEOUT"
+
+
+def test_compile_fails_when_returncode_nonzero_even_with_stale_ex5(
+    monkeypatch, tmp_path,
+):
+    """Spock P1 repro: a stale demo.ex5 from a previous successful compile
+    exists, the log says "0 errors", but metaeditor exits nonzero this
+    run. Previously this returned ok and made the agent deploy the OLD
+    binary. Must now fail closed on returncode != 0 regardless of log
+    or .ex5 presence — exit_code goes in error.data for diagnosis."""
+    src = tmp_path / "demo.mq5"
+    src.write_text("// stub\n")
+    # Stale .ex5 from a previous successful compile
+    stale_ex5 = src.with_suffix(".ex5")
+    stale_ex5.write_bytes(b"stale-binary")
+    # Log says no errors (current MetaEditor write may not have run)
+    log = src.with_suffix(".log")
+    log.write_text("0 errors, 0 warnings\n", encoding="utf-8")
+
+    fake_meta = tmp_path / "metaeditor64.exe"
+    fake_meta.write_bytes(b"")
+    monkeypatch.setattr(compiler, "locate_metaeditor", lambda: fake_meta)
+    monkeypatch.setattr(
+        compiler.subprocess, "run",
+        lambda *a, **kw: subprocess.CompletedProcess(
+            a[0], 1, "", "fatal: cannot compile\n"
+        ),
+    )
+
+    result = compiler.compile_source(src)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "MQL5_COMPILE_FAILED"
+    assert result["error"]["data"]["exit_code"] == 1
+    assert "fatal" in result["error"]["data"]["stderr"]
+
+
+def test_compile_success_exposes_exit_code_zero(monkeypatch, tmp_path):
+    """Sanity: the happy-path envelope includes exit_code=0 so callers
+    can confirm the gate is honored consistently."""
+    src = tmp_path / "demo.mq5"
+    src.write_text("// stub\n")
+    ex5 = src.with_suffix(".ex5")
+    ex5.write_bytes(b"compiled-bytes")
+    log = src.with_suffix(".log")
+    log.write_text("0 errors, 0 warnings\n", encoding="utf-8")
+    fake_meta = tmp_path / "metaeditor64.exe"
+    fake_meta.write_bytes(b"")
+    monkeypatch.setattr(compiler, "locate_metaeditor", lambda: fake_meta)
+    monkeypatch.setattr(
+        compiler.subprocess, "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "", ""),
+    )
+    result = compiler.compile_source(src)
+    assert result["ok"] is True
+    assert result["data"]["exit_code"] == 0
 
 
 def test_parse_log_utf16_bom(tmp_path):

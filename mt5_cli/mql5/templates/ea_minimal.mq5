@@ -1,11 +1,9 @@
 //+------------------------------------------------------------------+
-//| {{name}}.mq5 - minimal EA skeleton (author your strategy here)   |
+//| {{name}}.mq5 - minimal EA skeleton                               |
 //+------------------------------------------------------------------+
 #property strict
 #property version "0.1"
 
-input long MagicNumber = 88888;
-
 int OnInit()                    { return INIT_SUCCEEDED; }
-void OnDeinit(const int reason) { /* cleanup if needed */ }
-void OnTick()                   { /* author entry / management / exit here */ }
+void OnDeinit(const int reason) { }
+void OnTick()                   { }

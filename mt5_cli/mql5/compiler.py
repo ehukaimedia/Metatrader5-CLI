@@ -101,16 +101,26 @@ def compile_source(
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return fail(
-            "COMPILE_TIMEOUT",
+            "MQL5_COMPILE_TIMEOUT",
             f"metaeditor64.exe did not finish in {timeout}s",
         )
     errors, warnings, log_text = _parse_log(log_path)
     ex5 = src.with_suffix(".ex5")
-    if errors or not ex5.exists():
+    # Fail closed on ANY nonzero exit. A stale .ex5 from a previous
+    # successful compile could otherwise make returncode=1 look like
+    # success when the current source actually failed to compile -
+    # agents would then deploy the old binary believing it matched
+    # the source on disk.
+    if proc.returncode != 0 or errors or not ex5.exists():
         return fail(
-            "COMPILE_FAILED",
-            f"{errors} errors, {warnings} warnings",
-            data={"log": log_text, "exit_code": proc.returncode},
+            "MQL5_COMPILE_FAILED",
+            f"{errors} errors, {warnings} warnings "
+            f"(metaeditor exit={proc.returncode})",
+            data={
+                "log": log_text,
+                "exit_code": proc.returncode,
+                "stderr": proc.stderr or "",
+            },
         )
     return ok({
         "source": str(src),
@@ -118,4 +128,5 @@ def compile_source(
         "errors": errors,
         "warnings": warnings,
         "log_path": str(log_path),
+        "exit_code": proc.returncode,
     })

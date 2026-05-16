@@ -35,6 +35,7 @@ from mt5_cli import positions as _positions_mod
 from mt5_cli import rates as _rates_mod
 from mt5_cli.bridge import connect as _bridge_connect
 from mt5_cli.bridge import is_connected as _bridge_is_connected
+from mt5_cli.bridge import mt5_call as _bridge_mt5_call
 from mt5_cli.bridge import reconnect_once as _bridge_reconnect_once
 from mt5_cli.mql5 import (
     compiler as _mql5_compiler,
@@ -86,6 +87,29 @@ def _autoconnect(cfg: dict) -> dict | None:
     except Exception as exc:  # noqa: BLE001
         return fail("MT5_CONNECTION_ERROR", f"Could not connect to MT5: {exc}")
     return None
+
+
+def _terminal_data_path(cfg: dict) -> str | None:
+    """Query the connected MT5 terminal's data_path for `mt5 ea/indicator deploy`.
+
+    Returns the path string when the bridge can reach the running
+    terminal, or None when the bridge isn't connected and can't be
+    brought up (in which case the deployer falls back to its own
+    resolution chain).
+
+    Keeping this lookup in the CLI keeps mt5_cli/mql5/ bridge-free per
+    the locked bridge-isolation rule.
+    """
+    if _autoconnect(cfg) is not None:
+        return None
+    try:
+        info = _bridge_mt5_call("terminal_info")
+    except Exception:  # noqa: BLE001
+        return None
+    if info is None:
+        return None
+    data_path = getattr(info, "data_path", None)
+    return data_path or None
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -1070,7 +1094,14 @@ def ea_deploy(ctx: click.Context, name: str) -> None:
                   "Run `mt5 ea list` to see what's available."),
              ctx.obj["json"])
         return
-    emit(_mql5_deployer.deploy_ea(Path(found["source"])), ctx.obj["json"])
+    # Prefer the data_path of the CURRENTLY-CONNECTED terminal so the
+    # file lands in the right install when multiple MT5 hash dirs exist.
+    # Falls back to env / newest-hash-dir resolution if the bridge isn't
+    # reachable.
+    data_path = _terminal_data_path(ctx.obj["cfg"])
+    emit(_mql5_deployer.deploy_ea(Path(found["source"]),
+                                  data_path=data_path),
+         ctx.obj["json"])
 
 
 # ---------------------------------------------------------------------------
@@ -1135,7 +1166,9 @@ def indicator_deploy(ctx: click.Context, name: str) -> None:
                   "Run `mt5 indicator list` to see what's available."),
              ctx.obj["json"])
         return
-    emit(_mql5_deployer.deploy_indicator(Path(found["source"])),
+    data_path = _terminal_data_path(ctx.obj["cfg"])
+    emit(_mql5_deployer.deploy_indicator(Path(found["source"]),
+                                         data_path=data_path),
          ctx.obj["json"])
 
 

@@ -32,7 +32,7 @@ The `mt5` console script is registered automatically.
 Run with a Trading.com MT5 terminal already open and logged in:
 
 ```bash
-mt5 --help                                  # list all 11 command groups
+mt5 --help                                  # list all 13 command groups
 mt5 status                                  # account + connection summary
 mt5 --json market info EURUSD               # symbol info (JSON for agents)
 mt5 rates fetch USDJPY H1 --bars 10         # recent OHLCV bars
@@ -99,6 +99,8 @@ for the full resolution chain.
 | `chart` | `find-window`, `list`, `current-title`, `switch-tf`, `symbol`, `ensure`, `new`, `close`, `cycle`, `attach`, `attach-ea` |
 | `screenshot` | `take`, `dom`, `annotate`, `list` |
 | `config` | `show`, `retcode` |
+| `ea` | `new`, `list`, `compile`, `deploy` (MQL5 Expert Advisor authoring — Phase 3b) |
+| `indicator` | `new`, `list`, `compile`, `deploy` (MQL5 custom indicator authoring — Phase 3b) |
 
 ## Documentation
 

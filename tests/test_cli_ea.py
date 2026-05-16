@@ -126,18 +126,84 @@ def test_ea_deploy_routes_to_deployer_for_known_ea(cli, tmp_path, monkeypatch):
     )
     captured = {}
 
-    def fake_deploy(path):
+    def fake_deploy(path, *, data_path=None):
         captured["path"] = Path(path)
+        captured["data_path"] = data_path
         return {"ok": True, "data": {"copied": [str(path)]}}
 
     mp.setattr(deployer, "deploy_ea", fake_deploy)
     import mt5.cli as cli_mod
     mp.setattr(cli_mod, "_mql5_deployer", deployer)
+    # Force the bridge data-path lookup to return None so the deploy
+    # call falls back to deployer's own resolution chain (which the
+    # stub above ignores anyway). Avoids needing a real MT5.
+    mp.setattr(cli_mod, "_terminal_data_path", lambda cfg: None)
 
     result = runner.invoke(main, ["--json", "ea", "deploy", "alpha"])
     env = json.loads(result.output)
     assert env["ok"] is True
     assert captured["path"] == src
+
+
+def test_ea_deploy_threads_terminal_data_path_from_bridge(
+    cli, tmp_path, monkeypatch,
+):
+    """When the bridge is connected, the CLI must thread
+    terminal_info().data_path into the deployer so the file lands in
+    the connected terminal, not whichever install was touched most
+    recently."""
+    runner, main, mp = cli
+    src = tmp_path / "alpha.mq5"
+    src.write_text("// stub")
+
+    from mt5_cli.mql5 import discovery, deployer
+    mp.setattr(
+        discovery, "get_ea",
+        lambda name: {"name": name, "source": str(src), "compiled": True},
+    )
+    captured = {}
+
+    def fake_deploy(path, *, data_path=None):
+        captured["data_path"] = data_path
+        return {"ok": True, "data": {"copied": []}}
+
+    mp.setattr(deployer, "deploy_ea", fake_deploy)
+    import mt5.cli as cli_mod
+    mp.setattr(cli_mod, "_mql5_deployer", deployer)
+    # Pretend the bridge says the connected terminal's data_path is X
+    mp.setattr(cli_mod, "_terminal_data_path",
+               lambda cfg: str(tmp_path / "connected_terminal"))
+
+    runner.invoke(main, ["--json", "ea", "deploy", "alpha"])
+    assert captured["data_path"] == str(tmp_path / "connected_terminal")
+
+
+def test_indicator_deploy_threads_data_path_from_bridge(
+    cli, tmp_path, monkeypatch,
+):
+    runner, main, mp = cli
+    src = tmp_path / "rsi.mq5"
+    src.write_text("// stub")
+
+    from mt5_cli.mql5 import discovery, deployer
+    mp.setattr(
+        discovery, "get_indicator",
+        lambda name: {"name": name, "source": str(src), "compiled": True},
+    )
+    captured = {}
+
+    def fake_deploy(path, *, data_path=None):
+        captured["data_path"] = data_path
+        return {"ok": True, "data": {"copied": []}}
+
+    mp.setattr(deployer, "deploy_indicator", fake_deploy)
+    import mt5.cli as cli_mod
+    mp.setattr(cli_mod, "_mql5_deployer", deployer)
+    mp.setattr(cli_mod, "_terminal_data_path",
+               lambda cfg: str(tmp_path / "connected_terminal"))
+
+    runner.invoke(main, ["--json", "indicator", "deploy", "rsi"])
+    assert captured["data_path"] == str(tmp_path / "connected_terminal")
 
 
 def test_ea_deploy_unknown_returns_fail_envelope(cli, monkeypatch):
