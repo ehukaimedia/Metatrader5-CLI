@@ -49,4 +49,3 @@ Compared against: `master` at `4d26992f21e9e9d132567dc8f81ea1e4a1fe7f96`
 - `git diff --check master...HEAD` -> failed on `docs/code-reviews/codex-mt5-universal-playground-review-2026-05-15.md:42: new blank line at EOF`
 - Playwright `file://` smoke -> no console errors; all seven phases rendered non-empty node/edge sets; context link resolved; missing/denied clipboard paths selected the prompt and showed fallback feedback.
 - Narrow viewport Playwright smoke at `390x844` -> layout stacks, but banner/legend still crowd the canvas.
-
