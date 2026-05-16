@@ -4,6 +4,16 @@ setup(
     name="metatrader5-cli",
     version="0.1.0",
     packages=find_packages(exclude=("archive", "archive.*", "tests", "tests.*")),
+    package_data={
+        # Ship the minimal MQL5 templates inside the wheel so `mt5 ea new`
+        # and `mt5 indicator new` work from an installed package, not just
+        # an editable source checkout.
+        "mt5_cli.mql5": ["templates/*.mq5"],
+        # Ship the user-workspace one-pager so installed agents can read
+        # it via the package data dir.
+        "mt5_cli.skills": ["*.md"],
+    },
+    include_package_data=True,
     install_requires=[
         "MetaTrader5>=5.0.45",
         "click>=8.0.0",

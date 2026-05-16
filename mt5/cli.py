@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import click
 
@@ -35,6 +36,12 @@ from mt5_cli import rates as _rates_mod
 from mt5_cli.bridge import connect as _bridge_connect
 from mt5_cli.bridge import is_connected as _bridge_is_connected
 from mt5_cli.bridge import reconnect_once as _bridge_reconnect_once
+from mt5_cli.mql5 import (
+    compiler as _mql5_compiler,
+    deployer as _mql5_deployer,
+    discovery as _mql5_discovery,
+    scaffold as _mql5_scaffold,
+)
 from mt5_cli.chart import (
     attach as _chart_attach,
     attach_ea as _chart_attach_ea,
@@ -999,6 +1006,136 @@ def config_show(ctx: click.Context, mask_secrets: bool) -> None:
 def config_retcode(ctx: click.Context, code: int) -> None:
     """Look up an MT5 trade retcode (10004 / 10008 / 10030 etc)."""
     emit(ok({"retcode": code, "help": _config_retcode_help(code)}),
+         ctx.obj["json"])
+
+
+# ---------------------------------------------------------------------------
+# ea (MQL5 Expert Advisors — Phase 3b plugin host)
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def ea() -> None:
+    """MQL5 Expert Advisor authoring (scaffold / list / compile / deploy)."""
+
+
+@ea.command("list")
+@click.pass_context
+def ea_list(ctx: click.Context) -> None:
+    """List EAs discovered in ./ea/ and the user data dir."""
+    emit({"ok": True, "data": _mql5_discovery.list_eas()}, ctx.obj["json"])
+
+
+@ea.command("new")
+@click.argument("name")
+@click.option("--template", default="minimal",
+              help="Template name (only 'minimal' ships).")
+@click.option("--target-dir", default="ea",
+              type=click.Path(file_okay=False),
+              help="Where to write <name>.mq5 (default: ./ea/).")
+@click.pass_context
+def ea_new(ctx: click.Context, name: str, template: str,
+           target_dir: str) -> None:
+    """Scaffold a new EA from the minimal MQL5 skeleton."""
+    emit(_mql5_scaffold.create_ea(
+        name, target_dir=Path(target_dir), template=template,
+    ), ctx.obj["json"])
+
+
+@ea.command("compile")
+@click.argument("name")
+@click.pass_context
+def ea_compile(ctx: click.Context, name: str) -> None:
+    """Compile a discovered EA via metaeditor64.exe."""
+    found = _mql5_discovery.get_ea(name)
+    if not found:
+        emit(fail("EA_NOT_FOUND",
+                  f"No EA named {name!r} in any search path. "
+                  "Run `mt5 ea list` to see what's available."),
+             ctx.obj["json"])
+        return
+    emit(_mql5_compiler.compile_source(Path(found["source"])),
+         ctx.obj["json"])
+
+
+@ea.command("deploy")
+@click.argument("name")
+@click.pass_context
+def ea_deploy(ctx: click.Context, name: str) -> None:
+    """Copy a discovered EA's .mq5 + .ex5 into the MT5 terminal's Experts/."""
+    found = _mql5_discovery.get_ea(name)
+    if not found:
+        emit(fail("EA_NOT_FOUND",
+                  f"No EA named {name!r} in any search path. "
+                  "Run `mt5 ea list` to see what's available."),
+             ctx.obj["json"])
+        return
+    emit(_mql5_deployer.deploy_ea(Path(found["source"])), ctx.obj["json"])
+
+
+# ---------------------------------------------------------------------------
+# indicator (MQL5 custom indicators)
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def indicator() -> None:
+    """MQL5 indicator authoring (scaffold / list / compile / deploy)."""
+
+
+@indicator.command("list")
+@click.pass_context
+def indicator_list(ctx: click.Context) -> None:
+    """List indicators discovered in ./indicators/ and the user data dir."""
+    emit({"ok": True, "data": _mql5_discovery.list_indicators()},
+         ctx.obj["json"])
+
+
+@indicator.command("new")
+@click.argument("name")
+@click.option("--template", default="minimal",
+              help="Template name (only 'minimal' ships).")
+@click.option("--target-dir", default="indicators",
+              type=click.Path(file_okay=False),
+              help="Where to write <name>.mq5 (default: ./indicators/).")
+@click.pass_context
+def indicator_new(ctx: click.Context, name: str, template: str,
+                  target_dir: str) -> None:
+    """Scaffold a new indicator from the minimal MQL5 skeleton."""
+    emit(_mql5_scaffold.create_indicator(
+        name, target_dir=Path(target_dir), template=template,
+    ), ctx.obj["json"])
+
+
+@indicator.command("compile")
+@click.argument("name")
+@click.pass_context
+def indicator_compile(ctx: click.Context, name: str) -> None:
+    """Compile a discovered indicator via metaeditor64.exe."""
+    found = _mql5_discovery.get_indicator(name)
+    if not found:
+        emit(fail("INDICATOR_NOT_FOUND",
+                  f"No indicator named {name!r} in any search path. "
+                  "Run `mt5 indicator list` to see what's available."),
+             ctx.obj["json"])
+        return
+    emit(_mql5_compiler.compile_source(Path(found["source"])),
+         ctx.obj["json"])
+
+
+@indicator.command("deploy")
+@click.argument("name")
+@click.pass_context
+def indicator_deploy(ctx: click.Context, name: str) -> None:
+    """Copy a discovered indicator's .mq5 + .ex5 into MT5's Indicators/."""
+    found = _mql5_discovery.get_indicator(name)
+    if not found:
+        emit(fail("INDICATOR_NOT_FOUND",
+                  f"No indicator named {name!r} in any search path. "
+                  "Run `mt5 indicator list` to see what's available."),
+             ctx.obj["json"])
+        return
+    emit(_mql5_deployer.deploy_indicator(Path(found["source"])),
          ctx.obj["json"])
 
 
