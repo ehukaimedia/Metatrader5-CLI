@@ -1,4 +1,4 @@
-"""Chart-control submodule. Pure Win32; does not import MetaTrader5."""
+"""Chart-control submodule. Pure Win32; bridge layer is not referenced."""
 from .chart import (
     ChartWindow,
     WindowMatch,
