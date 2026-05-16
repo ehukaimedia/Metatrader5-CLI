@@ -12,10 +12,10 @@
 
 | | |
 |---|---|
-| Spec | [docs/specs/2026-05-15-mt5-universal-agent-native-design.md](../../specs/2026-05-15-mt5-universal-agent-native-design.md) |
-| Reviewer context | [docs/specs/2026-05-15-mt5-universal-review-context.md](../../specs/2026-05-15-mt5-universal-review-context.md) |
-| Visual companion | [docs/playgrounds/mt5-universal-refactor-playground.html](../../playgrounds/mt5-universal-refactor-playground.html) |
-| Current canonical CLI spec (v0.5) | [docs/specs/mt5-cli-spec.md](../../specs/mt5-cli-spec.md) |
+| Spec | [docs/specs/2026-05-15-mt5-universal-agent-native-design.md](../specs/2026-05-15-mt5-universal-agent-native-design.md) |
+| Reviewer context | [docs/specs/2026-05-15-mt5-universal-review-context.md](../specs/2026-05-15-mt5-universal-review-context.md) |
+| Visual companion | [docs/playgrounds/mt5-universal-refactor-playground.html](../playgrounds/mt5-universal-refactor-playground.html) |
+| Current canonical CLI spec (v0.5) | [docs/specs/mt5-cli-spec.md](../specs/mt5-cli-spec.md) |
 | CLI-Anything cherry-pick source | https://github.com/HKUDS/CLI-Anything |
 
 ## Locked decisions (do not re-litigate)
