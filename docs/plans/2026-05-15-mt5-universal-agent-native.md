@@ -427,6 +427,34 @@ python -m pytest -q   # expect ~30-50 tests passing across the 7 modules + bridg
 git tag phase-2.3-complete
 ```
 
+#### Sub-task 2.3.H — Complete the deferred ordering primitives
+
+Task 2.3.F shipped `list_pending`, `place_market`, `place_limit`, `dryrun`, `cancel`, `poll_fill`. The user-direction "all ordering features" requires the three deferred primitives to land before the chart/screenshot work in 2.6-2.8:
+
+| Primitive | MT5 surface | Notes |
+|---|---|---|
+| `place_stop(symbol, side, price, volume, sl, tp=None, *, is_live_intent, cfg, strategy_id=None)` | `order_send` with `TRADE_ACTION_PENDING` + `ORDER_TYPE_BUY_STOP / SELL_STOP` | Same risk-gate keyword-only pattern as `place_limit`. Cherry-pick `archive/legacy-mt5/core/order.py::place_stop` (around line 369) |
+| `modify(ticket, *, sl=None, tp=None, price=None, expiry=None, is_live_intent)` | For open positions: `order_send` with `TRADE_ACTION_SLTP` + `position=ticket`. For pending orders: `TRADE_ACTION_MODIFY` + `order=ticket` | Single entry point handles both pending modify and position SL/TP update — detect via `positions_get(ticket=ticket)` first |
+| `cancel_all_pending(symbol=None, *, is_live_intent)` | Iterate `orders_get(symbol=symbol)`, call `cancel(ticket)` per-ticket, fail-soft per-ticket | Returns `ok({"per_ticket": [{ticket, ok, error}, ...]})` |
+
+**Optional but worth flagging:** `place_stop_limit` (combines stop-trigger + limit-fill price; uses `ORDER_TYPE_BUY_STOP_LIMIT / SELL_STOP_LIMIT`) and `close_by` (netting accounts only — closes one position by another). Implement only if the user surfaces a need. Trading.com is hedging-blocked so `close_by` mostly does not apply; `place_stop_limit` is rarely used but available.
+
+Same shape as the other 2.3 sub-tasks:
+1. Cherry-pick reference: `archive/legacy-mt5/core/order.py` (lines around `place_stop`, `modify`, `cancel_all_pending`)
+2. Write failing tests in `tests/test_orders.py` (extend the existing test classes — TestPlaceStop, TestModify, TestCancelAllPending)
+3. Run, fail
+4. Implement under `mt5_universal/orders/orders.py`
+5. Update `__init__.py` to re-export
+6. Run, green
+7. Commit
+
+After this commit, the orders module exposes the complete ordering surface; nothing further in this concern.
+
+```bash
+git tag phase-2.3.H-complete
+```
+
+
 ### Task 2.4: Add config layer with 4-layer resolution
 
 **Files:**
@@ -606,171 +634,88 @@ resolution stays simple here; the full XDG/APPDATA resolver lands
 in Phase 6 as paths.py."
 ```
 
-### Task 2.5: Add BrokerProfile ABC
+### Task 2.5: Add Trading.com order-placement settings (single-broker)
 
 **Files:**
-- Create: `mt5_universal/broker/base.py`
-- Update: `mt5_universal/broker/__init__.py`
-- Create: `tests/test_broker_base.py`
+- Create: `mt5_universal/config/trading_com.py`
+- Create: `tests/test_config_trading_com.py`
+- Modify: `mt5_universal/config/config.py` (merge Trading.com defaults into the loaded config)
+
+**Scope reduction from the original plan:** the original Phase 2 had four tasks (`BrokerProfile` ABC, Trading.com profile, generic_mt5 profile, wire orders to broker profile). The user has locked single-broker scope — **Trading.com only**. Multi-broker support is a later addition, NOT in scope for this Phase 2. So no abstraction, no ABC, no `generic_mt5.py`, no profile-lookup wiring. Just plain Trading.com settings merged into the standard config loader.
+
+The orders module already hardcodes FOK in `_resolve_filling("auto")` (placeholder pending the abstraction we're now NOT building). That hardcoding stays; this task just documents WHY: it's Trading.com policy, not the tool guessing.
+
+When a second broker is added in the future, refactor through a `BrokerProfile` ABC at that time. Do not pre-build the abstraction.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_broker_base.py`:
+Create `tests/test_config_trading_com.py`:
 
 ```python
-import pytest
-
-from mt5_universal.broker import BrokerProfile, get_profile
-
-
-def test_broker_profile_is_abstract():
-    with pytest.raises(TypeError):
-        BrokerProfile()
+from mt5_universal.config import load
+from mt5_universal.config.trading_com import TRADING_COM_DEFAULTS, retcode_help
 
 
-def test_get_profile_unknown_raises():
-    with pytest.raises(ValueError):
-        get_profile("does-not-exist")
-```
-
-(Trading-com- and generic-specific tests land in Tasks 2.6 and 2.7 — same commits where the profiles get implemented and registered. Every commit on this branch stays green.)
-
-- [ ] **Step 2: Run test — fails (broker module empty)**
-
-```bash
-python -m pytest tests/test_broker_base.py -v
-```
-
-Expected: 2 FAIL with ImportError on `BrokerProfile` / `get_profile`.
-
-- [ ] **Step 3: Implement BrokerProfile ABC**
-
-Create `mt5_universal/broker/base.py`:
-
-```python
-from abc import ABC, abstractmethod
+def test_trading_com_defaults_shape():
+    assert TRADING_COM_DEFAULTS["filling"] == "FOK"
+    assert TRADING_COM_DEFAULTS["allow_hedging"] is False
+    assert TRADING_COM_DEFAULTS["rollover_utc_hour"] == 22
 
 
-class BrokerProfile(ABC):
-    """Captures broker-specific quirks: filling mode, hedging policy,
-    rollover window, retcode help text. Concrete profiles live in
-    sibling modules (trading_com.py, generic_mt5.py)."""
-
-    name: str = ""
-    allows_hedging: bool = True
-    preferred_filling: str = "auto"
-    rollover_utc_hour: int | None = None
-
-    @abstractmethod
-    def retcode_help(self, retcode: int) -> str:
-        """Human-readable explanation for a broker retcode."""
-
-    def is_rollover(self, utc_hour: int) -> bool:
-        return self.rollover_utc_hour is not None and utc_hour == self.rollover_utc_hour
-
-
-# Profile registry — populated by sibling modules at import time.
-_REGISTRY: dict[str, BrokerProfile] = {}
-
-
-def register(profile: BrokerProfile) -> None:
-    _REGISTRY[profile.name] = profile
-
-
-def get_profile(name: str) -> BrokerProfile:
-    if name not in _REGISTRY:
-        raise ValueError(f"Unknown broker profile: {name!r}. Known: {sorted(_REGISTRY)}")
-    return _REGISTRY[name]
-```
-
-Wire `mt5_universal/broker/__init__.py` (ABC + registry only — concrete profile imports get *added* by Tasks 2.6 and 2.7, not commented out here):
-
-```python
-from .base import BrokerProfile, register, get_profile
-
-__all__ = ["BrokerProfile", "register", "get_profile"]
-```
-
-- [ ] **Step 4: Run test — passes**
-
-```bash
-python -m pytest tests/test_broker_base.py -v
-```
-
-Expected: 2 PASS. The ABC is abstract (TypeError on instantiation); the empty registry returns the expected ValueError on unknown lookup.
-
-- [ ] **Step 5: Commit (green)**
-
-```bash
-git add mt5_universal/broker/ tests/test_broker_base.py
-git commit -m "Phase 2: add BrokerProfile ABC + registry (green commit)
-
-ABC + register/get_profile registry shipped without concrete profiles.
-trading_com (Task 2.6) and generic_mt5 (Task 2.7) add themselves via
-register(...) at import time + the matching tests."
-```
-
-### Task 2.6: Implement Trading.com broker profile
-
-**Files:**
-- Create: `mt5_universal/broker/trading_com.py`
-- Create: `tests/test_broker_trading_com.py`
-
-- [ ] **Step 1: Write the failing test**
-
-Create `tests/test_broker_trading_com.py`:
-
-```python
-from mt5_universal.broker import get_profile
-
-
-def test_trading_com_quirks():
-    p = get_profile("trading_com")
-    assert p.name == "trading_com"
-    assert p.allows_hedging is False
-    assert p.preferred_filling == "FOK"
-    assert p.rollover_utc_hour == 22
-
-
-def test_trading_com_rollover_only_at_22():
-    p = get_profile("trading_com")
-    assert p.is_rollover(22) is True
-    assert p.is_rollover(21) is False
-    assert p.is_rollover(23) is False
-
-
-def test_trading_com_retcode_10030_filling():
-    p = get_profile("trading_com")
-    msg = p.retcode_help(10030)
+def test_retcode_help_returns_string():
+    msg = retcode_help(10030)
     assert "filling" in msg.lower()
     assert "FOK" in msg
 
 
-def test_trading_com_retcode_10027_algotrading():
-    p = get_profile("trading_com")
-    msg = p.retcode_help(10027)
-    assert "algo" in msg.lower() or "autotrading" in msg.lower()
+def test_config_load_merges_trading_com_defaults(monkeypatch, tmp_path):
+    monkeypatch.setenv("MT5_CONFIG", str(tmp_path / "missing.json"))
+    cfg = load()
+    # Trading.com defaults flow through the standard loader
+    assert cfg["filling"] == "FOK"
+    assert cfg["allow_hedging"] is False
+    assert cfg["rollover_utc_hour"] == 22
 ```
 
-- [ ] **Step 2: Run test — fails**
+- [ ] **Step 2: Run — fails**
 
 ```bash
-python -m pytest tests/test_broker_trading_com.py -v
+python -m pytest tests/test_config_trading_com.py -v
 ```
 
-- [ ] **Step 3: Implement the profile**
+- [ ] **Step 3: Implement**
 
-Create `mt5_universal/broker/trading_com.py`:
+Create `mt5_universal/config/trading_com.py`:
 
 ```python
-from .base import BrokerProfile, register
+"""Trading.com order-placement settings.
 
+Single-broker scope: the tool currently supports Trading.com only. When
+a second broker is added later, refactor through a BrokerProfile ABC at
+that time. Do NOT pre-build the abstraction.
+
+Settings here are merged into the standard config loader's defaults so
+every primitive that reads cfg picks them up without a separate lookup.
+"""
+
+# Trading.com order-placement quirks (from broker spec):
+#   - FOK filling only (no IOC, no RETURN on market orders)
+#   - No hedging — must close existing same-symbol position before flipping
+#   - 22:00 UTC daily rollover spike (spreads widen 10-15x)
+TRADING_COM_DEFAULTS: dict = {
+    "filling": "FOK",
+    "allow_hedging": False,
+    "rollover_utc_hour": 22,
+}
+
+# Known broker retcodes and human-readable help. Used by orders/positions
+# error reporting to give agents actionable explanations.
 RETCODE_HELP = {
-    10008: "Order placed but not filled — poll fill status with `mt5 order poll-fill <ticket>`.",
-    10027: "Algo/autotrading is disabled in the MT5 terminal UI. Enable it in Tools > Options > Expert Advisors.",
-    10030: "Wrong filling mode. Trading.com is FOK-only — pin `filling: FOK` in your config.",
+    10008: "Order placed but not filled yet. Poll the fill via `mt5 order poll-fill <ticket>`.",
+    10027: "Algo/autotrading disabled in MT5 terminal UI. Enable Tools > Options > Expert Advisors > Allow algorithmic trading.",
+    10030: "Wrong filling mode. Trading.com is FOK-only; pin filling=FOK in your config.",
     10009: "Order request completed normally.",
-    10004: "Requote — broker rejected because price changed.",
+    10004: "Requote — broker rejected because price moved.",
     10006: "Trade request rejected.",
     10010: "Only part of the request was completed.",
     10013: "Invalid request.",
@@ -778,231 +723,129 @@ RETCODE_HELP = {
     10015: "Invalid price in the request.",
     10016: "Invalid stops in the request.",
     10017: "Trade is disabled.",
-    10019: "There is not enough money to complete the request.",
-    10021: "There are no quotes to process the request.",
+    10019: "Not enough money to complete the request.",
+    10021: "No quotes to process the request.",
 }
 
 
-class TradingComProfile(BrokerProfile):
-    name = "trading_com"
-    allows_hedging = False
-    preferred_filling = "FOK"
-    rollover_utc_hour = 22  # spreads spike 10-15x
-
-    def retcode_help(self, retcode: int) -> str:
-        return RETCODE_HELP.get(retcode, f"Retcode {retcode}: see MT5 docs.")
-
-
-register(TradingComProfile())
+def retcode_help(retcode: int) -> str:
+    return RETCODE_HELP.get(retcode, f"Retcode {retcode}: see MT5 docs.")
 ```
 
-- [ ] **Step 4: Add the import to `mt5_universal/broker/__init__.py`**
-
-Edit `mt5_universal/broker/__init__.py` so it becomes:
+Modify `mt5_universal/config/config.py` so `load()` merges `TRADING_COM_DEFAULTS` into the `DEFAULTS` dict before the file/env/override resolution chain:
 
 ```python
-from .base import BrokerProfile, register, get_profile
-from . import trading_com  # noqa: F401 (registers on import)
+from .trading_com import TRADING_COM_DEFAULTS
 
-__all__ = ["BrokerProfile", "register", "get_profile"]
+DEFAULTS = {
+    # ... existing keys ...
+    **TRADING_COM_DEFAULTS,
+}
 ```
 
-- [ ] **Step 5: Run tests**
-
-```bash
-python -m pytest tests/test_broker_trading_com.py tests/test_broker_base.py -v
-```
-
-Expected: 4 PASS in `test_broker_trading_com.py` + 2 PASS in `test_broker_base.py`. All green.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add mt5_universal/broker/trading_com.py mt5_universal/broker/__init__.py tests/test_broker_trading_com.py
-git commit -m "Phase 2: Trading.com is the canonical default broker profile
-
-FOK filling, no hedging, 22:00 UTC rollover, retcode help table
-covering 10008/10027/10030 and the common trade-server codes."
-```
-
-### Task 2.7: Implement generic MT5 broker profile
-
-**Files:**
-- Create: `mt5_universal/broker/generic_mt5.py`
-- Create: `tests/test_broker_generic.py`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-# tests/test_broker_generic.py
-from mt5_universal.broker import get_profile
-
-
-def test_generic_mt5_is_permissive():
-    p = get_profile("generic_mt5")
-    assert p.name == "generic_mt5"
-    assert p.allows_hedging is True
-    assert p.preferred_filling == "auto"
-    assert p.rollover_utc_hour is None
-
-
-def test_generic_mt5_retcode_help_returns_string():
-    p = get_profile("generic_mt5")
-    assert isinstance(p.retcode_help(10009), str)
-```
-
-- [ ] **Step 2: Run test — fails**
-
-```bash
-python -m pytest tests/test_broker_generic.py -v
-```
-
-- [ ] **Step 3: Implement**
-
-Create `mt5_universal/broker/generic_mt5.py`:
-
-```python
-from .base import BrokerProfile, register
-from .trading_com import RETCODE_HELP  # share the standard MT5 retcode table
-
-
-class GenericMt5Profile(BrokerProfile):
-    name = "generic_mt5"
-    allows_hedging = True
-    preferred_filling = "auto"
-    rollover_utc_hour = None  # broker-specific; not assumed
-
-    def retcode_help(self, retcode: int) -> str:
-        return RETCODE_HELP.get(retcode, f"Retcode {retcode}: see MT5 docs.")
-
-
-register(GenericMt5Profile())
-```
-
-- [ ] **Step 4: Add the import to `mt5_universal/broker/__init__.py`**
-
-Edit `mt5_universal/broker/__init__.py` so it becomes:
-
-```python
-from .base import BrokerProfile, register, get_profile
-from . import trading_com  # noqa: F401 (registers on import)
-from . import generic_mt5  # noqa: F401 (registers on import)
-
-__all__ = ["BrokerProfile", "register", "get_profile"]
-```
-
-- [ ] **Step 5: Run tests + full broker suite**
-
-```bash
-python -m pytest tests/test_broker_generic.py tests/test_broker_trading_com.py tests/test_broker_base.py -v
-```
-
-Expected: all PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add mt5_universal/broker/generic_mt5.py mt5_universal/broker/__init__.py tests/test_broker_generic.py
-git commit -m "Phase 2: add generic_mt5 broker profile (permissive default)
-
-Hedging allowed, auto filling, no assumed rollover. Used as the
-fallback when the user's broker isn't Trading.com and doesn't have
-a dedicated profile."
-```
-
-### Task 2.8: Wire orders to broker profile (filling mode + hedging guard)
-
-**Files:**
-- Modify: `mt5_universal/orders/orders.py`
-- Modify: `mt5_universal/risk/risk.py` (hedging guard reads broker profile)
-
-- [ ] **Step 1: Add a fixture-side test that verifies the broker profile is consulted**
-
-Add to `tests/test_core.py` (or a new `test_broker_integration.py`):
-
-```python
-def test_orders_resolve_filling_via_broker_profile(monkeypatch, cfg):
-    cfg["broker_profile"] = "trading_com"
-    cfg["filling"] = "auto"  # force the resolver to consult the profile
-    from mt5_universal.orders.orders import _resolve_filling
-    # Trading.com profile says preferred_filling=FOK, so auto resolves to FOK
-    code = _resolve_filling("USDJPY", "auto", cfg=cfg)
-    # Bridge constants — FOK is mt5.ORDER_FILLING_FOK; we just check it's not the default IOC
-    import mt5_universal.bridge.mt5_backend as bk
-    assert code == bk.ORDER_FILLING_FOK
-
-
-def test_orders_filling_explicit_overrides_profile(cfg):
-    cfg["broker_profile"] = "generic_mt5"
-    cfg["filling"] = "IOC"
-    from mt5_universal.orders.orders import _resolve_filling
-    import mt5_universal.bridge.mt5_backend as bk
-    code = _resolve_filling("USDJPY", "IOC", cfg=cfg)
-    assert code == bk.ORDER_FILLING_IOC
-```
-
-- [ ] **Step 2: Run — fails because `_resolve_filling` doesn't take `cfg`**
-
-```bash
-python -m pytest tests/test_core.py -k filling -v
-```
-
-- [ ] **Step 3: Update `_resolve_filling` to consult the broker profile**
-
-In `mt5_universal/orders/orders.py`, change `_resolve_filling(symbol, filling_str)` to accept `cfg` and consult the profile when `filling_str == "auto"`:
-
-```python
-from mt5_universal.broker import get_profile
-
-def _resolve_filling(symbol: str, filling_str: str, *, cfg: dict) -> int:
-    """Resolve string filling spec to MT5 constant. 'auto' consults the
-    broker profile's preferred_filling."""
-    import mt5_universal.bridge.mt5_backend as bk
-
-    if filling_str == "auto":
-        profile = get_profile(cfg.get("broker_profile", "trading_com"))
-        filling_str = profile.preferred_filling
-
-    return {
-        "FOK": bk.ORDER_FILLING_FOK,
-        "IOC": bk.ORDER_FILLING_IOC,
-        "RETURN": bk.ORDER_FILLING_RETURN,
-    }[filling_str.upper()]
-```
-
-Update every call site in `orders.py` to pass `cfg=cfg`.
-
-- [ ] **Step 4: Update `risk.check_order` hedging guard to consult the profile**
-
-In `mt5_universal/risk/risk.py`, find the `RISK_HEDGE_BLOCKED` gate. Replace the static `cfg.get("allow_hedging", False)` check with:
-
-```python
-from mt5_universal.broker import get_profile
-
-profile = get_profile(cfg.get("broker_profile", "trading_com"))
-if not profile.allows_hedging and not cfg.get("allow_hedging", False):
-    # ... existing hedge-block logic
-```
-
-- [ ] **Step 5: Run full test suite**
+- [ ] **Step 4: Run + commit**
 
 ```bash
 python -m pytest -q
+git add mt5_universal/config/ tests/test_config_trading_com.py
+git commit -m "Phase 2.5: Trading.com order-placement settings (single-broker)
+
+Single Trading.com config module — no BrokerProfile abstraction, no
+multi-broker indirection. The original plan's Tasks 2.5-2.8 (ABC +
+trading_com profile + generic_mt5 profile + wire orders) collapse to
+this one task per user direction: multi-broker is a later addition.
+
+TRADING_COM_DEFAULTS (filling=FOK, allow_hedging=False, rollover_utc_hour=22)
+merge into the standard config loader's DEFAULTS. The orders module's
+existing FOK hardcoding in _resolve_filling('auto') is documented as
+Trading.com policy.
+
+retcode_help(retcode) gives agents actionable explanations of MT5 trade
+retcodes (10008/10027/10030 + the common 10004-10021 range)."
 ```
 
-Expected: green. The two new filling tests pass, existing risk-gate tests pass.
+### Task 2.6: Cherry-pick chart-control primitives into mt5_universal/chart/
 
-- [ ] **Step 6: Commit**
+**Files:**
+- Create: `mt5_universal/chart/chart.py`
+- Replace: `mt5_universal/chart/__init__.py`
+- Create: `tests/test_chart.py`
 
-```bash
-git add mt5_universal/orders/orders.py mt5_universal/risk/risk.py tests/test_core.py
-git commit -m "Phase 2: wire orders + risk to broker profile
+The tool gives agents hands to control MT5's active chart: switch the active chart's symbol or timeframe, ensure a specific symbol+timeframe chart is the active one, list all open charts. The agent uses these primitives to compose its own multi-timeframe analysis or screenshot workflows. The tool does NOT orchestrate (no `screenshot tda` loop, no manifest writing, no analytical framework).
 
-_resolve_filling now consults profile.preferred_filling on 'auto'.
-Hedging guard checks profile.allows_hedging in addition to the
-config flag. Trading.com profile makes both FOK-only and no-hedge
-the defaults without hardcoding them in the order/risk code."
+**Cherry-pick reference:** `archive/legacy-mt5/core/chart.py` (941 LOC — has TDA-flavored orchestration we strip out).
+
+Cherry-pick the pure chart-control primitives:
+- `switch_tf(timeframe, window_substring="MT5", settle_seconds=0.5)` — WM_COMMAND on the MT5 toolbar
+- `symbol(symbol_name, window_substring="MT5", settle_seconds=0.5)` — type symbol + verify title
+- `activate_chart(child_hwnd, parent_hwnd)` — WM_MDIACTIVATE on MDIClient
+- `ensure_chart(symbol_name, timeframe="M15", chart_id=None, window_substring="MT5")` — agnostic chart-selection primitive
+- `list_charts(window_substring="MT5")` — enumerate MDI child charts
+- `current_title(window_substring="MT5")` — read active chart title
+- `find_window(window_substring) -> WindowMatch | None`
+
+**Skip:**
+- `screenshot_tda` orchestration (it's a strategy workflow — user composes from primitives)
+- `depth-of-market` GUI panel opening (DOM lives in `market.depth()` for structured data; if a GUI screenshot is needed it's Task 2.7's job)
+
+Tests cover each primitive with Win32 API mocked via `pywin32` MagicMock fixture. Use the cache-safe pattern (purge `mt5_universal.bridge*`, `mt5_universal.chart*` before/after).
+
+Detailed test + implementation steps follow the same shape as Task 2.3.C (market). The implementer should read `archive/legacy-mt5/core/chart.py` for the Win32 message-passing pattern (WM_COMMAND, WM_MDIACTIVATE) and the title-polling settle loops, then rewrite cleanly under `mt5_universal/chart/`.
+
+### Task 2.7: Cherry-pick screenshot primitives into mt5_universal/screenshot/
+
+**Files:**
+- Create: `mt5_universal/screenshot/screenshot.py`
+- Replace: `mt5_universal/screenshot/__init__.py`
+- Create: `tests/test_screenshot.py`
+
+The tool gives agents hands to capture the active MT5 chart or DOM panel as PNG. The agent uses these primitives to build its own screenshot workflows (e.g., a TDA review loop: `switch_tf → take → switch_tf → take → ...` — but the LOOP is the agent's, not the tool's).
+
+**Cherry-pick reference:** `archive/legacy-mt5/core/screenshot.py` (466 LOC — has TDA orchestration to strip).
+
+Cherry-pick:
+- `take(output_path, window_substring="MT5", monitor=0, cfg=None)` — mss/Pillow capture of the active chart window
+- `dom(symbol, output_dir, open_panel=True, close_panel=True)` — open MT5 DOM panel via menu, screenshot, close
+- `annotate(input_path, output_path, text, xy=(10,10))` — Pillow text overlay
+
+**Skip:**
+- `tda(symbol, timeframes, output_dir, final_timeframe)` multi-TF loop (strategy workflow — agent composes from `chart.switch_tf` + `screenshot.take`)
+- `visual_manifest` / `structured_context` writing (TDA-specific, user's domain)
+
+Same cache-safe fixture pattern. Detailed steps follow Task 2.3.C shape.
+
+### Task 2.8: Chart-indicator attach/detach primitives
+
+**Files:**
+- Create: `mt5_universal/chart/indicators_attach.py` (or extend `chart.py`)
+- Modify: `tests/test_chart.py` (add attach/detach test class)
+
+The tool gives agents hands to attach a user-compiled MQL5 indicator (`.ex5`) to the active chart, detach one by name, or list what's currently attached. The user's indicator math is unchanged; the tool just manages chart-state attachment.
+
+**MT5 API surface:**
+- `mt5.ChartIndicatorAdd(chart_id, sub_window, indicator_handle)` — attach
+- `mt5.ChartIndicatorDelete(chart_id, sub_window, indicator_short_name)` — detach
+- `mt5.ChartIndicatorsTotal(chart_id, sub_window)` — count
+- `mt5.ChartIndicatorName(chart_id, sub_window, index)` — name lookup
+- `mt5.iCustom(symbol, timeframe, name, ...)` — load indicator handle (then attach)
+
+Public surface:
+
+```python
+def attach(chart_id: int, indicator_name: str, params: list | None = None,
+           sub_window: int = 0) -> dict:
+    """Load user's compiled indicator and attach to the active chart's sub-window."""
+
+def detach(chart_id: int, indicator_short_name: str, sub_window: int = 0) -> dict:
+    """Remove a named indicator from the chart's sub-window."""
+
+def list_attached(chart_id: int, sub_window: int = 0) -> dict:
+    """List indicators currently attached to the chart's sub-window."""
 ```
+
+Bridge widening: re-export `iCustom`, `ChartIndicatorAdd`, `ChartIndicatorDelete`, `ChartIndicatorsTotal`, `ChartIndicatorName` from the bridge package boundary if not already present.
+
+Tests follow the same cache-safe pattern. Use MagicMock for the MT5 chart calls; verify the right MT5 API was invoked with the right arguments.
 
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
