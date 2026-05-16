@@ -122,20 +122,25 @@ def test_compile_handles_timeout(monkeypatch, tmp_path):
     assert result["error"]["code"] == "MQL5_COMPILE_TIMEOUT"
 
 
-def test_compile_fails_when_returncode_nonzero_even_with_stale_ex5(
+def test_compile_fails_when_stale_ex5_predates_source(
     monkeypatch, tmp_path,
 ):
-    """Spock P1 repro: a stale demo.ex5 from a previous successful compile
-    exists, the log says "0 errors", but metaeditor exits nonzero this
-    run. Previously this returned ok and made the agent deploy the OLD
-    binary. Must now fail closed on returncode != 0 regardless of log
-    or .ex5 presence — exit_code goes in error.data for diagnosis."""
+    """Spock P1 repro tightened: a STALE demo.ex5 (mtime < source) from
+    a previous successful compile exists. MetaEditor exited nonzero
+    this run and the log shows no errors. Without the mtime guard the
+    agent would deploy the OLD binary believing it matched the source.
+    Must fail closed when .ex5 predates the source even if errors=0."""
+    import os as _os
+    import time as _time
     src = tmp_path / "demo.mq5"
     src.write_text("// stub\n")
-    # Stale .ex5 from a previous successful compile
+    # Stale .ex5: explicitly set mtime BEFORE the source mtime so the
+    # freshness check kicks in (test_compile_invokes_subprocess covers
+    # the fresh case where the test creates ex5 after src).
     stale_ex5 = src.with_suffix(".ex5")
     stale_ex5.write_bytes(b"stale-binary")
-    # Log says no errors (current MetaEditor write may not have run)
+    src_mtime = src.stat().st_mtime
+    _os.utime(stale_ex5, (src_mtime - 60, src_mtime - 60))
     log = src.with_suffix(".log")
     log.write_text("0 errors, 0 warnings\n", encoding="utf-8")
 
@@ -152,17 +157,62 @@ def test_compile_fails_when_returncode_nonzero_even_with_stale_ex5(
     result = compiler.compile_source(src)
     assert result["ok"] is False
     assert result["error"]["code"] == "MQL5_COMPILE_FAILED"
+    assert "stale" in result["error"]["message"]
     assert result["error"]["data"]["exit_code"] == 1
-    assert "fatal" in result["error"]["data"]["stderr"]
+
+
+def test_compile_succeeds_with_warnings_and_nonzero_return(
+    monkeypatch, tmp_path,
+):
+    """Live E2E polish: MetaEditor exits 1 even on warnings-only
+    successful builds that DO produce a fresh .ex5. The previous
+    returncode-first gate flagged these as MQL5_COMPILE_FAILED. The
+    re-graded gate (errors > 0 OR .ex5 missing OR .ex5 stale) must
+    now return ok with warnings surfaced — the .ex5 is real and
+    deployable."""
+    import os as _os
+    src = tmp_path / "smoke_alpha.mq5"
+    src.write_text("// minimal EA\n")
+    # Make sure .ex5 mtime is AFTER source (the fresh case)
+    ex5 = src.with_suffix(".ex5")
+    ex5.write_bytes(b"compiled-with-warnings")
+    src_mtime = src.stat().st_mtime
+    _os.utime(ex5, (src_mtime + 1, src_mtime + 1))
+    log = src.with_suffix(".log")
+    # Realistic MetaEditor "warnings only" log
+    log.write_text(
+        "smoke_alpha.mq5(7,1) : warning 68 - version 0.1 is incompatible\n"
+        "0 errors, 1 warnings, 323 ms elapsed, code generated\n",
+        encoding="utf-8",
+    )
+    fake_meta = tmp_path / "metaeditor64.exe"
+    fake_meta.write_bytes(b"")
+    monkeypatch.setattr(compiler, "locate_metaeditor", lambda: fake_meta)
+    monkeypatch.setattr(
+        compiler.subprocess, "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, "", ""),
+    )
+    result = compiler.compile_source(src)
+    assert result["ok"] is True, (
+        f"warnings-only compile must succeed; got fail: {result}"
+    )
+    assert result["data"]["errors"] == 0
+    assert result["data"]["warnings"] == 1
+    assert result["data"]["ex5"] == str(ex5)
+    # Surface the nonzero exit_code so callers can audit
+    assert result["data"]["exit_code"] == 1
 
 
 def test_compile_success_exposes_exit_code_zero(monkeypatch, tmp_path):
     """Sanity: the happy-path envelope includes exit_code=0 so callers
     can confirm the gate is honored consistently."""
+    import os as _os
     src = tmp_path / "demo.mq5"
     src.write_text("// stub\n")
     ex5 = src.with_suffix(".ex5")
     ex5.write_bytes(b"compiled-bytes")
+    src_mtime = src.stat().st_mtime
+    _os.utime(ex5, (src_mtime + 1, src_mtime + 1))
     log = src.with_suffix(".log")
     log.write_text("0 errors, 0 warnings\n", encoding="utf-8")
     fake_meta = tmp_path / "metaeditor64.exe"

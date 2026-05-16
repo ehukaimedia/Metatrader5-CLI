@@ -106,16 +106,30 @@ def compile_source(
         )
     errors, warnings, log_text = _parse_log(log_path)
     ex5 = src.with_suffix(".ex5")
-    # Fail closed on ANY nonzero exit. A stale .ex5 from a previous
-    # successful compile could otherwise make returncode=1 look like
-    # success when the current source actually failed to compile -
-    # agents would then deploy the old binary believing it matched
-    # the source on disk.
-    if proc.returncode != 0 or errors or not ex5.exists():
+    # Re-grade the result with three signals (live E2E proved
+    # returncode alone is unreliable - MetaEditor exits 1 even on
+    # warnings-only successful builds that DO produce an .ex5):
+    #   1. error_count from the parsed log
+    #   2. .ex5 existence
+    #   3. .ex5 freshness vs the source mtime - keeps the P1
+    #      protection against a stale .ex5 from a prior compile
+    #      masking the current run's failure.
+    # Success requires all three to be good: errors=0 AND .ex5 exists
+    # AND .ex5 mtime >= source mtime.
+    ex5_present = ex5.exists()
+    ex5_fresh = (
+        ex5_present
+        and ex5.stat().st_mtime >= src.stat().st_mtime
+    )
+    if errors or not ex5_present or not ex5_fresh:
+        reason_parts = [f"{errors} errors", f"{warnings} warnings"]
+        if not ex5_present:
+            reason_parts.append("no .ex5 produced")
+        elif not ex5_fresh:
+            reason_parts.append(".ex5 is stale (mtime < source)")
         return fail(
             "MQL5_COMPILE_FAILED",
-            f"{errors} errors, {warnings} warnings "
-            f"(metaeditor exit={proc.returncode})",
+            ", ".join(reason_parts) + f" (metaeditor exit={proc.returncode})",
             data={
                 "log": log_text,
                 "exit_code": proc.returncode,

@@ -2,7 +2,7 @@
 //| {{name}}.mq5 - minimal indicator skeleton (author your math here) |
 //+------------------------------------------------------------------+
 #property strict
-#property version "0.1"
+#property version "0.1.0"
 #property indicator_chart_window
 #property indicator_buffers 1
 #property indicator_plots   1

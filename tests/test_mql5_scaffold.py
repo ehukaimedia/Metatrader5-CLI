@@ -115,6 +115,26 @@ def test_ea_template_is_stubs_only():
     assert "OnTick" in text
 
 
+def test_templates_use_semver_compatible_version():
+    """MQL5 Market warning 68: `#property version "X.Y"` is invalid
+    for Market submission — must be X.Y.Z (three numbers). Live E2E
+    surfaced this: every freshly-scaffolded EA emitted warning 68 on
+    compile. Lock both templates to the semver shape so the warning
+    never reappears."""
+    import re
+    for filename in (scaffold._EA_TEMPLATE, scaffold._IND_TEMPLATE):
+        text = (scaffold._TEMPLATE_ROOT / filename).read_text(encoding="utf-8")
+        match = re.search(
+            r'#property\s+version\s+"(\d+\.\d+(?:\.\d+)?)"', text,
+        )
+        assert match is not None, f"{filename}: no #property version found"
+        version = match.group(1)
+        assert version.count(".") == 2, (
+            f"{filename}: #property version {version!r} must be X.Y.Z "
+            "(MQL5 Market warning 68 requires three numbers)"
+        )
+
+
 def test_list_templates_returns_minimal_only():
     """Locked decision: ship ONE minimal template per asset type.
     No scalper/swing/oscillator/overlay variants."""
