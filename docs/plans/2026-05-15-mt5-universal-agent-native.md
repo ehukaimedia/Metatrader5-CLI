@@ -61,11 +61,11 @@ Metatrader5-CLI/
 │   └── legacy-mql5/                      # Advanced_Wavelet_Entry_System and other standalone MQL5 history
 ├── mt5_universal/                        # NEW — agnostic library
 │   ├── bridge/mt5_backend.py             # ONLY file that imports MetaTrader5
-│   ├── broker/{base,trading_com,generic_mt5}.py
+│   ├── config/{config,trading_com}.py    # single-broker scope (Trading.com only)
 │   ├── market/, rates/, orders/, positions/, account/, history/, risk/
-│   ├── mql5/{compiler,deployer,discovery}.py + templates/
-│   ├── tester/{ea,indicator,ini_builder,launcher,results,cache}.py
-│   ├── config/{__init__,paths}.py
+│   ├── chart/, screenshot/               # Win32 chart UI + capture primitives
+│   ├── mql5/{compiler,deployer,discovery}.py + templates/   # Phase 3
+│   ├── tester/{ea,indicator,ini_builder,launcher,results,cache}.py   # Phase 4
 │   ├── reports/__init__.py
 │   └── skills/SKILL.md                   # migrated from archive/legacy-mt5/skills/
 ├── mt5/                                  # NEW — thin CLI wrapper
@@ -116,7 +116,7 @@ The legacy `metatrader5_cli/` package is fully archived after Phase 1 — nothin
 
 ## Phase 2 — `mt5_universal/` skeleton (12 tasks)
 
-**Goal:** Create the new agnostic library fresh under `mt5_universal/`. Cherry-pick only the useful patterns from `archive/legacy-mt5/core/` into new module names. Add `broker/` abstraction with Trading.com as default. Add `config/`. **No indicator math ships from this layer** — the tool only provides hands.
+**Goal:** Create the new agnostic library fresh under `mt5_universal/`. Cherry-pick only the useful patterns from `archive/legacy-mt5/core/` into new module names. Single-broker scope: Trading.com only, via `config/trading_com.py` merged into the standard config loader (NO `BrokerProfile` ABC — multi-broker is a later addition). **No indicator math ships from this layer** — the tool only provides hands.
 
 ### Task 2.1: Create mt5_universal/ package skeleton
 
@@ -347,7 +347,7 @@ Same shape every time:
 | **2.3.C** | `mt5_universal/market/market.py` | `archive/legacy-mt5/core/market.py` | `info()`, `tick()`, `depth()`, `search()`, `sessions()`. `depth()` is the longest function — DOM bid/ask normalization, spread_points, midpoint, imbalance. The `market_book_add` / `market_book_get` / `market_book_release` must release after each one-shot read. |
 | **2.3.D** | `mt5_universal/rates/rates.py` | `archive/legacy-mt5/core/rates.py` | `fetch()`, `latest()`, `ticks()`. Test the timeframe-string-to-constant map (`"M5" → mt5.TIMEFRAME_M5`). |
 | **2.3.E** | `mt5_universal/risk/risk.py` | `archive/legacy-mt5/core/risk.py` | **The 11-gate risk module — the most important sub-task.** TDD every gate separately (1 test per gate). `archive/legacy-mt5/tests/test_core.py` `class TestRisk` lists them: strategy-id length, live-gate, symbol allowlist, max lot, SL distance, spread, hedge guard, max positions, free margin, daily loss cap, rate limiter. Cherry-pick the gate names + `RISK_*` error codes + thresholds. `resolve_magic()` SHA-256 derivation (sha256(id)[:8] % 80000 + 100000 → range [100000, 180000)). `compute_volume_from_risk_pct()`. `daily_loss()` realized + floating combined. Rate limiter sliding-60s window via `collections.deque`. |
-| **2.3.F** | `mt5_universal/orders/orders.py` (note plural rename) | `archive/legacy-mt5/core/order.py` | `place_market()`, `place_limit()`, `dryrun()`, `list_pending()`, `cancel()`, `poll_fill()`. Every mutating function takes keyword-only `is_live_intent`. `dryrun()` calls `order_check` (NOT `order_send`). Don't wire the broker profile yet — that's Task 2.8. |
+| **2.3.F** | `mt5_universal/orders/orders.py` (note plural rename) | `archive/legacy-mt5/core/order.py` | `place_market()`, `place_limit()`, `dryrun()`, `list_pending()`, `cancel()`, `poll_fill()`. Every mutating function takes keyword-only `is_live_intent`. `dryrun()` calls `order_check` (NOT `order_send`). FOK filling is hardcoded (Trading.com policy via `_resolve_filling`) — no broker abstraction needed under single-broker scope. |
 | **2.3.G** | `mt5_universal/positions/positions.py` (note plural rename) | `archive/legacy-mt5/core/position.py` | `list()`, `close()`, `close_all()`, `breakeven()`, `move_sl()`. Keyword-only `is_live_intent` on every mutator. `breakeven()` sets SL to open ± `buffer_points` (default 0). |
 
 **Worked example for sub-task 2.3.A — `account` (the others follow the same shape):**
@@ -1001,12 +1001,19 @@ any leak."
 
 ```bash
 python -c "from mt5_universal import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_universal.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"
+python -c "from mt5_universal.chart import switch_tf, attach, detach, list_attached, find_window; from mt5_universal.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
+
+# Pin MT5_CONFIG to a non-existent path so the user's real config file
+# (if any) does not override DEFAULTS in this purity check.
+MT5_CONFIG=/nonexistent.json python -c "from mt5_universal.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'), '/', retcode_help(10030)[:30])"
 ```
 
-Both must print without ImportError. The second confirms Task 2.5's
-Trading.com merge landed (`filling='FOK'`, `rollover_utc_hour=22`) and that
-`retcode_help` is exported from the single-broker config surface.
+All three must print without ImportError. The third confirms Task 2.5's
+Trading.com merge landed: `FOK 22 / Wrong filling mode. Trading.co`
+(filling='FOK', rollover_utc_hour=22, retcode_help is exported from the
+single-broker config surface). The `MT5_CONFIG=/nonexistent.json` pin
+prevents a developer's local `~/.config/cli-anything-mt5.json` from
+shadowing DEFAULTS during the purity check.
 
 - [ ] **Step 2: Full suite green**
 

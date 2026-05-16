@@ -65,11 +65,13 @@ def test_corrupt_json_file_falls_back_to_defaults(clean_env, tmp_path, monkeypat
     assert cfg["max_positions"] == 5
 
 
-def test_mask_secrets_redacts_password(clean_env):
+def test_mask_secrets_redacts_password_and_login(clean_env):
+    """Both password and login must be redacted - the login is an MT5
+    account number that uniquely identifies the user to the broker."""
     cfg = {"login": 12345, "password": "supersecret", "server": "X"}
     masked = mask_secrets(cfg)
     assert masked["password"] == "***"
-    assert masked["login"] == 12345
+    assert masked["login"] == "***"
     assert masked["server"] == "X"
 
 
@@ -77,6 +79,16 @@ def test_mask_secrets_handles_no_password(clean_env):
     cfg = {"login": 12345, "server": "X"}  # no password
     masked = mask_secrets(cfg)
     assert "password" not in masked or masked.get("password") is None
+    # Login is still redacted even when password is absent
+    assert masked["login"] == "***"
+
+
+def test_mask_secrets_does_not_mutate_input(clean_env):
+    """mask_secrets must return a copy; never mutate caller's cfg."""
+    cfg = {"login": 12345, "password": "secret"}
+    mask_secrets(cfg)
+    assert cfg["login"] == 12345
+    assert cfg["password"] == "secret"
 
 
 def test_save_writes_json(clean_env, tmp_path, monkeypatch):

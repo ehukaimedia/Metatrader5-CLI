@@ -91,8 +91,16 @@ def save(cfg: dict[str, Any]) -> None:
 
 
 def mask_secrets(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of cfg with sensitive fields redacted (for logging / display)."""
+    """Return a copy of cfg with sensitive fields redacted (for logging / display).
+
+    Redacts both `password` and `login`. The login is an MT5 account number
+    that uniquely identifies the user to the broker - treating it as a
+    secret prevents accidental disclosure in transcripts, logs, screenshots,
+    and bug reports.
+    """
     masked = dict(cfg)
     if masked.get("password"):
         masked["password"] = "***"
+    if masked.get("login") is not None:
+        masked["login"] = "***"
     return masked

@@ -26,14 +26,14 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 1. Strip Ehukai / TDA / wavelet / Hybrid-WPVS semantics out of `core/`. Domain code lives in user plugins, not in the agnostic library.
 2. Make MT5's native Strategy Tester (EA + indicator) **fully driveable from the CLI** with structured JSON results.
 3. Expose the library as **both an MCP server and a CLI** so MCP-aware agents (Claude Code, Cursor, Claude Desktop) get typed tools while shell-based workflows keep working.
-4. Treat **Trading.com as the canonical default broker profile**, not as a hardcoded assumption — generalize to other MT5 brokers via a small `BrokerProfile` abstraction.
+4. Treat **Trading.com as the only currently supported broker**. Its quirks (FOK filling, no hedging, 22:00 UTC rollover, retcode help) live in `mt5_universal/config/trading_com.py` and merge into the standard config loader. Multi-broker support is a later addition; when a second broker is added, refactor to a `BrokerProfile` ABC at that time — do NOT pre-build the abstraction.
 5. **Portable**: no hardcoded user paths. Clone anywhere; `pip install -e .` works.
 
 ## 3. Non-goals
 
 - Replacing MT5 itself or building a Python-side backtester. The Strategy Tester is the canonical engine.
 - Transpiling Python to MQL5 or wrapping MQL5 in a Python DSL. Authors write MQL5 directly.
-- Live multi-broker abstraction at the protocol level. Other brokers go through MT5 too; the broker layer just captures broker-quirk differences (filling mode, hedging, retcodes, rollover).
+- Live multi-broker abstraction at the protocol level. Other brokers also go through MT5; broker-specific quirks (filling mode, hedging, retcodes, rollover) currently live in `mt5_universal/config/trading_com.py`. When a second broker is added, factor the shared interface out at that time — do not pre-build the abstraction now.
 - Rewriting any in-flight Ehukai / Wavelet / Hybrid-WPVS strategy. Those archive as-is and can be re-introduced as user-dir plugins later.
 - **Shipping any custom EA, indicator, strategy doc, backtest result, or workspace dir.** `metatrader5-cli` is a pip-installable tool that gives AI agents (and humans) hands to MT5. Users install via pip and operate `mt5` (CLI) or `mt5-mcp` (MCP server) **from their own external workspace** — they don't clone this repo or edit its code. The `ea/`, `indicators/`, `presets/`, `results/` discovery dirs live in the user's CWD or `~/.config/mt5-universal/`, **never in this repo**.
 
@@ -75,10 +75,9 @@ Metatrader5-CLI/
 ├── mt5_universal/                # NEW: agnostic library (pip-installable)
 │   ├── bridge/
 │   │   └── mt5_backend.py        # the ONE module that imports MetaTrader5
-│   ├── broker/
-│   │   ├── base.py               # BrokerProfile ABC
-│   │   ├── trading_com.py        # canonical default — FOK, no hedge, 22:00 UTC rollover
-│   │   └── generic_mt5.py        # permissive default for other brokers
+│   ├── config/
+│   │   ├── config.py             # 4-layer resolver (DEFAULTS → file → env → CLI overrides)
+│   │   └── trading_com.py        # Trading.com-only: FOK, no hedge, 22:00 UTC rollover, retcode_help
 │   ├── market/                   # info, tick, depth, sessions, search
 │   ├── rates/                    # OHLCV fetch, timeframe enum, pandas DataFrame
 │   ├── orders/                   # market/limit/stop, dryrun, modify, cancel
@@ -222,8 +221,16 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 ### Phase 2 — `mt5_universal/` skeleton
 - Create the submodule tree from §6.1.
 - Recreate the surviving primitives fresh under `mt5_universal/`, cherry-picking patterns from `archive/legacy-mt5/core/` and `archive/legacy-mt5/utils/mt5_backend.py` without importing or moving the archived package back into the live tree.
-- Add `broker/base.py` ABC. Extract Trading.com quirks (FOK, no-hedge, 22:00 UTC rollover, retcode map) from current code into `broker/trading_com.py`. Add a permissive `broker/generic_mt5.py`.
-- **Acceptance:** unit tests pass against the new module paths; `from mt5_universal import market, rates, orders, risk` works.
+- Submodules built: `bridge/` (single MetaTrader5 importer), `market/`, `rates/`, `account/`, `history/`, `risk/`, `orders/`, `positions/`, `reports/`, `config/`, `chart/` (pure Win32 + `chart/indicators_attach.py` bridge-mediated), `screenshot/`.
+- **Single-broker scope:** Trading.com only. `mt5_universal/config/trading_com.py` ships `TRADING_COM_DEFAULTS` (FOK filling, no hedging, 22:00 UTC rollover) merged into `config.DEFAULTS`, plus `retcode_help()` for actionable MT5 retcode explanations. NO `BrokerProfile` ABC, NO `generic_mt5.py` — multi-broker is a later addition.
+- CI guard: `tests/test_bridge_singleton.py` (AST-based) fails the suite if any module besides `mt5_universal/bridge/mt5_backend.py` imports MetaTrader5.
+- **Acceptance (Phase 2 complete at tag `phase-2-complete`):**
+  - `from mt5_universal import market, rates, orders, positions, account, history, risk` — no ImportError
+  - `from mt5_universal.chart import switch_tf, attach, detach, list_attached, find_window` — no ImportError
+  - `from mt5_universal.screenshot import take, dom, annotate` — no ImportError
+  - `MT5_CONFIG=/nonexistent.json python -c "from mt5_universal.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"` prints `FOK 22`
+  - `python -m pytest -q` returns 214 passed (or higher as Phase 3+ grows the suite)
+  - `git grep -n "import MetaTrader5\|from MetaTrader5" -- mt5_universal` returns only `mt5_universal/bridge/mt5_backend.py:10`
 
 ### Phase 3 — MQL5 plugin host
 - Add `mt5_universal/mql5/{compiler,deployer,discovery,templates}.py`.

@@ -2,14 +2,20 @@
 
 Uses AST parsing rather than a substring check so legitimate mentions
 of "import MetaTrader5" in docstrings or comments are not false
-positives (we hit this twice during Phase 2 — the bridge `__init__.py`
+positives (we hit this twice during Phase 2 - the bridge `__init__.py`
 docstring and the chart submodule docstring). AST-level detection only
 flags actual `import MetaTrader5` / `from MetaTrader5 import ...`
 statements.
+
+A secondary regex backstop catches dynamic imports
+(`importlib.import_module("MetaTrader5")`, `__import__("MetaTrader5")`)
+that AST alone would not flag, because at the AST level those are
+function calls with a string argument, not import nodes.
 """
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -60,6 +66,50 @@ def test_only_bridge_imports_metatrader5():
         f"Only {sorted(ALLOWED)} may import MetaTrader5. "
         f"Offenders detected: {offenders}"
     )
+
+
+# Dynamic imports — importlib.import_module("MetaTrader5") or
+# __import__("MetaTrader5") — bypass the AST Import / ImportFrom nodes
+# above (at the AST level they are function calls with a string arg).
+# This regex backstop catches the common forms.
+_DYNAMIC_IMPORT_RE = re.compile(
+    r"""(?:importlib\.import_module|__import__)\s*\(\s*['"]MetaTrader5['"]""",
+    re.MULTILINE,
+)
+
+
+def _dynamically_imports_metatrader5(py_path: Path) -> bool:
+    try:
+        source = py_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return bool(_DYNAMIC_IMPORT_RE.search(source))
+
+
+def test_no_dynamic_metatrader5_imports():
+    """Catch importlib.import_module('MetaTrader5') / __import__('MetaTrader5')
+    which would bypass the AST scan above."""
+    offenders: list[str] = []
+    for d in SCAN_DIRS:
+        path = ROOT / d
+        if not path.exists():
+            continue
+        for py in path.rglob("*.py"):
+            rel = py.relative_to(ROOT).as_posix()
+            if rel in ALLOWED:
+                continue
+            if _dynamicallyimports_metatrader5_safe(py):
+                offenders.append(rel)
+    assert not offenders, (
+        "Dynamic MetaTrader5 imports detected (importlib / __import__). "
+        f"Offenders: {offenders}"
+    )
+
+
+# Alias to keep the test function readable while still routing through one
+# implementation (kept separate so future contributors can extend the regex).
+def _dynamicallyimports_metatrader5_safe(py_path: Path) -> bool:
+    return _dynamically_imports_metatrader5(py_path)
 
 
 def test_allowed_files_actually_exist():
