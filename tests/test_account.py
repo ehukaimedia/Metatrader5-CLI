@@ -69,6 +69,22 @@ def test_account_info_maps_trade_mode_demo(mocked_mt5):
     assert env["data"]["trade_mode"] == "demo"
 
 
+def test_account_info_maps_trade_mode_contest_as_demo(mocked_mt5):
+    """Contest accounts (broker competitions) collapse to 'demo' — no real money."""
+    mocked_mt5.account_info.return_value.trade_mode = 1  # ACCOUNT_TRADE_MODE_CONTEST
+    from mt5_universal.account import info
+    env = info()
+    assert env["data"]["trade_mode"] == "demo"
+
+
+def test_account_info_maps_trade_mode_real(mocked_mt5):
+    """Real accounts surface as 'real' — used by the CLI/MCP to flag live trading."""
+    mocked_mt5.account_info.return_value.trade_mode = 2  # ACCOUNT_TRADE_MODE_REAL
+    from mt5_universal.account import info
+    env = info()
+    assert env["data"]["trade_mode"] == "real"
+
+
 def test_account_balance_subset(mocked_mt5):
     from mt5_universal.account import balance
     env = balance()

@@ -18,10 +18,14 @@ from mt5_universal.bridge import (
 from mt5_universal.reports import ok, fail
 from mt5_universal.risk import daily_loss
 
-# Map raw MT5 trade_mode integers to human-readable strings.
-_TRADE_MODE_MAP: dict = {
+# Map raw MT5 trade_mode integers to "demo" or "real" only.
+# CONTEST accounts (broker competitions with simulated funds) collapse to "demo"
+# since they don't risk real money — agents and UI only need the demo/real
+# distinction. The live gate in risk.check_order still discriminates strictly:
+# only ACCOUNT_TRADE_MODE_REAL triggers the gate.
+_TRADE_MODE_MAP: dict[int, str] = {
     ACCOUNT_TRADE_MODE_DEMO: "demo",
-    ACCOUNT_TRADE_MODE_CONTEST: "contest",
+    ACCOUNT_TRADE_MODE_CONTEST: "demo",
     ACCOUNT_TRADE_MODE_REAL: "real",
 }
 
