@@ -311,11 +311,57 @@ def test_order_modify_threads_cfg(runner, monkeypatch):
 
 
 def test_order_rejects_invalid_side_at_cli_layer(runner):
+    """Invalid Click Choice must surface as a MT5_INVALID_PARAMS envelope
+    via emit(), exit 0 — not as Click's default stderr usage + nonzero exit.
+    The CLI contract is "always exit 0 with structured envelope" so agents
+    can parse failures without reading exit codes."""
     cli_runner, main, _ = runner
-    result = cli_runner.invoke(main, ["order", "market", "EURUSD", "junk",
-                                      "--volume", "0.01", "--sl", "1.09"])
-    assert result.exit_code != 0  # click choice-validation error
-    assert "junk" in result.output or "junk" in (result.stderr_bytes or b"").decode()
+    result = cli_runner.invoke(main, ["--json", "order", "market", "EURUSD",
+                                      "junk", "--volume", "0.01", "--sl", "1.09"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    assert "junk" in env["error"]["message"]
+
+
+def test_cli_missing_required_option_emits_envelope(runner):
+    """Missing required --volume must also emit MT5_INVALID_PARAMS envelope."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["--json", "order", "market", "EURUSD",
+                                      "buy", "--sl", "1.09"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+
+
+def test_cli_bad_int_option_emits_envelope(runner):
+    """Click int parser failure must emit MT5_INVALID_PARAMS envelope."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["--json", "order", "cancel", "not-an-int"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+
+
+def test_order_poll_fill_converts_timeout_to_ms(runner, monkeypatch):
+    """CLI --timeout is in seconds; library wants timeout_ms. Verify the
+    boundary converts cleanly so the command does not crash with
+    TypeError: poll_fill() got an unexpected keyword argument 'timeout'."""
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._orders_mod, "poll_fill",
+          {"ok": True, "data": {"filled": True, "ticket": 12345}}, captured)
+    result = cli_runner.invoke(main, ["--json", "order", "poll-fill", "12345",
+                                      "--timeout", "1.5"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    assert captured["args"] == (12345,)
+    assert captured["kwargs"] == {"timeout_ms": 1500}
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +416,351 @@ def test_history_orders_rejects_garbage_date(runner, monkeypatch):
     env = json.loads(result.output)
     assert env["ok"] is False
     assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+
+
+def test_history_orders_validates_dates_before_autoconnect(monkeypatch):
+    """Local arg validation must run BEFORE any MT5 connection attempt.
+    Previously a malformed date with no MT5 available returned
+    MT5_CONNECTION_ERROR instead of MT5_INVALID_PARAMS, hiding the real
+    issue and triggering an unwanted side-effect (connect attempt)."""
+    _purge_cli_cache()
+    from mt5_cli.bridge import mt5_backend as _bridge
+    # Force bridge unconnected so _autoconnect would call _bridge_connect.
+    monkeypatch.setattr(_bridge, "_initialized", False)
+
+    from mt5.cli import main as cli_main
+    import mt5.cli as cli_mod
+    calls = {"count": 0}
+
+    def fake_connect(**_kw):
+        calls["count"] += 1
+        raise RuntimeError("connect attempted")
+
+    monkeypatch.setattr(cli_mod, "_bridge_connect", fake_connect)
+
+    cli_runner = CliRunner()
+    result = cli_runner.invoke(cli_main, ["--json", "history", "orders",
+                                          "--from", "garbage"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    # The critical assertion: _bridge_connect must NOT have been called.
+    assert calls["count"] == 0, "history validate-then-connect: connect ran before validation"
+    _purge_cli_cache()
+
+
+def test_history_deals_validates_dates_before_autoconnect(monkeypatch):
+    _purge_cli_cache()
+    from mt5_cli.bridge import mt5_backend as _bridge
+    monkeypatch.setattr(_bridge, "_initialized", False)
+
+    from mt5.cli import main as cli_main
+    import mt5.cli as cli_mod
+    calls = {"count": 0}
+
+    def fake_connect(**_kw):
+        calls["count"] += 1
+        raise RuntimeError("connect attempted")
+
+    monkeypatch.setattr(cli_mod, "_bridge_connect", fake_connect)
+
+    cli_runner = CliRunner()
+    result = cli_runner.invoke(cli_main, ["--json", "history", "deals",
+                                          "--to", "not-a-date"])
+    env = json.loads(result.output)
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    assert calls["count"] == 0
+    _purge_cli_cache()
+
+
+def test_history_stats_validates_dates_before_autoconnect(monkeypatch):
+    _purge_cli_cache()
+    from mt5_cli.bridge import mt5_backend as _bridge
+    monkeypatch.setattr(_bridge, "_initialized", False)
+
+    from mt5.cli import main as cli_main
+    import mt5.cli as cli_mod
+    calls = {"count": 0}
+
+    def fake_connect(**_kw):
+        calls["count"] += 1
+        raise RuntimeError("connect attempted")
+
+    monkeypatch.setattr(cli_mod, "_bridge_connect", fake_connect)
+
+    cli_runner = CliRunner()
+    result = cli_runner.invoke(cli_main, ["--json", "history", "stats",
+                                          "--from", "bad"])
+    env = json.loads(result.output)
+    assert env["error"]["code"] == "MT5_INVALID_PARAMS"
+    assert calls["count"] == 0
+    _purge_cli_cache()
+
+
+# ---------------------------------------------------------------------------
+# connect — override semantics (P2 #6)
+# ---------------------------------------------------------------------------
+
+
+def test_connect_overrides_reconnect_when_already_connected(runner, monkeypatch):
+    """When --login/--password/--server are given AND bridge is already
+    connected, the command must call reconnect_once(cfg) (shutdown +
+    initialize). _autoconnect's idempotent-no-op path would otherwise
+    silently ignore the overrides and report a reconnect that did not
+    happen."""
+    cli_runner, main, mp = runner  # fixture leaves _initialized=True
+    import mt5.cli as cli_mod
+
+    reconnect_calls = []
+
+    def fake_reconnect_once(cfg):
+        reconnect_calls.append(dict(cfg))
+        return True
+
+    monkeypatch.setattr(cli_mod, "_bridge_reconnect_once", fake_reconnect_once)
+
+    connect_calls = []
+
+    def fake_connect(**kw):
+        connect_calls.append(kw)
+
+    monkeypatch.setattr(cli_mod, "_bridge_connect", fake_connect)
+
+    result = cli_runner.invoke(main, ["--json", "connect",
+                                      "--login", "999", "--password", "pw",
+                                      "--server", "NewServer"])
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    assert env["data"]["connected"] is True
+    assert env["data"]["server"] == "NewServer"
+    assert len(reconnect_calls) == 1
+    assert reconnect_calls[0]["login"] == 999
+    assert reconnect_calls[0]["password"] == "pw"
+    assert reconnect_calls[0]["server"] == "NewServer"
+    # _autoconnect-style _bridge_connect must NOT have been called
+    assert connect_calls == []
+
+
+def test_connect_no_overrides_short_circuits_through_autoconnect(runner, monkeypatch):
+    """No overrides + already connected: stay on _autoconnect's idempotent
+    no-op. reconnect_once must NOT fire — a shutdown+initialize cycle is
+    expensive and the current session is fine."""
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+
+    reconnect_calls = []
+
+    def fake_reconnect_once(cfg):
+        reconnect_calls.append(dict(cfg))
+        return True
+
+    monkeypatch.setattr(cli_mod, "_bridge_reconnect_once", fake_reconnect_once)
+
+    result = cli_runner.invoke(main, ["--json", "connect"])
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    assert reconnect_calls == []
+
+
+def test_connect_overrides_reports_failure_when_reconnect_returns_false(
+    runner, monkeypatch,
+):
+    """reconnect_once can return False (initialize failed without raising).
+    The CLI must surface that as a fail envelope, not claim success."""
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_bridge_reconnect_once", lambda cfg: False)
+
+    result = cli_runner.invoke(main, ["--json", "connect",
+                                      "--server", "NewServer"])
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_CONNECTION_ERROR"
+
+
+def test_connect_overrides_reports_failure_when_reconnect_raises(
+    runner, monkeypatch,
+):
+    """reconnect_once can raise (e.g. mt5.shutdown raised). Surface that
+    as MT5_CONNECTION_ERROR, not a Python traceback."""
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+
+    def boom(cfg):
+        raise RuntimeError("shutdown blew up")
+
+    monkeypatch.setattr(cli_mod, "_bridge_reconnect_once", boom)
+
+    result = cli_runner.invoke(main, ["--json", "connect", "--server", "X"])
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_CONNECTION_ERROR"
+    assert "shutdown blew up" in env["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# P3 bonus: order limit/stop/dryrun --live plumbing
+# ---------------------------------------------------------------------------
+
+
+def test_order_limit_threads_cfg_and_live(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._orders_mod, "place_limit",
+          {"ok": True, "data": {"ticket": 1}}, captured)
+    cli_runner.invoke(main, ["--json", "order", "limit", "EURUSD", "buy",
+                             "--price", "1.05", "--volume", "0.01",
+                             "--sl", "1.04", "--live"])
+    kw = captured["kwargs"]
+    assert "cfg" in kw
+    assert kw["is_live_intent"] is True
+
+
+def test_order_stop_threads_cfg_and_live(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._orders_mod, "place_stop",
+          {"ok": True, "data": {"ticket": 1}}, captured)
+    cli_runner.invoke(main, ["--json", "order", "stop", "EURUSD", "buy",
+                             "--price", "1.20", "--volume", "0.01",
+                             "--sl", "1.19", "--live"])
+    kw = captured["kwargs"]
+    assert "cfg" in kw
+    assert kw["is_live_intent"] is True
+
+
+def test_order_dryrun_threads_cfg_and_live(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._orders_mod, "dryrun",
+          {"ok": True, "data": {"dry_run": True}}, captured)
+    cli_runner.invoke(main, ["--json", "order", "dryrun", "EURUSD", "buy",
+                             "--volume", "0.01", "--sl", "1.09", "--live"])
+    kw = captured["kwargs"]
+    assert "cfg" in kw
+    assert kw["is_live_intent"] is True
+
+
+def test_position_move_sl_threads_is_live(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._positions_mod, "move_sl",
+          {"ok": True, "data": {"ticket": 1}}, captured)
+    cli_runner.invoke(main, ["--json", "position", "move-sl", "12345",
+                             "--sl", "1.10", "--live"])
+    kw = captured["kwargs"]
+    assert kw["sl"] == 1.10
+    assert kw["is_live_intent"] is True
+
+
+def test_position_breakeven_threads_is_live(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._positions_mod, "breakeven",
+          {"ok": True, "data": {"ticket": 1}}, captured)
+    cli_runner.invoke(main, ["--json", "position", "breakeven", "12345",
+                             "--buffer-points", "5", "--live"])
+    kw = captured["kwargs"]
+    assert kw["buffer_points"] == 5
+    assert kw["is_live_intent"] is True
+
+
+# ---------------------------------------------------------------------------
+# P3 bonus: emit() edge cases (ok(None), list-of-dicts, nested, datetime, bytes)
+# ---------------------------------------------------------------------------
+
+
+def test_emit_ok_none_prints_OK_in_human_mode(capsys):
+    _purge_cli_cache()
+    from mt5.emit import emit
+    emit({"ok": True, "data": None}, json_mode=False)
+    captured = capsys.readouterr()
+    assert "OK" in captured.out
+
+
+def test_emit_list_of_dicts_uses_separator_in_human_mode(capsys):
+    _purge_cli_cache()
+    from mt5.emit import emit
+    emit({"ok": True, "data": [{"a": 1}, {"b": 2}]}, json_mode=False)
+    captured = capsys.readouterr()
+    assert "---" in captured.out
+    assert "a: 1" in captured.out
+    assert "b: 2" in captured.out
+
+
+def test_emit_empty_list_prints_empty_marker(capsys):
+    _purge_cli_cache()
+    from mt5.emit import emit
+    emit({"ok": True, "data": []}, json_mode=False)
+    captured = capsys.readouterr()
+    assert "(empty)" in captured.out
+
+
+def test_emit_nested_dict_in_human_mode_renders_as_json(capsys):
+    _purge_cli_cache()
+    from mt5.emit import emit
+    emit({"ok": True, "data": {"outer": {"inner": 42}}}, json_mode=False)
+    captured = capsys.readouterr()
+    # _render JSON-encodes nested dicts so the line is parseable
+    assert '"inner"' in captured.out
+    assert "42" in captured.out
+
+
+def test_emit_datetime_json_serializes_via_default(capsys):
+    _purge_cli_cache()
+    from datetime import datetime, timezone
+    from mt5.emit import emit
+    dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    emit({"ok": True, "data": {"dt": dt}}, json_mode=True)
+    captured = capsys.readouterr()
+    env = json.loads(captured.out)
+    assert "2026-01-01" in env["data"]["dt"]
+
+
+def test_emit_bytes_payload_renders_via_default(capsys):
+    _purge_cli_cache()
+    from mt5.emit import emit
+    emit({"ok": True, "data": {"blob": b"abc"}}, json_mode=False)
+    captured = capsys.readouterr()
+    assert "blob:" in captured.out
+
+
+def test_emit_scalar_payload_in_human_mode(capsys):
+    _purge_cli_cache()
+    from mt5.emit import emit
+    emit({"ok": True, "data": "scalar-payload"}, json_mode=False)
+    captured = capsys.readouterr()
+    assert "scalar-payload" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# P3 bonus: config show --no-mask-secrets exposes BOTH login AND password
+# ---------------------------------------------------------------------------
+
+
+def test_config_show_no_mask_secrets_keeps_login(runner, monkeypatch):
+    """--no-mask-secrets is intentional opt-in to expose sensitive fields.
+    Login is treated as sensitive in mask_secrets(); the un-masked path
+    must surface it (otherwise the test boundary masks a regression where
+    login secretly stays redacted)."""
+    cli_runner, main, _ = runner
+    import mt5.cli as cli_mod
+    monkeypatch.setattr(
+        cli_mod, "_config_load",
+        lambda: {"login": 12345, "password": "secret123", "server": "X"},
+    )
+    result = cli_runner.invoke(main, ["--json", "config", "show",
+                                      "--no-mask-secrets"])
+    env = json.loads(result.output)
+    assert env["data"]["login"] == 12345
+    assert env["data"]["password"] == "secret123"
 
 
 # ---------------------------------------------------------------------------

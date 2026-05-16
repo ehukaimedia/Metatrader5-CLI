@@ -17,6 +17,7 @@ overrides.
 """
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 
 import click
@@ -33,6 +34,7 @@ from mt5_cli import positions as _positions_mod
 from mt5_cli import rates as _rates_mod
 from mt5_cli.bridge import connect as _bridge_connect
 from mt5_cli.bridge import is_connected as _bridge_is_connected
+from mt5_cli.bridge import reconnect_once as _bridge_reconnect_once
 from mt5_cli.chart import (
     attach as _chart_attach,
     attach_ea as _chart_attach_ea,
@@ -101,7 +103,54 @@ def _parse_date(value: str | None) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+class EnvelopeGroup(click.Group):
+    """Click Group that catches parser/usage errors (invalid Choice, missing
+    required option, bad int) and emits them as a MT5_INVALID_PARAMS envelope
+    via emit(), preserving the CLI contract that every invocation exits 0
+    with a structured envelope instead of leaking Click's usage text to
+    stderr with a nonzero exit code."""
+
+    def main(self, args=None, prog_name=None, complete_var=None,
+             standalone_mode=True, **extra):
+        # Force standalone_mode=False internally so Click does not write
+        # its usage block to stderr before we get a chance to emit().
+        # Preserve the caller's original standalone_mode semantics for
+        # exit-vs-return: sys.exit(0) when True (real CLI), return when
+        # False (CliRunner under test).
+        try:
+            rv = super().main(
+                args=args,
+                prog_name=prog_name,
+                complete_var=complete_var,
+                standalone_mode=False,
+                **extra,
+            )
+        except click.UsageError as exc:
+            json_mode = self._infer_json_mode(args)
+            emit(fail("MT5_INVALID_PARAMS", exc.format_message()), json_mode)
+            if standalone_mode:
+                sys.exit(0)
+            return
+        if standalone_mode:
+            # Click already converted ctx.exit() / --help Exit to an int
+            # return value when standalone_mode=False; honor it but cap
+            # at 0 since the CLI contract is "always exit 0".
+            sys.exit(0)
+        return rv
+
+    @staticmethod
+    def _infer_json_mode(args) -> bool:
+        """Best-effort detection of --json from raw args when the ctx
+        never got built (parser error)."""
+        if args is None:
+            args = sys.argv[1:]
+        try:
+            return "--json" in list(args)
+        except Exception:  # noqa: BLE001
+            return False
+
+
+@click.group(cls=EnvelopeGroup)
 @click.option("--json", "json_mode", is_flag=True,
               help="Emit JSON envelopes (for agents / scripts).")
 @click.pass_context
@@ -125,16 +174,39 @@ def connect(ctx: click.Context, login: int | None, password: str | None,
             server: str | None) -> None:
     """Explicitly (re)connect to the MT5 terminal."""
     cfg = dict(ctx.obj["cfg"])
+    has_overrides = (
+        login is not None or password is not None or server is not None
+    )
     if login is not None:
         cfg["login"] = login
     if password is not None:
         cfg["password"] = password
     if server is not None:
         cfg["server"] = server
-    err = _autoconnect(cfg)
-    if err is not None:
-        emit(err, ctx.obj["json"])
-        return
+
+    # When the caller explicitly passed overrides AND the bridge is
+    # already up against a different account/server, _autoconnect would
+    # silently no-op and we'd report a reconnect that did not happen.
+    # Force a shutdown + initialize via reconnect_once(cfg) instead so
+    # the overrides actually take effect.
+    if has_overrides and _bridge_is_connected():
+        try:
+            reconnected = _bridge_reconnect_once(cfg)
+        except Exception as exc:  # noqa: BLE001
+            emit(fail("MT5_CONNECTION_ERROR",
+                      f"Could not reconnect to MT5: {exc}"),
+                 ctx.obj["json"])
+            return
+        if not reconnected:
+            emit(fail("MT5_CONNECTION_ERROR",
+                      "MT5 reconnect_once returned False; initialize failed."),
+                 ctx.obj["json"])
+            return
+    else:
+        err = _autoconnect(cfg)
+        if err is not None:
+            emit(err, ctx.obj["json"])
+            return
     emit(ok({"connected": True, "server": cfg.get("server")}), ctx.obj["json"])
 
 
@@ -501,7 +573,8 @@ def order_cancel_all(ctx: click.Context, symbol: str | None, is_live: bool) -> N
 
 @order.command("poll-fill")
 @click.argument("ticket", type=int)
-@click.option("--timeout", type=float, default=10.0)
+@click.option("--timeout", type=float, default=10.0,
+              help="Max wait in seconds (converted to ms for the library).")
 @click.pass_context
 def order_poll_fill(ctx: click.Context, ticket: int, timeout: float) -> None:
     """Poll for an order's fill state (deal_id / position_id) up to timeout."""
@@ -509,7 +582,10 @@ def order_poll_fill(ctx: click.Context, ticket: int, timeout: float) -> None:
     if err is not None:
         emit(err, ctx.obj["json"])
         return
-    emit(_orders_mod.poll_fill(ticket, timeout=timeout), ctx.obj["json"])
+    # Library signature is poll_fill(ticket, timeout_ms=...). Keep the CLI
+    # flag in seconds (more natural for shells) and convert at the boundary.
+    emit(_orders_mod.poll_fill(ticket, timeout_ms=int(timeout * 1000)),
+         ctx.obj["json"])
 
 
 # ---------------------------------------------------------------------------
@@ -617,16 +693,18 @@ def history() -> None:
 def history_orders(ctx: click.Context, date_from: str | None, date_to: str | None,
                    strategy_id: str | None) -> None:
     """Closed order history."""
-    err = _autoconnect(ctx.obj["cfg"])
-    if err is not None:
-        emit(err, ctx.obj["json"])
-        return
+    # Local validation is side-effect-free; run it BEFORE _autoconnect so a
+    # malformed date never triggers an MT5 connection attempt.
     df = _parse_date(date_from)
     dt = _parse_date(date_to)
     if (date_from and df is None) or (date_to and dt is None):
         emit(fail("MT5_INVALID_PARAMS",
                   "--from / --to must be YYYY-MM-DD or ISO 8601 datetime."),
              ctx.obj["json"])
+        return
+    err = _autoconnect(ctx.obj["cfg"])
+    if err is not None:
+        emit(err, ctx.obj["json"])
         return
     emit(_history_mod.orders(date_from=df, date_to=dt, strategy_id=strategy_id,
                              cfg=ctx.obj["cfg"]),
@@ -641,16 +719,16 @@ def history_orders(ctx: click.Context, date_from: str | None, date_to: str | Non
 def history_deals(ctx: click.Context, date_from: str | None, date_to: str | None,
                   strategy_id: str | None) -> None:
     """Trade deal history."""
-    err = _autoconnect(ctx.obj["cfg"])
-    if err is not None:
-        emit(err, ctx.obj["json"])
-        return
     df = _parse_date(date_from)
     dt = _parse_date(date_to)
     if (date_from and df is None) or (date_to and dt is None):
         emit(fail("MT5_INVALID_PARAMS",
                   "--from / --to must be YYYY-MM-DD or ISO 8601 datetime."),
              ctx.obj["json"])
+        return
+    err = _autoconnect(ctx.obj["cfg"])
+    if err is not None:
+        emit(err, ctx.obj["json"])
         return
     emit(_history_mod.deals(date_from=df, date_to=dt, strategy_id=strategy_id,
                             cfg=ctx.obj["cfg"]),
@@ -665,16 +743,16 @@ def history_deals(ctx: click.Context, date_from: str | None, date_to: str | None
 def history_stats(ctx: click.Context, date_from: str | None, date_to: str | None,
                   strategy_id: str | None) -> None:
     """Aggregated stats (wins/losses/profit factor) over a date range."""
-    err = _autoconnect(ctx.obj["cfg"])
-    if err is not None:
-        emit(err, ctx.obj["json"])
-        return
     df = _parse_date(date_from)
     dt = _parse_date(date_to)
     if (date_from and df is None) or (date_to and dt is None):
         emit(fail("MT5_INVALID_PARAMS",
                   "--from / --to must be YYYY-MM-DD or ISO 8601 datetime."),
              ctx.obj["json"])
+        return
+    err = _autoconnect(ctx.obj["cfg"])
+    if err is not None:
+        emit(err, ctx.obj["json"])
         return
     emit(_history_mod.stats(date_from=df, date_to=dt, strategy_id=strategy_id,
                             cfg=ctx.obj["cfg"]),
