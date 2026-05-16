@@ -56,10 +56,16 @@ def test_compile_returns_fail_when_metaeditor_missing(monkeypatch, tmp_path):
 
 def test_compile_invokes_subprocess(monkeypatch, tmp_path):
     """Happy path: subprocess.run returns 0, log shows 0 errors, .ex5 exists."""
+    import os as _os
     src = tmp_path / "demo.mq5"
     src.write_text("// stub\n")
     ex5 = src.with_suffix(".ex5")
     ex5.write_bytes(b"compiled-bytes")  # simulate MetaEditor producing .ex5
+    # The freshness gate requires .ex5 mtime STRICTLY greater than src
+    # mtime; Windows often records both as equal when they're created
+    # within the same second, so bump ex5 forward explicitly.
+    src_mtime = src.stat().st_mtime
+    _os.utime(ex5, (src_mtime + 1, src_mtime + 1))
     log = src.with_suffix(".log")
     log.write_text("0 errors, 0 warnings\n", encoding="utf-8")
     fake_meta = tmp_path / "metaeditor64.exe"
@@ -120,6 +126,41 @@ def test_compile_handles_timeout(monkeypatch, tmp_path):
     result = compiler.compile_source(src, timeout=1)
     assert result["ok"] is False
     assert result["error"]["code"] == "MQL5_COMPILE_TIMEOUT"
+
+
+def test_compile_fails_when_ex5_mtime_equals_source_mtime(
+    monkeypatch, tmp_path,
+):
+    """Spock polish re-review boundary: a stale .ex5 forced to the EXACT
+    same mtime as the source must STILL fail. Equal mtimes can happen
+    on coarse-resolution filesystems or when a prior .ex5 happens to
+    be timestamped identically to a freshly-touched source; the
+    freshness gate must be strict `>`, not `>=`."""
+    import os as _os
+    src = tmp_path / "demo.mq5"
+    src.write_text("// stub\n")
+    stale_ex5 = src.with_suffix(".ex5")
+    stale_ex5.write_bytes(b"stale-binary")
+    # Force the two mtimes to be exactly equal
+    src_mtime = src.stat().st_mtime
+    _os.utime(stale_ex5, (src_mtime, src_mtime))
+    log = src.with_suffix(".log")
+    log.write_text("0 errors, 0 warnings\n", encoding="utf-8")
+
+    fake_meta = tmp_path / "metaeditor64.exe"
+    fake_meta.write_bytes(b"")
+    monkeypatch.setattr(compiler, "locate_metaeditor", lambda: fake_meta)
+    monkeypatch.setattr(
+        compiler.subprocess, "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, "", "fatal\n"),
+    )
+
+    result = compiler.compile_source(src)
+    assert result["ok"] is False, (
+        "equal mtime must be treated as stale; got: " + str(result)
+    )
+    assert result["error"]["code"] == "MQL5_COMPILE_FAILED"
+    assert "stale" in result["error"]["message"]
 
 
 def test_compile_fails_when_stale_ex5_predates_source(
