@@ -92,272 +92,35 @@ The legacy `metatrader5_cli/` package is fully archived after Phase 1 — nothin
 
 ---
 
-## Phase 1 — Archive legacy (5 tasks)
-
-**Goal:** Move all Ehukai/TDA-specific code and the full MQL5 tree to `archive/`. Strip imports from the legacy CLI. Tests still pass for surviving modules. No compat shims.
-
-### Task 1.1: Commit untracked Advanced Wavelet sources
-
-**Files:**
-- Stage: `metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/`
-- Skip: `metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System.zip` (gitignored by `*.zip`)
-
-- [ ] **Step 1: Confirm source is on disk**
-
-```bash
-ls metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/ | head
-```
-
-- [ ] **Step 2: Stage and commit so the move in Task 1.4 is captured in history**
-
-```bash
-git add metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/
-git commit -m "Capture Advanced_Wavelet_Entry_System sources before archive
-
-Per spec Phase 1 prerequisite: untracked MQL5 source must be in git
-history before the archive move so the move is recoverable."
-```
-
-- [ ] **Step 3: Verify**
-
-```bash
-git ls-files metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/ | wc -l   # expect > 0
-```
-
-### Task 1.2: Remove `archive/` exclusion from .gitignore
-
-**Files:**
-- Modify: `.gitignore`
-
-- [ ] **Step 1: Read current .gitignore**
-
-```bash
-grep -n '^archive/' .gitignore   # confirm the line exists, note line number
-```
-
-- [ ] **Step 2: Remove the `archive/` line**
-
-Use Edit tool. Find:
-```
-.ehukaiconnect/
-archive/
-```
-Replace with:
-```
-.ehukaiconnect/
-```
-
-- [ ] **Step 3: Verify exclusion is gone**
-
-```bash
-grep -n '^archive/' .gitignore && echo "STILL THERE" || echo "REMOVED"
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add .gitignore
-git commit -m "Remove archive/ exclusion so Phase 1 archive move is git-tracked"
-```
-
-### Task 1.3: Move legacy core modules to archive/legacy-core/
-
-**Files:**
-- Move: `metatrader5_cli/mt5/core/{ehukai,analyze,tda_manifest,mfe,tester,ea,chart,screenshot,project,playground_data,indicator}.py` → `archive/legacy-core/`
-- Keep in place: `metatrader5_cli/mt5/core/{account,history,market,order,position,rates,risk}.py` (these survive — they're the agnostic primitives that get re-homed in Phase 2)
-
-- [ ] **Step 1: Create archive target directory**
-
-```bash
-mkdir -p archive/legacy-core
-```
-
-- [ ] **Step 2: Move the domain-coupled modules with `git mv` (preserves history)**
-
-```bash
-git mv metatrader5_cli/mt5/core/ehukai.py         archive/legacy-core/ehukai.py
-git mv metatrader5_cli/mt5/core/analyze.py        archive/legacy-core/analyze.py
-git mv metatrader5_cli/mt5/core/tda_manifest.py   archive/legacy-core/tda_manifest.py
-git mv metatrader5_cli/mt5/core/mfe.py            archive/legacy-core/mfe.py
-git mv metatrader5_cli/mt5/core/tester.py         archive/legacy-core/tester.py
-git mv metatrader5_cli/mt5/core/ea.py             archive/legacy-core/ea.py
-git mv metatrader5_cli/mt5/core/chart.py          archive/legacy-core/chart.py
-git mv metatrader5_cli/mt5/core/screenshot.py     archive/legacy-core/screenshot.py
-git mv metatrader5_cli/mt5/core/project.py        archive/legacy-core/project.py
-git mv metatrader5_cli/mt5/core/playground_data.py archive/legacy-core/playground_data.py
-git mv metatrader5_cli/mt5/core/indicator.py      archive/legacy-core/indicator.py
-```
-
-- [ ] **Step 3: Confirm only the agnostic primitives remain in core/**
-
-```bash
-ls metatrader5_cli/mt5/core/
-```
-
-Expected (besides `__init__.py`, `__pycache__/`):
-`account.py history.py market.py order.py position.py rates.py risk.py`
-
-- [ ] **Step 4: Don't commit yet — coupled with Task 1.4 + 1.5**
-
-### Task 1.4: Move full MQL5 tree to archive/legacy-mql5/
-
-**Files:**
-- Move: `metatrader5_cli/mt5/mql5/` → `archive/legacy-mql5/`
-- Drop: the three `.zip` snapshots (recoverable from the directories; not in git history)
-
-- [ ] **Step 1: Create archive target**
-
-```bash
-mkdir -p archive/legacy-mql5
-```
-
-- [ ] **Step 2: Move tracked MQL5 contents (Experts, Hybrid_WPVS_MT5_Bundle, Indicators, Advanced_Wavelet_Entry_System)**
-
-```bash
-git mv metatrader5_cli/mt5/mql5/Experts                  archive/legacy-mql5/Experts
-git mv metatrader5_cli/mt5/mql5/Hybrid_WPVS_MT5_Bundle   archive/legacy-mql5/Hybrid_WPVS_MT5_Bundle
-git mv metatrader5_cli/mt5/mql5/Indicators               archive/legacy-mql5/Indicators
-git mv metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System archive/legacy-mql5/Advanced_Wavelet_Entry_System
-```
-
-- [ ] **Step 3: Drop the on-disk-only zip snapshots**
-
-```bash
-rm metatrader5_cli/mt5/mql5/Hybrid_WPVS_MT5_Bundle.zip
-rm metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System.zip
-rm metatrader5_cli/mt5/mql5/WF_FractalPredictor_MQ5_v1_10.zip
-```
-
-- [ ] **Step 4: Remove the now-empty mql5 directory**
-
-```bash
-rmdir metatrader5_cli/mt5/mql5
-```
-
-- [ ] **Step 5: Verify**
-
-```bash
-ls metatrader5_cli/mt5/ | grep mql5 && echo "STILL THERE" || echo "REMOVED"
-ls archive/legacy-mql5/   # expect: Experts Hybrid_WPVS_MT5_Bundle Indicators Advanced_Wavelet_Entry_System
-```
-
-### Task 1.5: Strip legacy imports from mt5_cli.py and prune orphaned commands
-
-**Files:**
-- Modify: `metatrader5_cli/mt5/mt5_cli.py`
-- Modify: `metatrader5_cli/mt5/utils/repl_skin.py` if it imports any archived module
-- Modify: `setup.py` — `package_data` references `mql5/Indicators/*.mq5` and `mql5/Experts/*.mq5` which no longer exist in that location
-- Modify: `metatrader5_cli/mt5/tests/test_core.py` — remove tests for archived modules
-- Modify: `metatrader5_cli/mt5/tests/test_decoupling.py` — same
-- Move: `metatrader5_cli/mt5/tests/` tests for archived modules → `archive/legacy-core/tests/` (kept as historical reference, not run by default)
-
-- [ ] **Step 1: Find all imports of archived modules**
-
-```bash
-grep -rn "from .core.ehukai\|from .core.analyze\|from .core.tda_manifest\|from .core.mfe\|from .core.tester\|from .core.ea\|from .core.chart\|from .core.screenshot\|from .core.project\|from .core.indicator\|from .core.playground_data" metatrader5_cli/
-```
-
-Note every hit. These are the imports to delete or relocate.
-
-- [ ] **Step 2: Remove those imports from mt5_cli.py**
-
-Open `metatrader5_cli/mt5/mt5_cli.py`. For each import found in Step 1:
-1. Delete the import line.
-2. Find every Click command that uses that import (search for the function name).
-3. Delete the entire `@main.command(...)` or `@<group>.command(...)` block, including its decorators and body.
-
-After this, `mt5_cli.py` should only contain commands that use:
-`account, history, market, order, position, rates, risk` (the surviving primitives) plus `config`, `repl`.
-
-- [ ] **Step 3: Update setup.py package_data**
-
-Edit `setup.py`. Replace:
-
-```python
-    package_data={
-        "metatrader5_cli.mt5": [
-            "mql5/Indicators/*.mq5",
-            "mql5/Experts/*.mq5",
-        ],
-    },
-```
-
-With:
-
-```python
-    package_data={
-        "metatrader5_cli.mt5": [
-            "skills/SKILL.md",
-        ],
-    },
-```
-
-- [ ] **Step 4: Move tests for archived modules to archive/legacy-core/tests/**
-
-```bash
-mkdir -p archive/legacy-core/tests
-```
-
-Then: identify test classes/functions in `metatrader5_cli/mt5/tests/test_core.py` that test the archived modules (TestAnalyze, TestChart, TestScreenshot, TestEhukai, TestTester, TestEa, TestTdaManifest, TestMfe, TestIndicator, TestProject — anything whose subject was archived). Move each to a per-module file under `archive/legacy-core/tests/`, e.g., `archive/legacy-core/tests/test_analyze.py`.
-
-If splitting is too granular, a single `archive/legacy-core/tests/test_legacy.py` with all relocated classes is acceptable.
-
-The current `metatrader5_cli/mt5/tests/test_core.py` keeps only test classes for surviving modules: `TestBridge, TestMarket, TestRates, TestAccount, TestRisk, TestOrder, TestPosition, TestHistory, TestKillSwitch, TestRepl`.
-
-- [ ] **Step 5: Update pytest.ini to exclude archive/**
-
-Add to `pytest.ini`:
-
-```ini
-[pytest]
-testpaths =
-    metatrader5_cli/mt5/tests
-markers =
-    integration: tests requiring a live MT5 terminal (deselect with -m "not integration")
-norecursedirs = archive
-```
-
-- [ ] **Step 6: Run tests — expect significantly fewer to remain green**
-
-```bash
-python -m pytest -q
-```
-
-Some tests will fail because their imports reference now-archived modules. For each failure: either (a) the test belongs in `archive/legacy-core/tests/` (move it) or (b) the test exercises a surviving module and just needs an import path update (fix it).
-
-Iterate until: green on the surviving suite. Note the new pass count — it WILL be lower than 240 because the archived test classes are excluded.
-
-- [ ] **Step 7: Commit Phase 1 in one atomic move-commit**
-
-```bash
-git add -A
-git commit -m "Phase 1: archive legacy core + MQL5 tree
-
-Moved the Ehukai/TDA/wavelet/Hybrid-WPVS-flavored modules and the
-full mql5/ tree under archive/. Stripped legacy imports from
-mt5_cli.py and pruned orphaned commands. No mt5-legacy compat shim,
-no quarantine entry point — per locked hard-fork rule.
-
-Surviving primitives stay in metatrader5_cli/mt5/core/ until Phase 2
-re-homes them under mt5_universal/.
-
-Tests for archived modules moved to archive/legacy-core/tests/ as
-historical reference, excluded from the live suite via pytest.ini
-norecursedirs."
-```
-
-- [ ] **Step 8: Phase 1 acceptance check**
-
-```bash
-python -m pytest -q                                    # green on surviving suite
-git ls-tree -r HEAD -- archive/ | wc -l                # > 0 (legacy code in git history)
-grep -r "from .core.ehukai\|from .core.analyze\|from .core.tester" metatrader5_cli/ && echo "STILL IMPORTING ARCHIVED" || echo "CLEAN"
-ls metatrader5_cli/mt5/core/                           # only agnostic primitives
-```
-
-All four must pass. **Tag this commit:** `git tag phase-1-complete`.
-
----
+## Phase 1 — Archive legacy (DONE, by wholesale user move)
+
+**Status:** Phase 1 was executed in a single user-driven wholesale move (commits `ce2cfac`, `bb61428`, `0df1093`). The entire `metatrader5_cli/mt5/` tree was relocated to `archive/legacy-mt5/`, the strategy-flavored docs/playgrounds/handoffs were swept to `archive/legacy-docs/`, the legacy MQL5 tree and `Advanced_Wavelet_Entry_System/` are under `archive/legacy-mql5/`, and 31 strategy-flavored code reviews were deleted. The `mt5_universal/` library does not yet exist — Phase 2 builds it fresh.
+
+**What this differs from the original Phase 1 plan:**
+- Original: `git mv` the strategy-flavored modules to `archive/legacy-core/`, leave surviving primitives (account, history, market, order, position, rates, risk) in place for Phase 2 to `git mv` to `mt5_universal/`.
+- Actual: every module — strategy-flavored AND surviving primitives — moved to `archive/legacy-mt5/`. Phase 2 now writes the new library **fresh**, cherry-picking specific patterns from `archive/legacy-mt5/` rather than wholesale porting.
+
+**Phase 1 acceptance (already met):**
+- `python -m pytest -q` → `1 passed` (transitional placeholder at `tests/test_phase_transition.py`)
+- `git diff --check master...HEAD` → exit 0
+- `git ls-tree -r HEAD -- archive/` → 200+ files preserved
+- `metatrader5_cli/` package no longer in the live tree
+- No `MetaTrader5` imports remain in the live tree (the entire CLI moved to archive)
+- `setup.py` console_scripts intentionally empty (returns in Phase 3 + 5)
+
+**Phase 1 reference material at `archive/legacy-mt5/`** — what's available to cherry-pick from:
+- `archive/legacy-mt5/utils/mt5_backend.py` — the bridge: `mt5_call()` locked dispatcher, `connect()` idempotent, `reconnect_once()`, MT5 constant re-exports
+- `archive/legacy-mt5/core/risk.py` — the 11-gate risk module: `check_order()`, `compute_volume_from_risk_pct()`, `resolve_magic()`, `daily_loss()` (combines realized + floating)
+- `archive/legacy-mt5/core/order.py` — order placement: `_resolve_filling()`, `_finalize_order()`, `list_pending()` with agent-magic metadata
+- `archive/legacy-mt5/core/{account,history,market,position,rates}.py` — primitives we cherry-pick into the new agnostic surface
+- `archive/legacy-mt5/core/project.py` — 4-layer config loader (DEFAULTS → file → env → CLI)
+- `archive/legacy-mt5/skills/SKILL.md` — the 11k-char agent contract migrated in Phase 5
+- `archive/legacy-mt5/utils/repl_skin.py` — the REPL banner / dispatch (upgraded in Phase 5)
+- `archive/legacy-mt5/tests/conftest.py` — pytest fixtures including the `MetaTrader5` MagicMock stub
+- `archive/legacy-mt5/tests/test_core.py` — the surviving-primitives' test patterns (TestBridge, TestMarket, TestRates, TestAccount, TestRisk, TestOrder, TestPosition, TestKillSwitch, TestRepl)
+- `archive/legacy-mt5/tests/test_decoupling.py` — module-boundary tests we model `tests/test_bridge_singleton.py` on
+
+**For implementer subagents in Phase 2+:** when a task says "cherry-pick from archive/legacy-mt5/X.py", read X.py to understand the **pattern** (locking discipline, gate-by-gate risk check structure, MT5 constant naming, error-envelope shape). Do not copy the file verbatim. Rewrite under the new module names, with the broker abstraction (Phase 2.5-2.8), the agnostic naming, and any cleanups that drop now-irrelevant special cases.
 
 ## Phase 2 — `mt5_universal/` skeleton (12 tasks)
 
@@ -389,174 +152,245 @@ find mt5_universal -name __init__.py | wc -l   # expect 16
 
 - [ ] **Step 4: Don't commit yet — coupled with Task 2.2**
 
-### Task 2.2: Move bridge from utils/mt5_backend.py to mt5_universal/bridge/
+### Task 2.2: Cherry-pick the bridge into mt5_universal/bridge/
 
 **Files:**
-- Move: `metatrader5_cli/mt5/utils/mt5_backend.py` → `mt5_universal/bridge/mt5_backend.py`
-- Update: `mt5_universal/bridge/__init__.py` to re-export the public API
-- Update: any callers in surviving primitives (`metatrader5_cli/mt5/core/{account,history,market,order,position,rates,risk}.py`)
+- Create: `mt5_universal/bridge/mt5_backend.py` (the ONLY module that imports `MetaTrader5`)
+- Create: `mt5_universal/bridge/__init__.py` (re-export public API)
+- Create: `tests/test_bridge.py`
+- Delete: `tests/test_phase_transition.py` (transitional placeholder; real tests now carry the suite)
 
-- [ ] **Step 1: Find all callers of the bridge**
+**Cherry-pick reference** (read for *pattern*, do not copy verbatim):
+- `archive/legacy-mt5/utils/mt5_backend.py` — locking discipline around `mt5_call`, idempotent `connect()` with double-checked locking, MT5 constant re-exports (`ORDER_FILLING_FOK`, `ORDER_TYPE_BUY`, etc.), `reconnect_once()` shape, `ensure_symbol()` semantics, `atexit` shutdown.
+- `archive/legacy-mt5/tests/conftest.py` — the `MetaTrader5` MagicMock fixture pattern (model the new test stub on it).
 
-```bash
-grep -rn "from ..utils.mt5_backend\|from .utils.mt5_backend\|mt5_backend" metatrader5_cli/ | grep -v __pycache__
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/test_bridge.py`:
+
+```python
+from unittest.mock import MagicMock
+import pytest
+
+
+@pytest.fixture
+def mocked_mt5(monkeypatch):
+    fake = MagicMock(name="MetaTrader5")
+    fake.initialize.return_value = True
+    fake.symbol_select.return_value = True
+    fake.ORDER_FILLING_FOK = 1
+    fake.ORDER_FILLING_IOC = 2
+    fake.ORDER_FILLING_RETURN = 3
+    monkeypatch.setitem(__import__("sys").modules, "MetaTrader5", fake)
+    yield fake
+
+
+def test_bridge_imports(mocked_mt5):
+    from mt5_universal.bridge import connect, mt5_call, ensure_symbol, reconnect_once  # noqa: F401
+
+
+def test_connect_is_idempotent(mocked_mt5):
+    from mt5_universal.bridge import connect
+    connect(login=1, password="x", server="s")
+    connect(login=1, password="x", server="s")
+    assert mocked_mt5.initialize.call_count <= 1
+
+
+def test_mt5_call_dispatches(mocked_mt5):
+    from mt5_universal.bridge import mt5_call
+    mocked_mt5.symbol_info_tick.return_value = MagicMock(bid=1.0, ask=1.0001)
+    out = mt5_call("symbol_info_tick", "EURUSD")
+    assert out is not None
+    mocked_mt5.symbol_info_tick.assert_called_once_with("EURUSD")
+
+
+def test_ensure_symbol_returns_bool(mocked_mt5):
+    from mt5_universal.bridge import ensure_symbol
+    assert ensure_symbol("USDJPY") is True
+    mocked_mt5.symbol_select.assert_called_with("USDJPY", True)
+
+
+def test_filling_constants_re_exported(mocked_mt5):
+    import importlib
+    import mt5_universal.bridge as br
+    importlib.reload(br)
+    assert br.ORDER_FILLING_FOK == 1
+    assert br.ORDER_FILLING_IOC == 2
+    assert br.ORDER_FILLING_RETURN == 3
 ```
 
-- [ ] **Step 2: Move the bridge file**
+- [ ] **Step 2: Run — fails**
 
 ```bash
-git mv metatrader5_cli/mt5/utils/mt5_backend.py mt5_universal/bridge/mt5_backend.py
+python -m pytest tests/test_bridge.py -v
 ```
 
-- [ ] **Step 3: Set up the package re-export**
+Expected: 5 FAIL with `ImportError: No module named mt5_universal.bridge`.
+
+- [ ] **Step 3: Write the new bridge**
+
+Create `mt5_universal/bridge/mt5_backend.py`. Open `archive/legacy-mt5/utils/mt5_backend.py` side-by-side and **cherry-pick**:
+- The `_lock = threading.Lock()` module-level lock
+- The `_initialized` boolean for connect-once semantics
+- `connect()` shape with double-checked locking + the `mt5.initialize(password=None)` quirk handling (call `mt5.initialize()` with no args when password is None)
+- `mt5_call(fn_name, *args, **kwargs)` dispatcher (acquires lock, calls `getattr(mt5, fn_name)(*args, **kwargs)`)
+- `ensure_symbol(symbol) -> bool` (calls `mt5.symbol_select(symbol, True)`)
+- `reconnect_once(cfg) -> bool` (shutdown + re-initialize, used by Phase 5 REPL)
+- The list of MT5 constants re-exported (everything starting with `ORDER_`, `TRADE_`, `POSITION_`, `SYMBOL_`)
+- `atexit.register(_shutdown)`
+
+**Skip** anything tied to the legacy CLI's `_compose_live_intent` or other CLI-flavored helpers — those belong with the CLI in Phase 3, not the bridge.
 
 Write `mt5_universal/bridge/__init__.py`:
 
 ```python
-"""Bridge layer — the ONLY module in the codebase allowed to import MetaTrader5.
-
-Public re-exports keep callers from reaching into mt5_backend directly.
-"""
+"""Bridge layer — the ONLY module in the codebase allowed to import MetaTrader5."""
 from .mt5_backend import (
-    connect,
-    mt5_call,
-    ensure_symbol,
-    reconnect_once,
+    connect, mt5_call, ensure_symbol, reconnect_once,
+    ORDER_FILLING_FOK, ORDER_FILLING_IOC, ORDER_FILLING_RETURN,
+    ORDER_TYPE_BUY, ORDER_TYPE_SELL,
+    ORDER_TYPE_BUY_LIMIT, ORDER_TYPE_SELL_LIMIT,
+    ORDER_TYPE_BUY_STOP, ORDER_TYPE_SELL_STOP,
+    TRADE_ACTION_DEAL, TRADE_ACTION_PENDING, TRADE_ACTION_MODIFY, TRADE_ACTION_REMOVE,
+    POSITION_TYPE_BUY, POSITION_TYPE_SELL,
 )
 
-__all__ = ["connect", "mt5_call", "ensure_symbol", "reconnect_once"]
+__all__ = [
+    "connect", "mt5_call", "ensure_symbol", "reconnect_once",
+    "ORDER_FILLING_FOK", "ORDER_FILLING_IOC", "ORDER_FILLING_RETURN",
+    "ORDER_TYPE_BUY", "ORDER_TYPE_SELL",
+    "ORDER_TYPE_BUY_LIMIT", "ORDER_TYPE_SELL_LIMIT",
+    "ORDER_TYPE_BUY_STOP", "ORDER_TYPE_SELL_STOP",
+    "TRADE_ACTION_DEAL", "TRADE_ACTION_PENDING", "TRADE_ACTION_MODIFY", "TRADE_ACTION_REMOVE",
+    "POSITION_TYPE_BUY", "POSITION_TYPE_SELL",
+]
 ```
 
-- [ ] **Step 4: Update each caller's import**
+- [ ] **Step 4: Delete the transitional placeholder**
 
-For every hit from Step 1, change the import to:
-
-```python
-from mt5_universal.bridge import mt5_call, connect, ensure_symbol, reconnect_once
+```bash
+rm tests/test_phase_transition.py
 ```
 
-(Drop only the names that file actually uses.)
-
-- [ ] **Step 5: Run tests**
+- [ ] **Step 5: Run tests — pass**
 
 ```bash
 python -m pytest -q
 ```
 
-Expected: same number of passing tests as end of Phase 1 (the bridge moved but its API is unchanged).
+Expected: 5 PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add -A
-git commit -m "Phase 2: move bridge to mt5_universal/bridge/
+git commit -m "Phase 2: cherry-pick bridge into mt5_universal/bridge/
 
-The single-bridge rule (only file that imports MetaTrader5) is now
-enforced at the package boundary. Callers import from mt5_universal.bridge."
+Fresh bridge module under mt5_universal/. Locking discipline,
+idempotent connect(), mt5_call dispatcher, and MT5 constant
+re-exports written from scratch using archive/legacy-mt5/utils/mt5_backend.py
+as the reference pattern, NOT as a wholesale port. The single-bridge
+rule (only file that imports MetaTrader5) is enforced at the package
+boundary. Transitional placeholder test removed."
 ```
 
-### Task 2.3: Move surviving primitives to mt5_universal/
+### Task 2.3: Cherry-pick the surviving primitives into mt5_universal/
 
-**Files:**
-- Move: `metatrader5_cli/mt5/core/{account,history,market,order,position,rates,risk}.py` → `mt5_universal/{account,history,market,orders,positions,rates,risk}/<file>.py`
-  - Note rename: `core/order.py` → `mt5_universal/orders/orders.py`, `core/position.py` → `mt5_universal/positions/positions.py` (singular file → plural folder match)
-- Update: each file's internal imports (bridge already done in 2.2; just risk-chain inter-imports remain)
-- Update: `mt5_universal/<each>/__init__.py` to re-export the public API
-- Update: tests' import paths
+The legacy `metatrader5_cli/mt5/core/` had 7 agnostic primitives now archived. We re-create each one under `mt5_universal/` as a separate sub-task — **one fresh implementer subagent per sub-task**. Same shape every time:
 
-- [ ] **Step 1: Move each primitive (one git mv per file)**
+1. Open the reference file under `archive/legacy-mt5/core/<name>.py`
+2. Write the failing test in `tests/test_<name>.py` (model the test patterns on `archive/legacy-mt5/tests/test_core.py` `class Test<Name>`)
+3. Run pytest — fails (module missing)
+4. Write the new module under `mt5_universal/<name>/<name>.py`, cherry-picking patterns from the archive (NOT a verbatim port). Use absolute imports from `mt5_universal.bridge`. Wrap returns in `mt5_universal.reports.ok()` / `fail()` (Task 2.10 will exist by then; if not, inline the envelope shape `{"ok": bool, "data"|"error": ...}`).
+5. Wire `mt5_universal/<name>/__init__.py` to re-export the public API
+6. Run pytest — pass
+7. Commit
+
+| Sub-task | New module path | Reference (archive) | Notes |
+|---|---|---|---|
+| **2.3.A** | `mt5_universal/account/account.py` | `archive/legacy-mt5/core/account.py` | `info()`, `balance()`, `risk(cfg)`. The risk envelope's `safe_to_trade` flag must remain. |
+| **2.3.B** | `mt5_universal/history/history.py` | `archive/legacy-mt5/core/history.py` | `orders()`, `deals()`, `stats()`. ISO-8601 timestamps. `strategy_id` filter via `resolve_magic` (lands in 2.3.E — temporarily inline the magic resolution if 2.3.E hasn't shipped). |
+| **2.3.C** | `mt5_universal/market/market.py` | `archive/legacy-mt5/core/market.py` | `info()`, `tick()`, `depth()`, `search()`, `sessions()`. `depth()` is the longest function — DOM bid/ask normalization, spread_points, midpoint, imbalance. The `market_book_add` / `market_book_get` / `market_book_release` must release after each one-shot read. |
+| **2.3.D** | `mt5_universal/rates/rates.py` | `archive/legacy-mt5/core/rates.py` | `fetch()`, `latest()`, `ticks()`. Test the timeframe-string-to-constant map (`"M5" → mt5.TIMEFRAME_M5`). |
+| **2.3.E** | `mt5_universal/risk/risk.py` | `archive/legacy-mt5/core/risk.py` | **The 11-gate risk module — the most important sub-task.** TDD every gate separately (1 test per gate). `archive/legacy-mt5/tests/test_core.py` `class TestRisk` lists them: strategy-id length, live-gate, symbol allowlist, max lot, SL distance, spread, hedge guard, max positions, free margin, daily loss cap, rate limiter. Cherry-pick the gate names + `RISK_*` error codes + thresholds. `resolve_magic()` SHA-256 derivation (sha256(id)[:8] % 80000 + 100000 → range [100000, 180000)). `compute_volume_from_risk_pct()`. `daily_loss()` realized + floating combined. Rate limiter sliding-60s window via `collections.deque`. |
+| **2.3.F** | `mt5_universal/orders/orders.py` (note plural rename) | `archive/legacy-mt5/core/order.py` | `place_market()`, `place_limit()`, `dryrun()`, `list_pending()`, `cancel()`, `poll_fill()`. Every mutating function takes keyword-only `is_live_intent`. `dryrun()` calls `order_check` (NOT `order_send`). Don't wire the broker profile yet — that's Task 2.8. |
+| **2.3.G** | `mt5_universal/positions/positions.py` (note plural rename) | `archive/legacy-mt5/core/position.py` | `list()`, `close()`, `close_all()`, `breakeven()`, `move_sl()`. Keyword-only `is_live_intent` on every mutator. `breakeven()` sets SL to open ± `buffer_points` (default 0). |
+
+**Worked example for sub-task 2.3.A — `account` (the others follow the same shape):**
+
+- [ ] **Step 1: Write the failing test** at `tests/test_account.py`
+
+```python
+from unittest.mock import MagicMock
+import pytest
+
+
+@pytest.fixture
+def mocked_mt5(monkeypatch):
+    fake = MagicMock(name="MetaTrader5")
+    fake.initialize.return_value = True
+    fake.account_info.return_value = MagicMock(
+        login=88888, balance=10000.0, equity=10012.5,
+        margin=0.0, margin_free=10012.5, margin_level=0.0,
+        leverage=50, currency="USD", server="Trading.comMarkets-MT5",
+        trade_mode=0,  # DEMO
+    )
+    monkeypatch.setitem(__import__("sys").modules, "MetaTrader5", fake)
+    yield fake
+
+
+def test_account_info_returns_envelope(mocked_mt5):
+    from mt5_universal.account import info
+    env = info()
+    assert env["ok"] is True
+    assert env["data"]["balance"] == 10000.0
+    assert env["data"]["currency"] == "USD"
+
+
+def test_account_balance_subset(mocked_mt5):
+    from mt5_universal.account import balance
+    env = balance()
+    assert env["ok"] is True
+    assert "balance" in env["data"]
+    assert "currency" in env["data"]
+```
+
+- [ ] **Step 2: Run — fails**
 
 ```bash
-git mv metatrader5_cli/mt5/core/account.py  mt5_universal/account/account.py
-git mv metatrader5_cli/mt5/core/history.py  mt5_universal/history/history.py
-git mv metatrader5_cli/mt5/core/market.py   mt5_universal/market/market.py
-git mv metatrader5_cli/mt5/core/rates.py    mt5_universal/rates/rates.py
-git mv metatrader5_cli/mt5/core/risk.py     mt5_universal/risk/risk.py
-git mv metatrader5_cli/mt5/core/order.py    mt5_universal/orders/orders.py
-git mv metatrader5_cli/mt5/core/position.py mt5_universal/positions/positions.py
+python -m pytest tests/test_account.py -v
 ```
 
-- [ ] **Step 2: Wire each package's `__init__.py`**
+- [ ] **Step 3: Write `mt5_universal/account/account.py`**
 
-For each of `account, history, market, rates, risk`, write `mt5_universal/<name>/__init__.py`:
+Open `archive/legacy-mt5/core/account.py`. Cherry-pick `info()`, `balance()`, `risk(cfg)`. Imports come from `mt5_universal.bridge` (not the archived `utils.mt5_backend`).
+
+- [ ] **Step 4: Wire `mt5_universal/account/__init__.py`**
 
 ```python
-from .<name> import *  # noqa: F401,F403
+from .account import info, balance, risk
+
+__all__ = ["info", "balance", "risk"]
 ```
 
-For `orders` and `positions` (where the file is named differently from the package), write `mt5_universal/orders/__init__.py`:
+- [ ] **Step 5: Run tests — pass**
 
-```python
-from .orders import *  # noqa: F401,F403
-```
-
-And `mt5_universal/positions/__init__.py`:
-
-```python
-from .positions import *  # noqa: F401,F403
-```
-
-- [ ] **Step 3: Fix risk-chain inter-imports**
-
-`mt5_universal/orders/orders.py` likely has `from .risk import check_order` (or `from ..risk import...`). Replace with absolute imports:
-
-```python
-from mt5_universal.risk import check_order, compute_volume_from_risk_pct, resolve_magic
-```
-
-`mt5_universal/account/account.py` and `mt5_universal/history/history.py` have similar references — convert all to absolute `mt5_universal.*` imports.
-
-- [ ] **Step 4: Update test imports**
-
-In `metatrader5_cli/mt5/tests/test_core.py`, change every:
-
-```python
-from ..core.account import ...
-from metatrader5_cli.mt5.core.risk import ...
-```
-
-to:
-
-```python
-from mt5_universal.account import ...
-from mt5_universal.risk import ...
-```
-
-Similarly for `conftest.py` if it imports from old paths.
-
-- [ ] **Step 5: Run tests**
+- [ ] **Step 6: Commit**
 
 ```bash
-python -m pytest -q
+git add mt5_universal/account/ tests/test_account.py
+git commit -m "Phase 2.3.A: cherry-pick account primitive into mt5_universal/
+
+info() / balance() / risk(cfg) ported pattern-for-pattern from
+archive/legacy-mt5/core/account.py with absolute imports from
+mt5_universal.bridge and the standard ok/fail envelope shape."
 ```
 
-Expected: same green count as before.
-
-- [ ] **Step 6: Confirm legacy core dir is now empty (besides __init__.py and __pycache__)**
+**After all 7 sub-tasks complete:**
 
 ```bash
-ls metatrader5_cli/mt5/core/
-```
-
-Expected: just `__init__.py` and `__pycache__`. If so, delete the empty package:
-
-```bash
-rm metatrader5_cli/mt5/core/__init__.py
-rmdir metatrader5_cli/mt5/core
-```
-
-If `mt5_cli.py` still imports from `.core`, fix those imports to point at `mt5_universal.*` first.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add -A
-git commit -m "Phase 2: re-home surviving primitives under mt5_universal/
-
-account, history, market, rates, risk move to mt5_universal/<name>/.
-orders (was order) and positions (was position) move with package
-rename. All risk-chain and bridge imports use absolute paths.
-Legacy metatrader5_cli/mt5/core/ removed."
+python -m pytest -q   # expect ~30-50 tests passing across the 7 modules + bridge
+git tag phase-2.3-complete
 ```
 
 ### Task 2.4: Add config layer with 4-layer resolution
