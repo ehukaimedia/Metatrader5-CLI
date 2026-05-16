@@ -4,14 +4,14 @@
 |---|---|
 | Date | 2026-05-15 |
 | Branch | `mt5-universal` |
-| Status | Draft (brainstorm done, ready for review → plan) |
+| Status | Active design; Phase 1 archived, Phase 2 builds fresh from archived patterns |
 | Companion | [docs/playgrounds/mt5-universal-refactor-playground.html](../playgrounds/mt5-universal-refactor-playground.html) |
 | **Reviewers — read first** | [2026-05-15-mt5-universal-review-context.md](2026-05-15-mt5-universal-review-context.md) (locked decisions, scope rules, what feedback is in/out of bounds) |
-| Supersedes (when shipped) | [docs/specs/mt5-cli-spec.md](mt5-cli-spec.md) (the v0.5 spec keeps as historical reference for the legacy core) |
+| Supersedes (when shipped) | [archive/legacy-docs/specs/mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) (the v0.5 spec is now archived as historical reference for the legacy core) |
 
 ## 1. Problem
 
-Today's `metatrader5_cli/mt5/` is a 9.9k-LOC, 21-module CLI with the right *bones* — bridge / risk gate / dual JSON+human output — but the **domain semantics are baked into the agnostic layer**:
+The archived `metatrader5_cli/mt5/` was a 9.9k-LOC, 21-module CLI with the right *bones* — bridge / risk gate / dual JSON+human output — but the **domain semantics were baked into the agnostic layer**:
 
 - `core/ehukai.py` (944 LOC), `core/analyze.py` (1,098 LOC: `sniper_poc`, `topdown`, `place_ready_limit`), `core/tda_manifest.py`, `core/mfe.py` are Ehukai/TDA-specific.
 - `core/tester.py` (526 LOC) hardcodes `EhukaiTDAEA` and `AdaptiveTrailEA` — no path for a third EA without source edits.
@@ -55,9 +55,9 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 
 1. **Single `utils/<app>_backend.py` rule** → reinforced as `mt5_universal/bridge/mt5_backend.py` being the **only** module that imports `MetaTrader5`.
 2. **Dual `--json` + human output** → already present, kept as the contract for every command.
-3. **`skills/SKILL.md` template** with YAML frontmatter (`name`, `description`), command-group tables, examples, **"For AI Agents" usage protocol** → applied to the existing `metatrader5_cli/mt5/skills/SKILL.md` (currently 11k chars, hand-maintained, no frontmatter) by *migrating* it.
+3. **`skills/SKILL.md` template** with YAML frontmatter (`name`, `description`), command-group tables, examples, **"For AI Agents" usage protocol** → applied to the archived `archive/legacy-mt5/skills/SKILL.md` (11k chars, hand-maintained, no frontmatter) by *migrating* it into the new package.
 4. **`skill_generator.py`** → introspects the Click command tree and regenerates the command-group tables in `SKILL.md` so they don't drift from the code. The curated workflow narrative stays hand-edited.
-5. **`ReplSkin` banner that prints SKILL.md path** → the existing `utils/repl_skin.py` is upgraded so REPL startup shows the absolute path, letting an agent read the skill file via `Read` without guessing.
+5. **`ReplSkin` banner that prints SKILL.md path** → the archived `archive/legacy-mt5/utils/repl_skin.py` pattern is recreated in the new CLI so REPL startup shows the absolute path, letting an agent read the skill file via `Read` without guessing.
 6. **Templates / scaffolding** → `mt5 ea new <name> --template scalper` and `mt5 indicator new <name> --template oscillator` scaffold MQL5 source from packaged templates, mirroring CLI-Anything's `templates/` pattern.
 7. **MCP backend pattern, *inverted*** → CLI-Anything's `guides/mcp-backend.md` shows how to *consume* an MCP backend; we *publish* `mt5_universal` as an MCP server (`mt5-mcp` entry point, FastMCP).
 8. **HARNESS.md SOP + per-plugin TEST.md** → adopted as `MT5_HARNESS.md` (7-phase methodology) so future contributors and agents have a written extension SOP.
@@ -69,8 +69,9 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 ```
 Metatrader5-CLI/
 ├── archive/
-│   ├── legacy-core/              # everything moved out of metatrader5_cli/mt5/core/ in Phase 1
-│   └── legacy-mql5/              # full MQL5 tree archived (see §6.2 inventory)
+│   ├── legacy-mt5/               # retired metatrader5_cli/mt5 package, kept as cherry-pick reference
+│   ├── legacy-docs/              # retired strategy docs/playgrounds/handoffs/specs
+│   └── legacy-mql5/              # Advanced_Wavelet_Entry_System and standalone MQL5 history
 ├── mt5_universal/                # NEW: agnostic library (pip-installable)
 │   ├── bridge/
 │   │   └── mt5_backend.py        # the ONE module that imports MetaTrader5
@@ -103,15 +104,11 @@ Metatrader5-CLI/
 │   │   └── paths.py              # XDG_CONFIG_HOME / APPDATA / HOME resolution
 │   ├── reports/                  # JSON envelopes, backtest reports
 │   └── skills/
-│       └── SKILL.md              # migrated from metatrader5_cli/mt5/skills/SKILL.md
+│       └── SKILL.md              # migrated from archive/legacy-mt5/skills/SKILL.md
 ├── mt5/                          # CLI package — `pip install -e .` installs `mt5` script
 │   └── cli.py                    # thin click wrappers calling mt5_universal.*
 ├── mt5_mcp/                      # MCP server — installs `mt5-mcp` script
 │   └── server.py                 # FastMCP tools mapping 1:1 to mt5_universal functions
-├── ea/                           # user MQL5 EAs (auto-discovered) — .gitkeep + examples/
-├── indicators/                   # user MQL5 indicators (auto-discovered) — .gitkeep + examples/
-├── presets/                      # tester .set files per strategy — .gitkeep
-├── results/                      # tester report snapshots (gitignored)
 ├── docs/
 │   ├── specs/                    # this file lives here
 │   ├── playgrounds/              # the refactor playground lives here
@@ -121,9 +118,11 @@ Metatrader5-CLI/
 └── pytest.ini
 ```
 
+User-side `ea/`, `indicators/`, `presets/`, and `results/` directories are deliberately **not** part of this repo. The tool discovers them from the user's current working directory or platform data/config directories.
+
 ### 6.2 MQL5 inventory (corrected per [code review 2026-05-15](../code-reviews/codex-mt5-universal-playground-review-2026-05-15.md) finding 2)
 
-What actually lives at `metatrader5_cli/mt5/mql5/` today, all bound for `archive/legacy-mql5/` in Phase 1:
+What lived at `metatrader5_cli/mt5/mql5/` before the wholesale archive move, now preserved under `archive/legacy-mt5/mql5/` unless otherwise noted:
 
 | Path | Tracked? | Contents |
 |---|---|---|
@@ -136,16 +135,14 @@ What actually lives at `metatrader5_cli/mt5/mql5/` today, all bound for `archive
 | `Indicators/` | ✅ | Custom MT5 indicators |
 | `WF_FractalPredictor_MQ5_v1_10.zip` | ❌ ignored by `.gitignore: *.zip` | Snapshot zip on disk; not tracked |
 
-**Critical Phase 1 prerequisites:**
-1. The untracked Advanced Wavelet source dir must be committed *before* the archive move so the move is captured in git history.
-2. The three `.zip` snapshots are *not* in git history; Phase 1 may either drop them (recoverable from the directories) or `git add -f` them as part of the archive move if a frozen artifact is wanted. Default: drop.
+**Phase 1 result:** the separately developed `Advanced_Wavelet_Entry_System/` source tree is preserved under `archive/legacy-mql5/Advanced_Wavelet_Entry_System/`. Ignored `.zip` snapshots remain non-source artifacts and are not part of the live universal tool.
 
 ### 6.3 Module boundary rules
 
 - `mt5_universal/bridge/mt5_backend.py` is the **only** module that imports `MetaTrader5`. CI test enforces this.
-- `mt5_universal/risk/` is called from `orders/` for **every** order call. CLI, MCP, plugin code, direct library import — all paths flow through it. Non-negotiable; preserved from [mt5-cli-spec.md](mt5-cli-spec.md) §1.
+- `mt5_universal/risk/` is called from `orders/` for **every** order call. CLI, MCP, plugin code, direct library import — all paths flow through it. Non-negotiable; preserved from the archived [mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) §1.
 - Plugins (user EAs/indicators) never import from `mt5/` (CLI) or `mt5_mcp/`. Read-only relationship.
-- `ea/` and `indicators/` user dirs are searched in this order: repo root → `~/.config/mt5-universal/{ea,indicators}/` → installed entry points. First-match wins.
+- `ea/` and `indicators/` user dirs are searched in this order: current working directory → `~/.config/mt5-universal/{ea,indicators}/` or platform equivalent → installed entry points. First-match wins.
 
 ## 7. Strategy Tester contract (Phase 4)
 
@@ -216,26 +213,25 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - Branch `mt5-universal` off master. `pytest.ini` cleaned (was referencing the moved `adaptive-forex-mt5/tests`). 240 passed, 1 skipped.
 - This spec + the playground are the planning artifacts that ship before Phase 1.
 
-### Phase 1 — Archive legacy
-- Commit the untracked `metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/` source directory first so its history is captured; do not include the ignored `.zip` unless explicitly choosing the force-add option in §6.2.
-- Remove `archive/` from `.gitignore` (currently excluded — would silently swallow the moved files).
-- `git mv` Ehukai/TDA-flavored core modules → `archive/legacy-core/`.
-- `git mv` the full `metatrader5_cli/mt5/mql5/` tree → `archive/legacy-mql5/`.
-- Strip the corresponding imports from `mt5_cli.py`. Delete the now-orphaned commands directly — **no `mt5-legacy` compat shim, no quarantine entry point** (per the locked hard-fork rule). Tests that exercise archived modules either move with the modules into `archive/legacy-core/tests/` (kept as historical reference, not run by default) or are deleted.
-- **Acceptance:** unit tests still green for the surviving modules; archived modules are reachable in git history but not imported by any live module; no new entry points or compat shims introduced.
+### Phase 1 — Archive legacy (✅ done by wholesale user move)
+- The entire `metatrader5_cli/mt5/` tree was relocated to `archive/legacy-mt5/` as reference material.
+- Strategy-flavored docs/playgrounds/handoffs/specs moved to `archive/legacy-docs/`.
+- The standalone `Advanced_Wavelet_Entry_System/` tree moved under `archive/legacy-mql5/`; the old in-package MQL5 assets remain preserved under `archive/legacy-mt5/mql5/`.
+- The live `metatrader5_cli/` package is gone. No compatibility shim or `mt5-legacy` entry point exists.
+- **Acceptance:** current suite is green via the transitional placeholder (`1 passed`), `archive/` is git-tracked, and no live module imports `MetaTrader5` because the new bridge has not landed yet.
 
 ### Phase 2 — `mt5_universal/` skeleton
 - Create the submodule tree from §6.1.
-- Move (don't rewrite) the surviving primitives: `bridge`, `market`, `rates`, `account`, `history`, `orders`, `positions`, `risk` from `metatrader5_cli/mt5/core/` into their new homes.
+- Recreate the surviving primitives fresh under `mt5_universal/`, cherry-picking patterns from `archive/legacy-mt5/core/` and `archive/legacy-mt5/utils/mt5_backend.py` without importing or moving the archived package back into the live tree.
 - Add `broker/base.py` ABC. Extract Trading.com quirks (FOK, no-hedge, 22:00 UTC rollover, retcode map) from current code into `broker/trading_com.py`. Add a permissive `broker/generic_mt5.py`.
 - Add `indicators/` (python quicklook only — `ema`, `atr`, `rsi`, `sma`, `bbands`, `fvg`, `swing_pivots`).
 - **Acceptance:** unit tests pass against the new module paths; `from mt5_universal import market, rates, orders, risk` works.
 
 ### Phase 3 — MQL5 plugin host
 - Add `mt5_universal/mql5/{compiler,deployer,discovery,templates}.py`.
-- Create `ea/` and `indicators/` user dirs at repo root with `.gitkeep` + `examples/`.
+- Document the user workspace convention. `mt5 ea new` / `mt5 indicator new` create `./ea` or `./indicators` in the user's current working directory when invoked; this repo does not ship those directories.
 - Wire `mt5 ea new <name>`, `mt5 ea compile <name>`, `mt5 ea deploy <name>`, and the indicator equivalents.
-- **Acceptance:** `mt5 ea new demo --template scalper && mt5 ea compile demo && mt5 ea deploy demo` produces an `ea/demo.ex5` and a copy in the terminal's `Experts/` folder.
+- **Acceptance:** from a user workspace, `mt5 ea new demo --template scalper && mt5 ea compile demo && mt5 ea deploy demo` produces `./ea/demo.ex5` and a copy in the terminal's `Experts/` folder.
 
 ### Phase 4 — Strategy Tester driver
 - Add `mt5_universal/tester/{ea,indicator,ini_builder,launcher,results,cache}.py`.
@@ -244,9 +240,9 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - **Acceptance:** `mt5 tester ea single --expert demo --symbol AUDUSD --tf M5 --from 2024-01-01 --to 2024-06-30 --modelling ohlc-1m --json` returns a populated envelope; `mt5 tester indicator visual` produces a captured run.
 
 ### Phase 5 — Agent surface
-- Migrate `metatrader5_cli/mt5/skills/SKILL.md` → `mt5_universal/skills/SKILL.md`. Add YAML frontmatter (`name`, `description`).
+- Migrate `archive/legacy-mt5/skills/SKILL.md` → `mt5_universal/skills/SKILL.md`. Add YAML frontmatter (`name`, `description`).
 - Add `mt5_mcp/server.py` with FastMCP. One MCP tool per top-level CLI command group.
-- Upgrade `utils/repl_skin.py` to print the SKILL.md absolute path on banner.
+- Recreate the archived ReplSkin pattern in the new CLI so the banner prints the SKILL.md absolute path.
 - Add `skill_generator.py` that introspects the Click tree and regenerates only the *Command Groups* section of SKILL.md (the curated workflow narrative stays hand-edited).
 - **Acceptance:** `mt5-mcp` runs as a stdio MCP server; `claude mcp add mt5 mt5-mcp` makes the tools visible to Claude Code; banner shows SKILL.md path.
 
@@ -259,7 +255,7 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 
 ## 9. Risk-gate non-negotiables (preserved)
 
-From [mt5-cli-spec.md](mt5-cli-spec.md) §1 — these survive the refactor unchanged:
+From the archived [mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) §1 — these survive the refactor unchanged:
 
 1. `mt5_universal/risk/` runs for **every** order call. Library callers cannot bypass it.
 2. `--strategy-id TEXT` on all order commands. Auto-derives magic via `sha256(id)[:8] % 80000 + 100000` → range `[100000, 180000)`.
@@ -272,20 +268,20 @@ No code in `mt5_universal/`, `mt5/`, or `mt5_mcp/` may contain absolute user pat
 
 Library code runs on Linux/macOS for development, testing, and *backtest mode* against cached data. Live mode short-circuits with a clear "MT5 terminal not available on this OS" if not on Windows.
 
-## 11. Open questions / decisions pending
+## 11. Resolved Phase 1 questions
 
-These are deliberately not locked yet; they're surfaced for review before Phase 1:
+These questions were open before Phase 1 and are now resolved by the wholesale archive move:
 
-1. `archive/` in `.gitignore` — recommend removing so archived code is tracked in git history. Phase 1 prerequisite.
-2. Untracked Advanced Wavelet docs (12 files at `docs/specs/`, `docs/plans/`, `docs/playgrounds/`, `docs/code-reviews/`) — commit as historical record, archive alongside the code, or discard?
-3. Untracked `metatrader5_cli/mt5/mql5/Advanced_Wavelet_Entry_System/` — must be committed before the Phase 1 archive move to capture the history.
-4. `archive/wf-fractal-cleanup-20260510-195855/` — local cleanup snapshot, keep or delete?
+1. `archive/` is git-tracked.
+2. Strategy-flavored docs/playgrounds/handoffs/specs are under `archive/legacy-docs/`.
+3. `Advanced_Wavelet_Entry_System/` is preserved under `archive/legacy-mql5/`.
+4. `archive/wf-fractal-cleanup-20260510-195855/` remains as historical cleanup material.
 
 ## 12. References
 
 - [docs/playgrounds/mt5-universal-refactor-playground.html](../playgrounds/mt5-universal-refactor-playground.html) — interactive 7-phase walkthrough, click-to-comment, generates a markdown brief for review
 - [docs/code-reviews/codex-mt5-universal-playground-review-2026-05-15.md](../code-reviews/codex-mt5-universal-playground-review-2026-05-15.md) — review that prompted this spec (P1)
-- [docs/specs/mt5-cli-spec.md](mt5-cli-spec.md) — current canonical CLI spec (v0.5), historical reference for the legacy core layer being archived
-- [metatrader5_cli/mt5/skills/SKILL.md](../../metatrader5_cli/mt5/skills/SKILL.md) — existing 11k-char SKILL.md being migrated in Phase 5
+- [archive/legacy-docs/specs/mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) — historical CLI spec (v0.5) for the archived legacy core
+- [archive/legacy-mt5/skills/SKILL.md](../../archive/legacy-mt5/skills/SKILL.md) — existing 11k-char SKILL.md being migrated in Phase 5
 - [CLI-Anything](https://github.com/HKUDS/CLI-Anything) — `cli-anything-plugin/HARNESS.md` SOP, `templates/SKILL.md.template`, `cli-hub-meta-skill/SKILL.md`, `guides/mcp-backend.md`
 - MT5 Strategy Tester docs (in MetaTrader5 terminal Help)

@@ -9,7 +9,7 @@ This file is a sibling to:
 
 ## 1. What we are doing — in one paragraph
 
-Hard-fork the existing `metatrader5_cli/mt5/core/` (which is tangled with Ehukai/TDA/wavelet/Hybrid-WPVS semantics) into an agnostic Python library at `mt5_universal/`. Author MQL5 EAs and indicators in user-dir plugins. Drive MT5's native Strategy Tester from the CLI for backtests. Publish the library as both a `mt5` CLI and a `mt5-mcp` MCP server so AI agents have hands. Trading.com stays as the canonical broker profile but is no longer hardcoded. No code in the new tree contains hardcoded user paths.
+Hard-fork the archived `metatrader5_cli/mt5/core/` patterns (tangled with Ehukai/TDA/wavelet/Hybrid-WPVS semantics) into a fresh agnostic Python library at `mt5_universal/`. Author MQL5 EAs and indicators in user-dir plugins. Drive MT5's native Strategy Tester from the CLI for backtests. Publish the library as both a `mt5` CLI and a `mt5-mcp` MCP server so AI agents have hands. Trading.com stays as the canonical broker profile but is no longer hardcoded. No code in the new tree contains hardcoded user paths.
 
 ## 2. Locked decisions — do not re-litigate
 
@@ -24,7 +24,7 @@ These were settled during brainstorming (see spec §4). A reviewer flagging them
 | 5 | **MCP + CLI dual surface** from one library. | "Drop the CLI, MCP-only" or "Drop MCP, CLI-only" — both rejected. The user uses both. |
 | 6 | **Trading.com is the default `BrokerProfile`,** not removed and not hardcoded. | "Strip Trading.com defaults" — No. It's the user's actual broker and the MT5-native default. |
 | 7 | **Portability rails are mandatory** — no hardcoded user paths in `mt5_universal/`, `mt5/`, `mt5_mcp/`. CI-enforced. | "This is overkill for a single-user repo" — No. Explicit user constraint. |
-| 8 | **Existing `metatrader5_cli/mt5/skills/SKILL.md` is migrated, not replaced.** | "Phase 5 should rebuild SKILL.md from a CLI-Anything template" — No. The 11k-char manifest stays as the workflow narrative; only the command-group tables are auto-regenerated. |
+| 8 | **Existing `archive/legacy-mt5/skills/SKILL.md` is migrated, not replaced.** | "Phase 5 should rebuild SKILL.md from a CLI-Anything template" — No. The 11k-char manifest stays as the workflow narrative; only the command-group tables are auto-regenerated. |
 | 9 | **Tool, not workspace.** Repo ships only the tool (CLI, MCP server, library, MQL5 scaffold templates). No shipped EAs/indicators/strategy docs/backtest results. User dirs (`ea/`, `indicators/`, `presets/`, `results/`) are USER-side; the CLI discovers them in the user's CWD or config dir. Strategy-flavored history lives under `archive/legacy-docs/`. | "Ship example EAs / strategy plans / playgrounds with the repo so new users see how it works" — No. Examples and strategy docs live in user repos and external tutorials; this repo is the tool only. |
 
 ## 3. What feedback IS welcome
@@ -67,11 +67,11 @@ We deliberately copied 8 patterns from [CLI-Anything](https://github.com/HKUDS/C
 
 ## 6. Relationship to the existing canonical spec
 
-[mt5-cli-spec.md](mt5-cli-spec.md) is the v0.5 spec for the *current* core. **Reviewer notes:**
+[archive/legacy-docs/specs/mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) is the v0.5 spec for the archived legacy core. **Reviewer notes:**
 
-- The new spec **does not invalidate** mt5-cli-spec.md while the legacy core is still imported (Phase 0). Both are live during the transition.
-- After Phase 1 (archive), mt5-cli-spec.md becomes historical reference for the archived code.
-- The risk-gate non-negotiables in mt5-cli-spec.md §1 are **preserved verbatim** in the new spec §9 — these survive the refactor unchanged.
+- Phase 0 used the legacy spec while the legacy core was still imported.
+- After Phase 1, the legacy spec is historical reference for the archived code.
+- The risk-gate non-negotiables in the archived legacy spec §1 are **preserved verbatim** in the new spec §9 — these survive the refactor unchanged.
 
 ## 7. Phase scope — review phase-by-phase
 
@@ -86,11 +86,10 @@ Spec §8 lays out 7 phases (0 through 6). Each phase has acceptance criteria. **
 
 | Command | Expected result |
 |---|---|
-| `python -m pytest -q` (from repo root) | `240 passed, 1 skipped` (the skip is `test_e2e.py`, gated on `MT5_DEMO_INTEGRATION=1` — intentional) |
-| `python -m pytest --collect-only -q` | `240 tests collected` |
+| `python -m pytest -q` (from repo root, post-Phase 1 / pre-Phase 2) | `1 passed` (transitional placeholder while `mt5_universal/` is rebuilt fresh) |
 | `git diff --check master...HEAD` | passes (no whitespace errors) |
 
-Anything else green is a bonus. A reviewer reporting the suite as "broken" because the skipped test didn't run is wrong — the skip is the spec.
+Phase 0's original baseline was `240 passed, 1 skipped`; that is historical now that the legacy package and its tests are archived. Later phases should replace the placeholder with real top-level `tests/` coverage and grow the pass count again.
 
 ## 9. Deliverable types and what to look for
 
@@ -102,14 +101,14 @@ Anything else green is a bonus. A reviewer reporting the suite as "broken" becau
 | **Implementation commits** | Match the phase they claim to implement. Pass the phase's acceptance criteria. Don't break previously-passing tests. Don't introduce hardcoded user paths. |
 | **Code reviews** (`docs/code-reviews/`) | P1/P2/P3 priority labels. Validation section showing what was actually run. Open-questions section flagging assumptions. |
 
-## 10. Open questions the reviewer is welcome to weigh in on
+## 10. Resolved archive questions
 
-These are deliberately not locked — review feedback IS welcome here:
+These were open before Phase 1 and are now resolved by the wholesale archive move:
 
-1. Whether to remove `archive/` from `.gitignore` (recommended) or rename the archive target.
-2. What to do with the 12 untracked Advanced Wavelet docs (commit, archive, or discard).
-3. Whether to commit `Advanced_Wavelet_Entry_System/` as-is before the Phase 1 archive move (recommended), or discard.
-4. Whether `archive/wf-fractal-cleanup-20260510-195855/` should stay or be removed.
+1. `archive/` is git-tracked.
+2. Strategy-flavored docs/playgrounds/handoffs/specs are under `archive/legacy-docs/`.
+3. `Advanced_Wavelet_Entry_System/` is preserved under `archive/legacy-mql5/`.
+4. `archive/wf-fractal-cleanup-20260510-195855/` remains as historical cleanup material.
 
 ## 11. How to write a review for this work
 
