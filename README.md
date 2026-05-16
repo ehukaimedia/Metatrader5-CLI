@@ -55,22 +55,35 @@ Live trading requires all three: `cfg["live"]: true` + `MT5_LIVE=1` env
 + `--live` CLI flag. DEMO and CONTEST accounts bypass the triple lock
 by design.
 
-## User workspace (Phase 3b)
+## User workspace layout
 
-When Phase 3b lands, your MQL5 EAs / indicators / `.set` presets / tester
-results live in YOUR project directory, never in this repo:
+`metatrader5-cli` is a tool — you install it once and run `mt5` from your
+own project directory. Your MQL5 EAs, indicators, `.set` presets, and
+tester results live in YOUR project, never in this repo:
 
 ```
 my-trading-project/
-├── ea/                     # your MQL5 Expert Advisors
-├── indicators/             # your MQL5 indicators
-├── presets/                # tester .set files
-├── results/                # tester run snapshots
-└── .metatrader5-cli.json   # optional per-project override
+├── ea/                       # your MQL5 Expert Advisors
+│   ├── my_strategy.mq5
+│   └── my_strategy.ex5       # built by `mt5 ea compile my_strategy`
+├── indicators/               # your MQL5 indicators
+│   └── my_signal.mq5
+├── presets/                  # tester .set files (Phase 4)
+├── results/                  # tester run snapshots (Phase 4)
+└── .metatrader5-cli.json     # optional per-project config override
 ```
 
-Auto-discovery falls back to `~/.local/share/metatrader5-cli/` (Linux/macOS,
-`XDG_DATA_HOME` convention) or `%APPDATA%/metatrader5-cli/` (Windows).
+`mt5` discovers EAs/indicators in this order: `./ea` / `./indicators`
+(CWD) → `~/.local/share/metatrader5-cli/{ea,indicators}/`
+(XDG_DATA_HOME convention; `%APPDATA%/metatrader5-cli/` on Windows).
+First match wins.
+
+You can also keep your EAs and indicators centrally under
+`~/.local/share/metatrader5-cli/` and run `mt5` from anywhere. The tool
+ships only minimal MQL5 skeletons (`ea_minimal.mq5`,
+`indicator_minimal.mq5`); the strategy / calculation logic is yours to
+author. See [mt5_cli/skills/USER_WORKSPACE.md](mt5_cli/skills/USER_WORKSPACE.md)
+for the full resolution chain.
 
 ## Command groups
 
