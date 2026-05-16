@@ -1,26 +1,26 @@
 """
-positions.py — Open position management for mt5_universal.
+positions.py — Open position management for mt5_cli.
 
 Cherry-picked from archive/legacy-mt5/core/position.py (247 LOC).
 5 public functions: list, close, close_all, move_sl, breakeven.
 (Skip: show — not in plan scope.)
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
-through ``mt5_universal.bridge.mt5_call()``.
+through ``mt5_cli.bridge.mt5_call()``.
 
 Deliberate divergences from legacy:
 
-1. Uses ok()/fail() from mt5_universal.reports instead of local _fail helper.
+1. Uses ok()/fail() from mt5_cli.reports instead of local _fail helper.
 2. fail() error wraps mt5_retcode in data={"mt5_retcode": ...} (not a kwarg).
 3. No risk.check_order — only _live_gate_check (account_info-based live gate).
    Positions do not go through risk gauntlet; they manage existing trades.
-4. _live_gate_check shape matches mt5_universal.orders.orders._live_gate_check
+4. _live_gate_check shape matches mt5_cli.orders.orders._live_gate_check
    verbatim (account_info → ACCOUNT_TRADE_MODE_REAL check).
 5. Module renamed plural: legacy 'position' → 'positions' package.
 """
 from __future__ import annotations
 
-from mt5_universal.bridge import (
+from mt5_cli.bridge import (
     mt5_call,
     ORDER_TYPE_BUY,
     ORDER_TYPE_SELL,
@@ -33,7 +33,7 @@ from mt5_universal.bridge import (
     ORDER_TIME_GTC,
     ACCOUNT_TRADE_MODE_REAL,
 )
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ from mt5_universal.reports import ok, fail
 def _live_gate_check(is_live_intent: bool) -> dict | None:
     """Return a fail envelope if live-gate blocks; None if clear.
 
-    Mirrors the shape in mt5_universal.orders.orders._live_gate_check.
+    Mirrors the shape in mt5_cli.orders.orders._live_gate_check.
     """
     account_info = mt5_call("account_info")
     if account_info is None:

@@ -1,11 +1,11 @@
 """
-rates.py — OHLCV bar and tick data primitives for mt5_universal.
+rates.py — OHLCV bar and tick data primitives for mt5_cli.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` / ``ensure_symbol()`` via the bridge.
 
 Pattern-ported from archive/legacy-mt5/core/rates.py with absolute imports
-from mt5_universal.bridge and ok()/fail() envelopes from mt5_universal.reports.
+from mt5_cli.bridge and ok()/fail() envelopes from mt5_cli.reports.
 
 Deliberate divergences from legacy:
 - ``_bar_to_dict`` and ``_tick_to_dict`` use subscript access (``row["time"]``)
@@ -15,7 +15,7 @@ Deliberate divergences from legacy:
   Distinct from ``copy_deals_*`` / ``market_book_get`` which return NamedTuples
   and do support attribute access (see history.py, market.py).
 - Local ``_fail`` helper dropped; replaced with ``fail()`` from
-  mt5_universal.reports (the new envelope API).
+  mt5_cli.reports (the new envelope API).
 - ``_TIMEFRAME_MAP`` values come from bridge re-exports (TIMEFRAME_M1 …
   TIMEFRAME_MN1) rather than hardcoded MT5 wire values — single-source-of-truth.
 """
@@ -23,13 +23,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from mt5_universal.bridge import (
+from mt5_cli.bridge import (
     mt5_call, ensure_symbol,
     TIMEFRAME_M1, TIMEFRAME_M5, TIMEFRAME_M15, TIMEFRAME_M30,
     TIMEFRAME_H1, TIMEFRAME_H4, TIMEFRAME_D1, TIMEFRAME_W1, TIMEFRAME_MN1,
     COPY_TICKS_ALL,
 )
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 
 # ---------------------------------------------------------------------------

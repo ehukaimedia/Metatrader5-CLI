@@ -1,4 +1,4 @@
-"""Tests for mt5_universal/chart/indicators_attach.py.
+"""Tests for mt5_cli/chart/indicators_attach.py.
 
 The attach/detach/list_attached primitives go through the MT5 SDK
 bridge (mt5_call). Tests use the same cache-safe MagicMock pattern
@@ -14,7 +14,7 @@ import pytest
 def mocked_mt5(monkeypatch):
     """Inject a fake MetaTrader5 module + purge bridge/chart caches."""
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.chart"):
+        if name.startswith("mt5_cli.bridge") or name.startswith("mt5_cli.chart"):
             sys.modules.pop(name, None)
 
     fake = MagicMock(name="MetaTrader5")
@@ -58,13 +58,13 @@ def mocked_mt5(monkeypatch):
     monkeypatch.setitem(sys.modules, "MetaTrader5", fake)
     yield fake
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.chart"):
+        if name.startswith("mt5_cli.bridge") or name.startswith("mt5_cli.chart"):
             sys.modules.pop(name, None)
 
 
 def _mock_chart_lookup(monkeypatch, *, symbol="USDJPY", timeframe="H1", parent_hwnd=1000):
-    """Stub mt5_universal.chart.current_title to return a known symbol/TF."""
-    from mt5_universal.chart import indicators_attach
+    """Stub mt5_cli.chart.current_title to return a known symbol/TF."""
+    from mt5_cli.chart import indicators_attach
 
     def fake_current_title(window_substring="MT5", chart_id=None):
         return {
@@ -91,7 +91,7 @@ def test_attach_loads_handle_and_calls_chart_indicator_add(mocked_mt5, monkeypat
     mocked_mt5.iCustom.return_value = 12345
     mocked_mt5.ChartIndicatorAdd.return_value = True
 
-    from mt5_universal.chart.indicators_attach import attach
+    from mt5_cli.chart.indicators_attach import attach
     env = attach(chart_id=2000, indicator_name="MyEMA", params=[20])
     assert env["ok"] is True
     assert env["data"]["handle"] == 12345
@@ -107,7 +107,7 @@ def test_attach_fails_when_icustom_returns_invalid_handle(mocked_mt5, monkeypatc
     _mock_chart_lookup(monkeypatch)
     mocked_mt5.iCustom.return_value = -1  # INVALID_HANDLE
 
-    from mt5_universal.chart.indicators_attach import attach
+    from mt5_cli.chart.indicators_attach import attach
     env = attach(chart_id=2000, indicator_name="BadInd")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_INDICATOR_LOAD_FAILED"
@@ -119,14 +119,14 @@ def test_attach_fails_when_chart_indicator_add_returns_false(mocked_mt5, monkeyp
     mocked_mt5.iCustom.return_value = 99
     mocked_mt5.ChartIndicatorAdd.return_value = False
 
-    from mt5_universal.chart.indicators_attach import attach
+    from mt5_cli.chart.indicators_attach import attach
     env = attach(chart_id=2000, indicator_name="MyInd")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_INDICATOR_ATTACH_FAILED"
 
 
 def test_attach_fails_when_chart_lookup_fails(mocked_mt5, monkeypatch):
-    from mt5_universal.chart import indicators_attach
+    from mt5_cli.chart import indicators_attach
 
     def fake_current_title(window_substring="MT5", chart_id=None):
         return {"ok": False, "error": {"code": "CHART_ID_NOT_FOUND", "message": "X"}}
@@ -142,7 +142,7 @@ def test_attach_handles_no_params(mocked_mt5, monkeypatch):
     mocked_mt5.iCustom.return_value = 1
     mocked_mt5.ChartIndicatorAdd.return_value = True
 
-    from mt5_universal.chart.indicators_attach import attach
+    from mt5_cli.chart.indicators_attach import attach
     env = attach(chart_id=2000, indicator_name="Plain")
     assert env["ok"] is True
     mocked_mt5.iCustom.assert_called_once_with("USDJPY", 60, "Plain")
@@ -151,7 +151,7 @@ def test_attach_handles_no_params(mocked_mt5, monkeypatch):
 def test_attach_resolves_unknown_timeframe_as_fail(mocked_mt5, monkeypatch):
     _mock_chart_lookup(monkeypatch, timeframe="Q1")  # invalid TF
 
-    from mt5_universal.chart.indicators_attach import attach
+    from mt5_cli.chart.indicators_attach import attach
     env = attach(chart_id=2000, indicator_name="MyInd")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_INVALID_TIMEFRAME"
@@ -165,7 +165,7 @@ def test_attach_resolves_unknown_timeframe_as_fail(mocked_mt5, monkeypatch):
 def test_detach_calls_chart_indicator_delete(mocked_mt5):
     mocked_mt5.ChartIndicatorDelete.return_value = True
 
-    from mt5_universal.chart.indicators_attach import detach
+    from mt5_cli.chart.indicators_attach import detach
     env = detach(chart_id=2000, indicator_short_name="MyEMA")
     assert env["ok"] is True
     assert env["data"]["removed"] is True
@@ -176,7 +176,7 @@ def test_detach_calls_chart_indicator_delete(mocked_mt5):
 def test_detach_fails_when_mt5_returns_false(mocked_mt5):
     mocked_mt5.ChartIndicatorDelete.return_value = False
 
-    from mt5_universal.chart.indicators_attach import detach
+    from mt5_cli.chart.indicators_attach import detach
     env = detach(chart_id=2000, indicator_short_name="Ghost")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_INDICATOR_DETACH_FAILED"
@@ -185,7 +185,7 @@ def test_detach_fails_when_mt5_returns_false(mocked_mt5):
 def test_detach_respects_sub_window(mocked_mt5):
     mocked_mt5.ChartIndicatorDelete.return_value = True
 
-    from mt5_universal.chart.indicators_attach import detach
+    from mt5_cli.chart.indicators_attach import detach
     detach(chart_id=2000, indicator_short_name="OSC", sub_window=1)
     mocked_mt5.ChartIndicatorDelete.assert_called_once_with(2000, 1, "OSC")
 
@@ -199,7 +199,7 @@ def test_list_attached_returns_names(mocked_mt5):
     mocked_mt5.ChartIndicatorsTotal.return_value = 3
     mocked_mt5.ChartIndicatorName.side_effect = lambda chart_id, sub_window, idx: f"Ind{idx}"
 
-    from mt5_universal.chart.indicators_attach import list_attached
+    from mt5_cli.chart.indicators_attach import list_attached
     env = list_attached(chart_id=2000)
     assert env["ok"] is True
     assert env["data"]["chart_id"] == 2000
@@ -210,7 +210,7 @@ def test_list_attached_returns_names(mocked_mt5):
 def test_list_attached_empty_when_total_zero(mocked_mt5):
     mocked_mt5.ChartIndicatorsTotal.return_value = 0
 
-    from mt5_universal.chart.indicators_attach import list_attached
+    from mt5_cli.chart.indicators_attach import list_attached
     env = list_attached(chart_id=2000)
     assert env["ok"] is True
     assert env["data"]["indicators"] == []

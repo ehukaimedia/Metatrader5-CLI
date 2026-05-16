@@ -4,10 +4,10 @@ import pytest
 
 
 _MODULES_TO_PURGE = (
-    "mt5_universal.bridge",
-    "mt5_universal.account",
-    "mt5_universal.risk",
-    "mt5_universal.risk.risk",
+    "mt5_cli.bridge",
+    "mt5_cli.account",
+    "mt5_cli.risk",
+    "mt5_cli.risk.risk",
 )
 
 
@@ -56,7 +56,7 @@ def mocked_mt5(monkeypatch):
 
 
 def test_account_info_returns_envelope(mocked_mt5):
-    from mt5_universal.account import info
+    from mt5_cli.account import info
     env = info()
     assert env["ok"] is True
     assert env["data"]["balance"] == 10000.0
@@ -64,7 +64,7 @@ def test_account_info_returns_envelope(mocked_mt5):
 
 
 def test_account_info_maps_trade_mode_demo(mocked_mt5):
-    from mt5_universal.account import info
+    from mt5_cli.account import info
     env = info()
     assert env["data"]["trade_mode"] == "demo"
 
@@ -72,7 +72,7 @@ def test_account_info_maps_trade_mode_demo(mocked_mt5):
 def test_account_info_maps_trade_mode_contest_as_demo(mocked_mt5):
     """Contest accounts (broker competitions) collapse to 'demo' — no real money."""
     mocked_mt5.account_info.return_value.trade_mode = 1  # ACCOUNT_TRADE_MODE_CONTEST
-    from mt5_universal.account import info
+    from mt5_cli.account import info
     env = info()
     assert env["data"]["trade_mode"] == "demo"
 
@@ -80,13 +80,13 @@ def test_account_info_maps_trade_mode_contest_as_demo(mocked_mt5):
 def test_account_info_maps_trade_mode_real(mocked_mt5):
     """Real accounts surface as 'real' — used by the CLI/MCP to flag live trading."""
     mocked_mt5.account_info.return_value.trade_mode = 2  # ACCOUNT_TRADE_MODE_REAL
-    from mt5_universal.account import info
+    from mt5_cli.account import info
     env = info()
     assert env["data"]["trade_mode"] == "real"
 
 
 def test_account_balance_subset(mocked_mt5):
-    from mt5_universal.account import balance
+    from mt5_cli.account import balance
     env = balance()
     assert env["ok"] is True
     assert "balance" in env["data"]
@@ -95,7 +95,7 @@ def test_account_balance_subset(mocked_mt5):
 
 def test_account_info_fails_when_mt5_returns_none(mocked_mt5):
     mocked_mt5.account_info.return_value = None
-    from mt5_universal.account import info
+    from mt5_cli.account import info
     env = info()
     assert env["ok"] is False
     assert env["error"]["code"] == "MT5_CONNECTION_ERROR"
@@ -114,7 +114,7 @@ _CFG = {
 
 def test_account_risk_returns_envelope(mocked_mt5):
     """risk() returns an ok envelope with the required keys."""
-    from mt5_universal.account import risk
+    from mt5_cli.account import risk
     env = risk(_CFG)
     assert env["ok"] is True
     data = env["data"]
@@ -126,7 +126,7 @@ def test_account_risk_returns_envelope(mocked_mt5):
 def test_account_risk_safe_to_trade_true_when_under_thresholds(mocked_mt5):
     """safe_to_trade is True when positions and daily loss are under limits."""
     # 0 open positions, 0 daily loss, equity=10012.5, margin_free=10012.5 → 100% free
-    from mt5_universal.account import risk
+    from mt5_cli.account import risk
     env = risk(_CFG)
     assert env["ok"] is True
     assert env["data"]["safe_to_trade"] is True
@@ -140,7 +140,7 @@ def test_account_risk_safe_to_trade_false_when_daily_loss_exceeded(mocked_mt5):
     losing_deal = MagicMock(profit=-250.0, commission=0.0, swap=0.0)
     mocked_mt5.history_deals_get.return_value = [losing_deal]
 
-    from mt5_universal.account import risk
+    from mt5_cli.account import risk
     env = risk(_CFG)
     assert env["ok"] is True
     assert env["data"]["safe_to_trade"] is False

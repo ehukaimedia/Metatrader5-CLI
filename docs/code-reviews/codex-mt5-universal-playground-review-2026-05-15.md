@@ -8,7 +8,7 @@ Compared against: `master` at `4d26992`
 
 1. P1 - The universal refactor contract exists only inside the playground HTML.
 
-   `docs/playgrounds/mt5-universal-refactor-playground.html:552`, `:573`, and `:580` define the future `mt5_universal/` package, MCP server, generated skill surface, portability rails, CI path guard, and harness document. The branch does not add a matching spec under `docs/specs/` or a plan under `docs/plans/`; `git ls-files docs/specs docs/plans | rg "universal|refactor|mt5-universal|mt5_universal|harness|mcp|plugin"` returns no tracked spec/plan artifact for this refactor. Given this repo's mandatory spec-driven architecture rules, the HTML becomes the only source of truth for a large refactor, which is fragile for future agents and easy to drift from.
+   `docs/playgrounds/mt5-universal-refactor-playground.html:552`, `:573`, and `:580` define the future `mt5_cli/` package, MCP server, generated skill surface, portability rails, CI path guard, and harness document. The branch does not add a matching spec under `docs/specs/` or a plan under `docs/plans/`; `git ls-files docs/specs docs/plans | rg "universal|refactor|mt5-universal|mt5_cli|harness|mcp|plugin"` returns no tracked spec/plan artifact for this refactor. Given this repo's mandatory spec-driven architecture rules, the HTML becomes the only source of truth for a large refactor, which is fragile for future agents and easy to drift from.
 
 2. P2 - The current-state MQL5 inventory points agents at the wrong archive scope.
 
@@ -20,7 +20,7 @@ Compared against: `master` at `4d26992`
 
 4. P3 - Phase 5 treats the existing MT5 skill manifest as absent.
 
-   `docs/playgrounds/mt5-universal-refactor-playground.html:540` says there is no `SKILL.md` manifest today, while HEAD already tracks `metatrader5_cli/mt5/skills/SKILL.md`. Phase 5 at `:573` should say the refactor migrates or regenerates that existing agent safety/usage contract into the new `mt5_universal` surface rather than creating one from nothing.
+   `docs/playgrounds/mt5-universal-refactor-playground.html:540` says there is no `SKILL.md` manifest today, while HEAD already tracks `metatrader5_cli/mt5/skills/SKILL.md`. Phase 5 at `:573` should say the refactor migrates or regenerates that existing agent safety/usage contract into the new `mt5_cli` surface rather than creating one from nothing.
 
 5. P3 - Narrow viewports collapse the playground's usable work area.
 

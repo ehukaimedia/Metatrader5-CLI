@@ -1,5 +1,5 @@
 """
-test_orders.py — TDD for mt5_universal/orders/orders.py
+test_orders.py — TDD for mt5_cli/orders/orders.py
 
 Cherry-pick of 6 functions: list_pending, place_market, place_limit,
 dryrun, cancel, poll_fill.
@@ -27,12 +27,12 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _MODULES_TO_PURGE = (
-    "mt5_universal.bridge",
-    "mt5_universal.bridge.mt5_backend",
-    "mt5_universal.risk",
-    "mt5_universal.risk.risk",
-    "mt5_universal.orders",
-    "mt5_universal.orders.orders",
+    "mt5_cli.bridge",
+    "mt5_cli.bridge.mt5_backend",
+    "mt5_cli.risk",
+    "mt5_cli.risk.risk",
+    "mt5_cli.orders",
+    "mt5_cli.orders.orders",
 )
 
 
@@ -188,7 +188,7 @@ def _setup_happy_path(mocked_mt5):
 
 def _reset_rl():
     """Reset the rate limiter between tests (import after mock is in place)."""
-    from mt5_universal.risk.risk import _reset_rate_limiter
+    from mt5_cli.risk.risk import _reset_rate_limiter
     _reset_rate_limiter()
 
 
@@ -201,7 +201,7 @@ class TestListPending:
     def test_list_pending_returns_envelope_with_empty_list(self, mocked_mt5):
         """orders_get returns [] → ok envelope with empty data list."""
         mocked_mt5.orders_get.return_value = []
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(cfg=_cfg())
         assert result["ok"] is True
         assert result["data"] == []
@@ -209,7 +209,7 @@ class TestListPending:
     def test_list_pending_returns_none_fails(self, mocked_mt5):
         """orders_get returns None → fail envelope."""
         mocked_mt5.orders_get.return_value = None
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(cfg=_cfg())
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_NO_DATA"
@@ -218,7 +218,7 @@ class TestListPending:
         """When symbol is passed, only orders for that symbol are returned."""
         eu_order = _make_pending_order(ticket=1, symbol="EURUSD")
         mocked_mt5.orders_get.return_value = [eu_order]
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(symbol="EURUSD", cfg=_cfg())
         assert result["ok"] is True
         assert len(result["data"]) == 1
@@ -231,7 +231,7 @@ class TestListPending:
         alpha_order = _make_pending_order(ticket=10, magic=50000)
         other_order = _make_pending_order(ticket=11, magic=88888)
         mocked_mt5.orders_get.return_value = [alpha_order, other_order]
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(strategy_id="alpha", cfg=cfg)
         assert result["ok"] is True
         assert len(result["data"]) == 1
@@ -242,7 +242,7 @@ class TestListPending:
         agent_magic = 150000  # in [100000, 180000)
         order = _make_pending_order(ticket=99, magic=agent_magic)
         mocked_mt5.orders_get.return_value = [order]
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(cfg=_cfg())
         assert result["ok"] is True
         assert result["data"][0]["is_agent_magic"] is True
@@ -251,14 +251,14 @@ class TestListPending:
         """Order with magic 88888 (< 100000) → is_agent_magic=False."""
         order = _make_pending_order(ticket=50, magic=88888)
         mocked_mt5.orders_get.return_value = [order]
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(cfg=_cfg())
         assert result["ok"] is True
         assert result["data"][0]["is_agent_magic"] is False
 
     def test_list_pending_requires_cfg_when_strategy_id_given(self, mocked_mt5):
         """strategy_id without cfg → fail(RISK_INVALID_INPUT)."""
-        from mt5_universal.orders.orders import list_pending
+        from mt5_cli.orders.orders import list_pending
         result = list_pending(strategy_id="alpha", cfg=None)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_INVALID_INPUT"
@@ -281,7 +281,7 @@ class TestDryrun:
         check_result.profit = 0.0
         mocked_mt5.order_check.return_value = check_result
         _reset_rl()
-        from mt5_universal.orders.orders import dryrun
+        from mt5_cli.orders.orders import dryrun
         result = dryrun(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -296,7 +296,7 @@ class TestDryrun:
         _setup_happy_path(mocked_mt5)
         # Force max_lot_per_order=0 to trip gate 4
         _reset_rl()
-        from mt5_universal.orders.orders import dryrun
+        from mt5_cli.orders.orders import dryrun
         result = dryrun(
             symbol="EURUSD", side="buy", volume=1.0,
             sl=1.0900, cfg=_cfg(max_lot_per_order=0.5), is_live_intent=False,
@@ -316,7 +316,7 @@ class TestDryrun:
         check_result.profit = 0.0
         mocked_mt5.order_check.return_value = check_result
         _reset_rl()
-        from mt5_universal.orders.orders import dryrun
+        from mt5_cli.orders.orders import dryrun
         dryrun(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, order_type="market", cfg=_cfg(), is_live_intent=False,
@@ -335,7 +335,7 @@ class TestDryrun:
         check_result.profit = 0.0
         mocked_mt5.order_check.return_value = check_result
         _reset_rl()
-        from mt5_universal.orders.orders import dryrun
+        from mt5_cli.orders.orders import dryrun
         result = dryrun(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0800, order_type="limit", price=1.1050,
@@ -350,7 +350,7 @@ class TestDryrun:
         """limit/stop dryrun without --price → fail(MT5_INVALID_PARAMS)."""
         _setup_happy_path(mocked_mt5)
         _reset_rl()
-        from mt5_universal.orders.orders import dryrun
+        from mt5_cli.orders.orders import dryrun
         result = dryrun(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, order_type="limit", price=None,
@@ -371,7 +371,7 @@ class TestPlaceMarket:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=555)
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         result = place_market(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -383,7 +383,7 @@ class TestPlaceMarket:
         """Risk gate failure → fail envelope; order_send NOT called."""
         _setup_happy_path(mocked_mt5)
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         result = place_market(
             symbol="EURUSD", side="buy", volume=5.0,
             sl=1.0900, cfg=_cfg(max_lot_per_order=2.0), is_live_intent=False,
@@ -397,7 +397,7 @@ class TestPlaceMarket:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=600)
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         place_market(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -410,7 +410,7 @@ class TestPlaceMarket:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=601)
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         place_market(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -424,7 +424,7 @@ class TestPlaceMarket:
         mocked_mt5.symbol_info_tick.return_value = _tick(bid=1.1000, ask=1.1005)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=602)
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         place_market(
             symbol="EURUSD", side="sell", volume=0.1,
             sl=1.1100, cfg=_cfg(), is_live_intent=False,
@@ -439,7 +439,7 @@ class TestPlaceMarket:
         send_result.comment = "No money"
         mocked_mt5.order_send.return_value = send_result
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         result = place_market(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -452,7 +452,7 @@ class TestPlaceMarket:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = None
         _reset_rl()
-        from mt5_universal.orders.orders import place_market
+        from mt5_cli.orders.orders import place_market
         result = place_market(
             symbol="EURUSD", side="buy", volume=0.1,
             sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -472,7 +472,7 @@ class TestPlaceLimit:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10008, order=700)
         _reset_rl()
-        from mt5_universal.orders.orders import place_limit
+        from mt5_cli.orders.orders import place_limit
         result = place_limit(
             symbol="EURUSD", side="buy", price=1.1050,
             volume=0.1, sl=1.0900, cfg=_cfg(), is_live_intent=False,
@@ -486,7 +486,7 @@ class TestPlaceLimit:
         """Risk gate failure on limit → fail envelope; order_send NOT called."""
         _setup_happy_path(mocked_mt5)
         _reset_rl()
-        from mt5_universal.orders.orders import place_limit
+        from mt5_cli.orders.orders import place_limit
         result = place_limit(
             symbol="EURUSD", side="buy", price=1.1050,
             volume=5.0, sl=1.0900,
@@ -501,7 +501,7 @@ class TestPlaceLimit:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10008, order=701)
         _reset_rl()
-        from mt5_universal.orders.orders import place_limit
+        from mt5_cli.orders.orders import place_limit
         place_limit(
             symbol="EURUSD", side="sell", price=1.1200,
             volume=0.1, sl=1.1300, cfg=_cfg(), is_live_intent=False,
@@ -514,7 +514,7 @@ class TestPlaceLimit:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10008, order=702)
         _reset_rl()
-        from mt5_universal.orders.orders import place_limit
+        from mt5_cli.orders.orders import place_limit
         place_limit(
             symbol="EURUSD", side="buy", price=1.0900,
             volume=0.1, sl=1.0800, cfg=_cfg(), is_live_intent=False,
@@ -535,7 +535,7 @@ class TestCancel:
         pending = _make_pending_order(ticket=800, symbol="EURUSD")
         mocked_mt5.orders_get.return_value = [pending]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=800)
-        from mt5_universal.orders.orders import cancel
+        from mt5_cli.orders.orders import cancel
         result = cancel(800, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["ticket"] == 800
@@ -547,7 +547,7 @@ class TestCancel:
         """is_live_intent=False on REAL account → RISK_LIVE_GATE_BLOCKED."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
-        from mt5_universal.orders.orders import cancel
+        from mt5_cli.orders.orders import cancel
         result = cancel(900, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
@@ -558,7 +558,7 @@ class TestCancel:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.orders_get.return_value = []
         # is_live_intent=True so live gate passes (account is DEMO)
-        from mt5_universal.orders.orders import cancel
+        from mt5_cli.orders.orders import cancel
         result = cancel(999, is_live_intent=True)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
@@ -575,7 +575,7 @@ class TestPollFill:
         pos = MagicMock()
         pos.ticket = 111
         mocked_mt5.positions_get.return_value = [pos]
-        from mt5_universal.orders.orders import poll_fill
+        from mt5_cli.orders.orders import poll_fill
         result = poll_fill(111, timeout_ms=500)
         assert result["ok"] is True
         assert result["data"]["filled"] is True
@@ -586,7 +586,7 @@ class TestPollFill:
         pending = _make_pending_order(ticket=222)
         mocked_mt5.positions_get.return_value = []
         mocked_mt5.orders_get.return_value = [pending]  # still pending
-        from mt5_universal.orders.orders import poll_fill
+        from mt5_cli.orders.orders import poll_fill
         result = poll_fill(222, timeout_ms=100)  # short timeout
         assert result["ok"] is True
         assert result["data"]["filled"] is False
@@ -596,7 +596,7 @@ class TestPollFill:
         """Pending order disappears (rejected/cancelled) before fill → filled=False."""
         mocked_mt5.positions_get.return_value = []
         mocked_mt5.orders_get.return_value = []  # order gone (not filled, just gone)
-        from mt5_universal.orders.orders import poll_fill
+        from mt5_cli.orders.orders import poll_fill
         result = poll_fill(333, timeout_ms=500)
         assert result["ok"] is True
         assert result["data"]["filled"] is False
@@ -607,7 +607,7 @@ class TestPollFill:
 # ---------------------------------------------------------------------------
 
 def test_place_market_rejects_invalid_side(mocked_mt5):
-    from mt5_universal.orders import place_market
+    from mt5_cli.orders import place_market
     cfg = _cfg()
     env = place_market(symbol="USDJPY", side="long", volume=0.01, sl=149.5,
                       cfg=cfg, is_live_intent=False)
@@ -617,7 +617,7 @@ def test_place_market_rejects_invalid_side(mocked_mt5):
 
 
 def test_place_limit_rejects_invalid_side(mocked_mt5):
-    from mt5_universal.orders import place_limit
+    from mt5_cli.orders import place_limit
     cfg = _cfg()
     env = place_limit(symbol="USDJPY", side="LONG", price=150.0, volume=0.01,
                      sl=149.5, cfg=cfg, is_live_intent=False)
@@ -627,7 +627,7 @@ def test_place_limit_rejects_invalid_side(mocked_mt5):
 
 
 def test_dryrun_rejects_invalid_side(mocked_mt5):
-    from mt5_universal.orders import dryrun
+    from mt5_cli.orders import dryrun
     cfg = _cfg()
     env = dryrun(symbol="USDJPY", side="short", volume=0.01, sl=149.5,
                 cfg=cfg, is_live_intent=False)
@@ -638,7 +638,7 @@ def test_dryrun_rejects_invalid_side(mocked_mt5):
 
 def test_place_market_accepts_uppercase_BUY(mocked_mt5):
     """Case-insensitive — 'BUY' normalizes to 'buy' and proceeds."""
-    from mt5_universal.orders import place_market
+    from mt5_cli.orders import place_market
     _setup_happy_path(mocked_mt5)
     mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=999)
     _reset_rl()
@@ -659,7 +659,7 @@ class TestPlaceStop:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10008, order=1001)
         _reset_rl()
-        from mt5_universal.orders.orders import place_stop
+        from mt5_cli.orders.orders import place_stop
         result = place_stop(
             symbol="USDJPY", side="buy", price=151.0,
             volume=0.1, sl=149.0, cfg=_cfg(), is_live_intent=False,
@@ -674,7 +674,7 @@ class TestPlaceStop:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10008, order=1002)
         _reset_rl()
-        from mt5_universal.orders.orders import place_stop
+        from mt5_cli.orders.orders import place_stop
         result = place_stop(
             symbol="USDJPY", side="sell", price=148.0,
             volume=0.1, sl=150.0, cfg=_cfg(), is_live_intent=False,
@@ -687,7 +687,7 @@ class TestPlaceStop:
         """Risk gate failure → fail envelope; order_send NOT called."""
         _setup_happy_path(mocked_mt5)
         _reset_rl()
-        from mt5_universal.orders.orders import place_stop
+        from mt5_cli.orders.orders import place_stop
         result = place_stop(
             symbol="USDJPY", side="buy", price=151.0,
             volume=5.0, sl=149.0,
@@ -701,7 +701,7 @@ class TestPlaceStop:
         """Invalid side string → MT5_INVALID_PARAMS before any MT5 call."""
         _setup_happy_path(mocked_mt5)
         _reset_rl()
-        from mt5_universal.orders.orders import place_stop
+        from mt5_cli.orders.orders import place_stop
         result = place_stop(
             symbol="USDJPY", side="long", price=151.0,
             volume=0.1, sl=149.0, cfg=_cfg(), is_live_intent=False,
@@ -715,7 +715,7 @@ class TestPlaceStop:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10008, order=1003)
         _reset_rl()
-        from mt5_universal.orders.orders import place_stop
+        from mt5_cli.orders.orders import place_stop
         # sl=1.0900 is >5 pts below current ask (1.1001), so risk gate passes.
         # price=1.1200 is the stop trigger above current market.
         place_stop(
@@ -771,7 +771,7 @@ class TestModify:
         pos = _make_position(ticket=12345, symbol="USDJPY", sl=149.0, tp=151.0)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=12345)
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(12345, sl=148.5, tp=152.0, is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
@@ -784,7 +784,7 @@ class TestModify:
         pos = _make_position(ticket=12345, symbol="USDJPY", sl=149.0, tp=153.5)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=12345)
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(12345, sl=148.0, tp=None, is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
@@ -797,7 +797,7 @@ class TestModify:
         pending = _make_pending_order_for_modify(ticket=54321)
         mocked_mt5.orders_get.return_value = [pending]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=54321)
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(54321, sl=148.0, tp=154.0, is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
@@ -811,7 +811,7 @@ class TestModify:
         pending = _make_pending_order_for_modify(ticket=54321, price_open=151.5)
         mocked_mt5.orders_get.return_value = [pending]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=54321)
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(54321, price=None, is_live_intent=False)
         assert result["ok"] is True
         call_args = mocked_mt5.order_send.call_args[0][0]
@@ -822,7 +822,7 @@ class TestModify:
         _setup_happy_path(mocked_mt5)
         mocked_mt5.positions_get.return_value = []
         mocked_mt5.orders_get.return_value = []
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(99999, sl=1.0, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
@@ -832,7 +832,7 @@ class TestModify:
         """is_live_intent=False on REAL account → RISK_LIVE_GATE_BLOCKED."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(12345, sl=148.0, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
@@ -844,7 +844,7 @@ class TestModify:
         pos = _make_position(ticket=12345, symbol="USDJPY", sl=149.0, tp=151.0)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=12345)
-        from mt5_universal.orders.orders import modify
+        from mt5_cli.orders.orders import modify
         result = modify(12345, sl=148.5, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["ticket"] == 12345
@@ -872,7 +872,7 @@ class TestCancelAllPending:
             [pending_b],             # cancel(2002) lookup
         ]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=0)
-        from mt5_universal.orders.orders import cancel_all_pending
+        from mt5_cli.orders.orders import cancel_all_pending
         result = cancel_all_pending(is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["cancelled"] == 2
@@ -890,7 +890,7 @@ class TestCancelAllPending:
             [pending],    # cancel(3001) lookup
         ]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009, order=0)
-        from mt5_universal.orders.orders import cancel_all_pending
+        from mt5_cli.orders.orders import cancel_all_pending
         result = cancel_all_pending(symbol="GBPUSD", is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["cancelled"] == 1
@@ -915,7 +915,7 @@ class TestCancelAllPending:
             _make_send_result(retcode=10009, order=0),  # 4001 succeeds
             fail_result,                                 # 4002 fails
         ]
-        from mt5_universal.orders.orders import cancel_all_pending
+        from mt5_cli.orders.orders import cancel_all_pending
         result = cancel_all_pending(is_live_intent=False)
         assert result["ok"] is True   # outer still ok
         assert result["data"]["cancelled"] == 1
@@ -932,7 +932,7 @@ class TestCancelAllPending:
         """No pending orders → ok with empty per_ticket list and zero counts."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.orders_get.return_value = []
-        from mt5_universal.orders.orders import cancel_all_pending
+        from mt5_cli.orders.orders import cancel_all_pending
         result = cancel_all_pending(is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["per_ticket"] == []

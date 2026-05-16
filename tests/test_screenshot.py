@@ -1,4 +1,4 @@
-"""Tests for mt5_universal/screenshot/ - mss-based capture primitives.
+"""Tests for mt5_cli/screenshot/ - mss-based capture primitives.
 
 Cherry-pick from archive/legacy-mt5/core/screenshot.py with TDA
 orchestration stripped. mss / pygetwindow / PIL are mocked at
@@ -15,7 +15,7 @@ import pytest
 
 def _purge_screenshot_cache():
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.screenshot"):
+        if name.startswith("mt5_cli.screenshot"):
             sys.modules.pop(name, None)
 
 
@@ -75,7 +75,7 @@ def fake_capture_deps(monkeypatch):
 
 def test_resolve_dir_falls_back_to_temp_when_no_directory_or_cfg():
     _purge_screenshot_cache()
-    from mt5_universal.screenshot.screenshot import _resolve_dir
+    from mt5_cli.screenshot.screenshot import _resolve_dir
     result = _resolve_dir(None, None)
     # Should land under the system temp dir
     assert "mt5-cli" in str(result) and "screenshots" in str(result)
@@ -83,14 +83,14 @@ def test_resolve_dir_falls_back_to_temp_when_no_directory_or_cfg():
 
 def test_resolve_dir_honors_explicit_directory(tmp_path):
     _purge_screenshot_cache()
-    from mt5_universal.screenshot.screenshot import _resolve_dir
+    from mt5_cli.screenshot.screenshot import _resolve_dir
     result = _resolve_dir(str(tmp_path / "shots"), None)
     assert result == Path(str(tmp_path / "shots"))
 
 
 def test_resolve_dir_reads_cfg_screenshot_output_dir(tmp_path):
     _purge_screenshot_cache()
-    from mt5_universal.screenshot.screenshot import _resolve_dir
+    from mt5_cli.screenshot.screenshot import _resolve_dir
     cfg = {"screenshot_output_dir": str(tmp_path / "from_cfg")}
     result = _resolve_dir(None, cfg)
     assert result == Path(str(tmp_path / "from_cfg"))
@@ -98,7 +98,7 @@ def test_resolve_dir_reads_cfg_screenshot_output_dir(tmp_path):
 
 def test_resolve_monitor_defaults_to_zero():
     _purge_screenshot_cache()
-    from mt5_universal.screenshot.screenshot import _resolve_monitor
+    from mt5_cli.screenshot.screenshot import _resolve_monitor
     assert _resolve_monitor(None, None) == 0
     assert _resolve_monitor(None, {"screenshot_monitor": 2}) == 2
     assert _resolve_monitor(3, None) == 3
@@ -110,7 +110,7 @@ def test_resolve_monitor_defaults_to_zero():
 
 
 def test_take_fails_closed_when_window_substring_not_found(fake_capture_deps, tmp_path):
-    from mt5_universal.screenshot import take
+    from mt5_cli.screenshot import take
     out = str(tmp_path / "shot.png")
     env = take(output_path=out, window_substring="MT5")
     assert env["ok"] is False
@@ -119,7 +119,7 @@ def test_take_fails_closed_when_window_substring_not_found(fake_capture_deps, tm
 
 def test_take_captures_monitor_when_window_substring_empty(fake_capture_deps, tmp_path):
     """With window_substring='', take() falls through to full-monitor capture."""
-    from mt5_universal.screenshot import take
+    from mt5_cli.screenshot import take
     out = str(tmp_path / "shot.png")
     env = take(output_path=out, window_substring="")
     assert env["ok"] is True
@@ -134,7 +134,7 @@ def test_take_captures_window_bounds_when_pygetwindow_matches(fake_capture_deps,
     fake_capture_deps["pygetwindow"].getAllWindows.return_value = [fake_win]
     fake_capture_deps["win32gui"].GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
 
-    from mt5_universal.screenshot import take
+    from mt5_cli.screenshot import take
     out = str(tmp_path / "shot.png")
     env = take(output_path=out, window_substring="MT5")
     assert env["ok"] is True
@@ -147,7 +147,7 @@ def test_take_captures_window_bounds_when_pygetwindow_matches(fake_capture_deps,
 
 def test_take_auto_generates_timestamped_path_when_output_none(fake_capture_deps, tmp_path):
     cfg = {"screenshot_output_dir": str(tmp_path)}
-    from mt5_universal.screenshot import take
+    from mt5_cli.screenshot import take
     env = take(window_substring="", cfg=cfg)
     assert env["ok"] is True
     assert env["data"]["path"].startswith(str(tmp_path))
@@ -173,7 +173,7 @@ def test_annotate_writes_text_overlay(fake_capture_deps, tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "PIL.Image", fake_image_module)
     monkeypatch.setitem(sys.modules, "PIL.ImageDraw", fake_draw_module)
 
-    from mt5_universal.screenshot import annotate
+    from mt5_cli.screenshot import annotate
     out = str(tmp_path / "out.png")
     env = annotate(input_path=str(tmp_path / "in.png"), output_path=out, text="hello")
     assert env["ok"] is True
@@ -213,7 +213,7 @@ def test_dom_with_panels_disabled_still_captures(fake_capture_deps, tmp_path):
 
     import unittest.mock as um
     with um.patch.dict(sys.modules, {"PIL": fake_pil, "PIL.Image": fake_image_module}):
-        from mt5_universal.screenshot import dom
+        from mt5_cli.screenshot import dom
         out = str(tmp_path / "dom.png")
         env = dom(
             symbol="USDJPY",
@@ -235,8 +235,8 @@ def test_dom_with_panels_disabled_still_captures(fake_capture_deps, tmp_path):
 def test_screenshot_module_does_not_import_metatrader5():
     """Screenshot is pure capture - never touches the MT5 SDK bridge."""
     import importlib
-    import mt5_universal.screenshot  # noqa: F401
-    mod = importlib.import_module("mt5_universal.screenshot.screenshot")
+    import mt5_cli.screenshot  # noqa: F401
+    mod = importlib.import_module("mt5_cli.screenshot.screenshot")
     src = open(mod.__file__, encoding="utf-8").read()
     assert "import MetaTrader5" not in src
     assert "from MetaTrader5" not in src

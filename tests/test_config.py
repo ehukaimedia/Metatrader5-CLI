@@ -1,6 +1,6 @@
 import pytest
 
-from mt5_universal.config import load, save, mask_secrets
+from mt5_cli.config import load, save, mask_secrets
 
 
 @pytest.fixture

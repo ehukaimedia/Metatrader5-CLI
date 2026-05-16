@@ -13,14 +13,14 @@ unlike chart.py which is pure Win32. That's a deliberate split:
 chart.py controls the GUI (window/toolbar/menu), this module manages
 indicator state through the SDK.
 
-Public surface (re-exported from mt5_universal.chart.__init__):
+Public surface (re-exported from mt5_cli.chart.__init__):
 - attach(chart_id, indicator_name, params=None, sub_window=0)
 - detach(chart_id, indicator_short_name, sub_window=0)
 - list_attached(chart_id, sub_window=0)
 """
 from __future__ import annotations
 
-from mt5_universal.bridge import (
+from mt5_cli.bridge import (
     TIMEFRAME_D1,
     TIMEFRAME_H1,
     TIMEFRAME_H4,
@@ -32,8 +32,8 @@ from mt5_universal.bridge import (
     TIMEFRAME_W1,
     mt5_call,
 )
-from mt5_universal.chart.chart import current_title
-from mt5_universal.reports import fail, ok
+from mt5_cli.chart.chart import current_title
+from mt5_cli.reports import fail, ok
 
 _TF_NAME_TO_CONST = {
     "M1": TIMEFRAME_M1,

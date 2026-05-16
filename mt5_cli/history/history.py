@@ -1,19 +1,19 @@
 """
-history.py — Trade history primitives for mt5_universal.
+history.py — Trade history primitives for mt5_cli.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` via the bridge.
 
 Pattern-ported from archive/legacy-mt5/core/history.py; imports and envelope
-construction rewritten for mt5_universal.
+construction rewritten for mt5_cli.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from mt5_universal.bridge import mt5_call
-from mt5_universal.reports import ok, fail
-from mt5_universal.risk import resolve_magic
+from mt5_cli.bridge import mt5_call
+from mt5_cli.reports import ok, fail
+from mt5_cli.risk import resolve_magic
 
 
 # ---------------------------------------------------------------------------

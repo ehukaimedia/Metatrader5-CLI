@@ -1,8 +1,8 @@
 """
-risk.py — Pre-flight risk checks and position-sizing for mt5_universal.
+risk.py — Pre-flight risk checks and position-sizing for mt5_cli.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
-through ``mt5_universal.bridge.mt5_call()``.
+through ``mt5_cli.bridge.mt5_call()``.
 
 Cherry-picked from archive/legacy-mt5/core/risk.py (354 LOC) with the
 following intentional divergences from legacy:
@@ -10,7 +10,7 @@ following intentional divergences from legacy:
 1. ``compute_volume_from_risk_pct`` returns an ok({"volume": ...}) envelope
    on success instead of a raw float (spec §3 — same JSON envelope everywhere).
 2. ``check_order`` returns ok(None) on success instead of {"ok": True}.
-3. Error dicts use fail(code, message) from mt5_universal.reports — no
+3. Error dicts use fail(code, message) from mt5_cli.reports — no
    mt5_retcode field (risk gates are local checks, not broker responses).
 4. Rate limiter uses time.monotonic() (unchanged from legacy) — correct choice
    since wall-clock jumps would break the sliding window.
@@ -41,11 +41,11 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from mt5_universal.bridge import (
+from mt5_cli.bridge import (
     mt5_call,
     ACCOUNT_TRADE_MODE_REAL,
 )
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 # ---------------------------------------------------------------------------
 # Module-level state

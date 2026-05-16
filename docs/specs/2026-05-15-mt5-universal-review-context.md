@@ -9,7 +9,7 @@ This file is a sibling to:
 
 ## 1. What we are doing — in one paragraph
 
-Hard-fork the archived `metatrader5_cli/mt5/core/` patterns (tangled with Ehukai/TDA/wavelet/Hybrid-WPVS semantics) into a fresh agnostic Python library at `mt5_universal/`. Author MQL5 EAs and indicators in user-dir plugins. Drive MT5's native Strategy Tester from the CLI for backtests. Publish the library as both a `mt5` CLI and a `mt5-mcp` MCP server so AI agents have hands. Trading.com stays as the canonical broker profile but is no longer hardcoded. No code in the new tree contains hardcoded user paths.
+Hard-fork the archived `metatrader5_cli/mt5/core/` patterns (tangled with Ehukai/TDA/wavelet/Hybrid-WPVS semantics) into a fresh agnostic Python library at `mt5_cli/`. Author MQL5 EAs and indicators in user-dir plugins. Drive MT5's native Strategy Tester from the CLI for backtests. Publish the library as both a `mt5` CLI and a `mt5-mcp` MCP server so AI agents have hands. Trading.com stays as the canonical broker profile but is no longer hardcoded. No code in the new tree contains hardcoded user paths.
 
 ## 2. Locked decisions — do not re-litigate
 
@@ -23,8 +23,8 @@ These were settled during brainstorming (see spec §4). A reviewer flagging them
 | 4 | **Library-first architecture** with submodule-per-concern. CLI and MCP are thin wrappers. | "Why not centralize in an Engine god-object?" — Considered (option B in brainstorm), rejected. |
 | 5 | **MCP + CLI dual surface** from one library. | "Drop the CLI, MCP-only" or "Drop MCP, CLI-only" — both rejected. The user uses both. |
 | 6 | **Trading.com is the default `BrokerProfile`,** not removed and not hardcoded. | "Strip Trading.com defaults" — No. It's the user's actual broker and the MT5-native default. |
-| 7 | **Portability rails are mandatory** — no hardcoded user paths in `mt5_universal/`, `mt5/`, `mt5_mcp/`. CI-enforced. | "This is overkill for a single-user repo" — No. Explicit user constraint. |
-| 8 | **Existing `archive/legacy-mt5/skills/SKILL.md` is migrated, not replaced.** | "Phase 5 should rebuild SKILL.md from a CLI-Anything template" — No. The 11k-char manifest stays as the workflow narrative; only the command-group tables are auto-regenerated. |
+| 7 | **Portability rails are mandatory** — no hardcoded user paths in `mt5_cli/`, `mt5/`, `mt5_mcp/`. CI-enforced. | "This is overkill for a single-user repo" — No. Explicit user constraint. |
+| 8 | **Existing `archive/legacy-mt5/skills/SKILL.md` is migrated, not replaced.** | "Phase 5 should rebuild SKILL.md from a generic template" — No. The 11k-char manifest stays as the workflow narrative; only the command-group tables are auto-regenerated. |
 | 9 | **Tool, not workspace.** Repo ships only the tool (CLI, MCP server, library, minimal MQL5 scaffold templates). No shipped EAs/indicators/strategy docs/backtest results. User dirs (`ea/`, `indicators/`, `presets/`, `results/`) are USER-side; the CLI discovers them in the user's CWD or config dir. Strategy-flavored history lives under `archive/legacy-docs/`. | "Ship example EAs / strategy plans / playgrounds with the repo so new users see how it works" — No. Examples and strategy docs live in user repos and external tutorials; this repo is the tool only. |
 | 10 | **Hands, not strategies.** The tool ships zero indicator math (no Python `ema/sma/rsi/atr/bbands` quicklook; no FVG / swing / market-structure / SMC primitives), zero EAs, zero analytical frameworks, zero opinions about what to trade. It ships HANDS for the user to USE, CREATE, and TEST their own MQL5 EAs and indicators: market data + orders + positions + account + history + risk gates + chart control + screenshots + chart-indicator attach/detach + MQL5 compile/deploy/discovery + MT5 Strategy Tester driver. Templates ship only as minimal MQL5 skeletons (one per asset type — `ea_minimal.mq5`, `indicator_minimal.mq5`) with no strategy connotations. | "Ship a generic `mt5 indicator ema USDJPY H1 --period 20` quicklook so agents don't have to compile MQL5 for simple reads" — No. The tool gives `mt5 rates fetch USDJPY H1 --bars 200`; users transform the OHLC their own way. "Add a `scalper` / `swing` / `mean-reversion` EA template" — No. Templates are minimal skeletons; strategy classification is the user's domain. |
 
@@ -35,9 +35,9 @@ Aim your review here. These are the kinds of issues that reviews should surface:
 - **Factual inaccuracies** — wrong file paths, wrong LOC counts, wrong MQL5 inventory, claims about modules that don't match what's in git. (Codex 2026-05-15 P2 was a great example.)
 - **Drift between artifacts** — playground says X, spec says Y, code does Z.
 - **Security concerns** — XSS in the playground (we already use textContent and avoid innerHTML), credential leaks, hardcoded secrets, command injection.
-- **Portability violations** — anything matching `C:\\Users\\`, `/home/`, `/Users/`, hardcoded drive letters in `mt5_universal/`, `mt5/`, `mt5_mcp/`.
-- **Risk-gate bypass paths** — any code path where an order can be placed without `mt5_universal/risk/` being called. This is non-negotiable.
-- **Bridge violations** — any module besides `mt5_universal/bridge/mt5_backend.py` importing `MetaTrader5`.
+- **Portability violations** — anything matching `C:\\Users\\`, `/home/`, `/Users/`, hardcoded drive letters in `mt5_cli/`, `mt5/`, `mt5_mcp/`.
+- **Risk-gate bypass paths** — any code path where an order can be placed without `mt5_cli/risk/` being called. This is non-negotiable.
+- **Bridge violations** — any module besides `mt5_cli/bridge/mt5_backend.py` importing `MetaTrader5`.
 - **Test coverage gaps for changed code** — when a phase commit touches a module, point out untested branches in the changed code.
 - **Edge cases in tester result parsing** — Strategy Tester HTML / journal CSV / optimization XML have many edge cases; reviewers catching unhandled ones is gold.
 - **Missing portability fallbacks** — clipboard, MetaEditor.exe path resolution, registry lookups.
@@ -57,14 +57,13 @@ Skip these — they waste review time and risk pulling the design off-course:
 - **Demands for symmetry** — e.g., "indicator visual test should support optimization too" — MT5's tester doesn't, so neither do we.
 - **Comparing to non-MT5 platforms** — "MetaTrader 4 does it differently" / "TradingView API does it differently" — we're MT5-only by design.
 
-## 5. Cherry-pick relationship to CLI-Anything
+## 5. Design conventions (spec §5)
 
-We deliberately copied 8 patterns from [CLI-Anything](https://github.com/HKUDS/CLI-Anything), listed in spec §5 with attribution. **Reviewer notes:**
+Spec §5 enumerates 8 design conventions (single bridge, dual JSON+human output, SKILL.md with frontmatter, skill_generator, ReplSkin banner, MQL5 templates, MCP server publication, MT5_HARNESS.md). **Reviewer notes:**
 
-- **Don't flag patterns that match CLI-Anything as "derivative."** That's the point — it's a documented cherry-pick.
-- **Don't demand we adopt MORE of CLI-Anything than the 8 listed patterns.** They have ~50 patterns; we picked the 8 that fit. "Why not also use CLI-Hub auto-publish?" — because we're not publishing to PyPI.
-- **DO flag deviations from a pattern we said we adopted.** E.g., if the SKILL.md template lacks the "For AI Agents" section after we said we'd include it, that's a real deviation.
-- **CLI-Anything's `mcp-backend.md` guide is INVERTED** in our adoption — they consume MCP backends, we publish the library AS an MCP server. Don't flag this as misuse.
+- **DO flag deviations from those conventions.** E.g., if the SKILL.md template lacks the "For AI Agents" section after spec §5 said we'd include it, that's a real deviation.
+- **Don't propose adding more conventions** unless they materially help agents — the 8 in spec §5 are what we chose to commit to.
+- **MCP server publication** is one-directional: we publish, agents consume. The library is the source of MCP tools, not a consumer of someone else's MCP backend.
 
 ## 6. Relationship to the existing canonical spec
 
@@ -87,7 +86,7 @@ Spec §8 lays out 7 phases (0 through 6). Each phase has acceptance criteria. **
 
 | Command | Expected result |
 |---|---|
-| `python -m pytest -q` (from repo root, post-Phase 1 / pre-Phase 2) | `1 passed` (transitional placeholder while `mt5_universal/` is rebuilt fresh) |
+| `python -m pytest -q` (from repo root, post-Phase 1 / pre-Phase 2) | `1 passed` (transitional placeholder while `mt5_cli/` is rebuilt fresh) |
 | `git diff --check master...HEAD` | passes (no whitespace errors) |
 
 Phase 0's original baseline was `240 passed, 1 skipped`; that is historical now that the legacy package and its tests are archived. Later phases should replace the placeholder with real top-level `tests/` coverage and grow the pass count again.

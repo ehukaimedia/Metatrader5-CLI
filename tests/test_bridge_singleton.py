@@ -1,4 +1,4 @@
-"""CI guard: only mt5_universal/bridge/mt5_backend.py may import MetaTrader5.
+"""CI guard: only mt5_cli/bridge/mt5_backend.py may import MetaTrader5.
 
 Uses AST parsing rather than a substring check so legitimate mentions
 of "import MetaTrader5" in docstrings or comments are not false
@@ -21,8 +21,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = {"mt5_universal/bridge/mt5_backend.py"}
-SCAN_DIRS = ("mt5_universal", "mt5", "mt5_mcp")
+ALLOWED = {"mt5_cli/bridge/mt5_backend.py"}
+SCAN_DIRS = ("mt5_cli", "mt5", "mt5_mcp")
 
 
 def _imports_metatrader5(py_path: Path) -> bool:

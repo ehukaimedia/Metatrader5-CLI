@@ -1,8 +1,8 @@
 """
-market.py — Market data primitives for mt5_universal.
+market.py — Market data primitives for mt5_cli.
 
 Pattern-ported from archive/legacy-mt5/core/market.py with absolute imports
-from mt5_universal.bridge and ok()/fail() envelopes.
+from mt5_cli.bridge and ok()/fail() envelopes.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` / ``ensure_symbol()`` via the bridge.
@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from mt5_universal.bridge import mt5_call, ensure_symbol
-from mt5_universal.reports import ok, fail
+from mt5_cli.bridge import mt5_call, ensure_symbol
+from mt5_cli.reports import ok, fail
 
 # ---------------------------------------------------------------------------
 # Internal helpers

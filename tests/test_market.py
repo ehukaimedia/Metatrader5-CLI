@@ -6,7 +6,7 @@ import pytest
 @pytest.fixture
 def mocked_mt5(monkeypatch):
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.market"):
+        if name.startswith("mt5_cli.bridge") or name.startswith("mt5_cli.market"):
             sys.modules.pop(name, None)
 
     fake = MagicMock(name="MetaTrader5")
@@ -35,7 +35,7 @@ def mocked_mt5(monkeypatch):
     monkeypatch.setitem(sys.modules, "MetaTrader5", fake)
     yield fake
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.market"):
+        if name.startswith("mt5_cli.bridge") or name.startswith("mt5_cli.market"):
             sys.modules.pop(name, None)
 
 
@@ -47,7 +47,7 @@ def test_info_returns_envelope(mocked_mt5):
         filling_mode=1, time=1700000000,
     )
     mocked_mt5.symbol_select.return_value = True
-    from mt5_universal.market import info
+    from mt5_cli.market import info
     env = info("USDJPY")
     assert env["ok"] is True
     assert env["data"]["bid"] == 150.0
@@ -59,7 +59,7 @@ def test_tick_returns_iso_timestamp(mocked_mt5):
     mocked_mt5.symbol_info_tick.return_value = MagicMock(
         bid=150.0, ask=150.005, last=150.002, time=1700000000, volume=10,
     )
-    from mt5_universal.market import tick
+    from mt5_cli.market import tick
     env = tick("USDJPY")
     assert env["ok"] is True
     assert env["data"]["bid"] == 150.0
@@ -77,7 +77,7 @@ def test_depth_releases_subscription(mocked_mt5):
         MagicMock(type=2, price=149.998, volume=12),
     ]
     mocked_mt5.market_book_release.return_value = True
-    from mt5_universal.market import depth
+    from mt5_cli.market import depth
     env = depth("USDJPY", levels=2)
     assert env["ok"] is True
     mocked_mt5.market_book_release.assert_called_once_with("USDJPY")
@@ -94,7 +94,7 @@ def test_depth_returns_nearest_first(mocked_mt5):
         MagicMock(type=2, price=150.000, volume=8),
     ]
     mocked_mt5.market_book_release.return_value = True
-    from mt5_universal.market import depth
+    from mt5_cli.market import depth
     env = depth("USDJPY")
     bids = env["data"]["bids"]
     asks = env["data"]["asks"]
@@ -112,7 +112,7 @@ def test_depth_computes_spread_midpoint_imbalance(mocked_mt5):
         MagicMock(type=2, price=150.000, volume=20),  # bigger bid volume
     ]
     mocked_mt5.market_book_release.return_value = True
-    from mt5_universal.market import depth
+    from mt5_cli.market import depth
     env = depth("USDJPY")
     d = env["data"]
     assert d["midpoint"] == pytest.approx(150.0025)
@@ -126,7 +126,7 @@ def test_search_auto_wraps_bare_pattern(mocked_mt5):
     mocked_mt5.symbols_get.return_value = [
         MagicMock(name_="USDJPY"), MagicMock(name_="EURUSD"),
     ]
-    from mt5_universal.market import search
+    from mt5_cli.market import search
     env = search("USD")
     assert env["ok"] is True
     # Verify the wildcard was applied. Legacy wraps bare → *USD*
@@ -135,7 +135,7 @@ def test_search_auto_wraps_bare_pattern(mocked_mt5):
 
 
 def test_sessions_returns_envelope(mocked_mt5):
-    from mt5_universal.market import sessions
+    from mt5_cli.market import sessions
     env = sessions("USDJPY")
     assert env["ok"] is True
     # static table — at minimum a symbol field and some session info

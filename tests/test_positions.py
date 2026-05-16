@@ -1,10 +1,10 @@
 """
-test_positions.py — TDD for mt5_universal/positions/positions.py
+test_positions.py — TDD for mt5_cli/positions/positions.py
 
 Cherry-pick of 5 functions: list, close, close_all, move_sl, breakeven.
 
 Deliberate divergences from legacy (per spec):
-- Uses ok()/fail() from mt5_universal.reports (not legacy _fail helper).
+- Uses ok()/fail() from mt5_cli.reports (not legacy _fail helper).
 - fail() error wraps mt5_retcode in data={"mt5_retcode": ...}, not as kwarg.
 - No risk.check_order — only _live_gate_check (account_info-based).
 - No rate limiter involved; no _reset_rl() needed.
@@ -19,14 +19,14 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _MODULES_TO_PURGE = (
-    "mt5_universal.bridge",
-    "mt5_universal.bridge.mt5_backend",
-    "mt5_universal.risk",
-    "mt5_universal.risk.risk",
-    "mt5_universal.orders",
-    "mt5_universal.orders.orders",
-    "mt5_universal.positions",
-    "mt5_universal.positions.positions",
+    "mt5_cli.bridge",
+    "mt5_cli.bridge.mt5_backend",
+    "mt5_cli.risk",
+    "mt5_cli.risk.risk",
+    "mt5_cli.orders",
+    "mt5_cli.orders.orders",
+    "mt5_cli.positions",
+    "mt5_cli.positions.positions",
 )
 
 
@@ -161,7 +161,7 @@ class TestList:
     def test_list_returns_envelope_with_empty_list(self, mocked_mt5):
         """positions_get returns [] → ok envelope with empty data list."""
         mocked_mt5.positions_get.return_value = []
-        from mt5_universal.positions.positions import list  # noqa: A004
+        from mt5_cli.positions.positions import list  # noqa: A004
         result = list()
         assert result["ok"] is True
         assert result["data"] == []
@@ -170,7 +170,7 @@ class TestList:
         """When symbol is passed, positions_get is called with symbol kwarg."""
         pos = _make_position(ticket=101, symbol="EURUSD")
         mocked_mt5.positions_get.return_value = [pos]
-        from mt5_universal.positions.positions import list  # noqa: A004
+        from mt5_cli.positions.positions import list  # noqa: A004
         result = list(symbol="EURUSD")
         assert result["ok"] is True
         assert len(result["data"]) == 1
@@ -185,7 +185,7 @@ class TestList:
             volume=0.2, price_open=1.2500, profit=30.0, swap=-1.0,
         )
         mocked_mt5.positions_get.return_value = [pos]
-        from mt5_universal.positions.positions import list  # noqa: A004
+        from mt5_cli.positions.positions import list  # noqa: A004
         result = list()
         assert result["ok"] is True
         d = result["data"][0]
@@ -200,7 +200,7 @@ class TestList:
     def test_list_returns_fail_when_positions_get_returns_none(self, mocked_mt5):
         """positions_get returns None → fail(MT5_NO_DATA)."""
         mocked_mt5.positions_get.return_value = None
-        from mt5_universal.positions.positions import list  # noqa: A004
+        from mt5_cli.positions.positions import list  # noqa: A004
         result = list()
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_NO_DATA"
@@ -209,7 +209,7 @@ class TestList:
         """A SELL position (type=1) should appear as type='sell' in dict."""
         pos = _make_position(ticket=103, pos_type=1)
         mocked_mt5.positions_get.return_value = [pos]
-        from mt5_universal.positions.positions import list  # noqa: A004
+        from mt5_cli.positions.positions import list  # noqa: A004
         result = list()
         assert result["ok"] is True
         assert result["data"][0]["type"] == "sell"
@@ -227,7 +227,7 @@ class TestClose:
         pos = _make_position(ticket=200, pos_type=0, volume=0.1)  # BUY
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         result = close(200, is_live_intent=False)
         assert result["ok"] is True
         req = mocked_mt5.order_send.call_args[0][0]
@@ -241,7 +241,7 @@ class TestClose:
         pos = _make_position(ticket=201, pos_type=1, volume=0.1)  # SELL
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         result = close(201, is_live_intent=False)
         assert result["ok"] is True
         req = mocked_mt5.order_send.call_args[0][0]
@@ -254,7 +254,7 @@ class TestClose:
         pos = _make_position(ticket=202, pos_type=0, volume=0.1)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         close(202, volume=0.05, is_live_intent=False)
         req = mocked_mt5.order_send.call_args[0][0]
         assert req["volume"] == 0.05
@@ -265,7 +265,7 @@ class TestClose:
         pos = _make_position(ticket=203, pos_type=0, volume=0.25)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         close(203, is_live_intent=False)
         req = mocked_mt5.order_send.call_args[0][0]
         assert req["volume"] == 0.25
@@ -273,7 +273,7 @@ class TestClose:
     def test_close_blocked_when_is_live_intent_false_on_real_account(self, mocked_mt5):
         """is_live_intent=False on REAL account → RISK_LIVE_GATE_BLOCKED."""
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         result = close(204, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
@@ -283,7 +283,7 @@ class TestClose:
         """positions_get returns [] for ticket → MT5_TICKET_NOT_FOUND."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.positions_get.return_value = []
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         result = close(999, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
@@ -296,7 +296,7 @@ class TestClose:
         bad_result = _make_send_result(retcode=10006)
         bad_result.comment = "Broker rejected"
         mocked_mt5.order_send.return_value = bad_result
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         result = close(205, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_ORDER_REJECTED"
@@ -308,7 +308,7 @@ class TestClose:
         pos = _make_position(ticket=206, pos_type=0, volume=0.1)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import close
+        from mt5_cli.positions.positions import close
         close(206, is_live_intent=False)
         req = mocked_mt5.order_send.call_args[0][0]
         assert req["price"] == 1.1000  # bid for BUY close
@@ -327,7 +327,7 @@ class TestCloseAll:
         pos2 = _make_position(ticket=301, pos_type=1, volume=0.2, profit=-5.0)
         mocked_mt5.positions_get.return_value = [pos1, pos2]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import close_all
+        from mt5_cli.positions.positions import close_all
         result = close_all(is_live_intent=False)
         assert result["ok"] is True
         assert len(result["data"]) == 2
@@ -338,7 +338,7 @@ class TestCloseAll:
         """close_all(symbol='EURUSD') passes symbol kwarg to positions_get."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.positions_get.return_value = []
-        from mt5_universal.positions.positions import close_all
+        from mt5_cli.positions.positions import close_all
         close_all(symbol="EURUSD", is_live_intent=False)
         # First call is the positions_get in close_all itself
         mocked_mt5.positions_get.assert_any_call(symbol="EURUSD")
@@ -366,7 +366,7 @@ class TestCloseAll:
         mocked_mt5.positions_get.side_effect = positions_get_side_effect
         mocked_mt5.order_send.side_effect = [fail_result, success_result]
 
-        from mt5_universal.positions.positions import close_all
+        from mt5_cli.positions.positions import close_all
         result = close_all(is_live_intent=False)
         assert result["ok"] is True
         assert len(result["data"]) == 2
@@ -378,7 +378,7 @@ class TestCloseAll:
         """No open positions → ok with empty data list."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.positions_get.return_value = []
-        from mt5_universal.positions.positions import close_all
+        from mt5_cli.positions.positions import close_all
         result = close_all(is_live_intent=False)
         assert result["ok"] is True
         assert result["data"] == []
@@ -386,7 +386,7 @@ class TestCloseAll:
     def test_close_all_blocked_on_real_account(self, mocked_mt5):
         """is_live_intent=False on REAL account → RISK_LIVE_GATE_BLOCKED."""
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)
-        from mt5_universal.positions.positions import close_all
+        from mt5_cli.positions.positions import close_all
         result = close_all(is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
@@ -404,7 +404,7 @@ class TestMoveSl:
         pos = _make_position(ticket=400, pos_type=0, sl=1.0900, tp=1.1200)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import move_sl
+        from mt5_cli.positions.positions import move_sl
         result = move_sl(400, sl=1.0950, is_live_intent=False)
         assert result["ok"] is True
         req = mocked_mt5.order_send.call_args[0][0]
@@ -418,7 +418,7 @@ class TestMoveSl:
         pos = _make_position(ticket=401, pos_type=0, sl=1.0900, tp=1.1200)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import move_sl
+        from mt5_cli.positions.positions import move_sl
         move_sl(401, sl=1.0950, is_live_intent=False)
         req = mocked_mt5.order_send.call_args[0][0]
         assert req["tp"] == 1.1200   # preserved from position
@@ -427,7 +427,7 @@ class TestMoveSl:
         """positions_get returns [] for ticket → MT5_TICKET_NOT_FOUND."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.positions_get.return_value = []
-        from mt5_universal.positions.positions import move_sl
+        from mt5_cli.positions.positions import move_sl
         result = move_sl(999, sl=1.0950, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
@@ -435,7 +435,7 @@ class TestMoveSl:
     def test_move_sl_blocked_on_real_account(self, mocked_mt5):
         """is_live_intent=False on REAL account → RISK_LIVE_GATE_BLOCKED."""
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)
-        from mt5_universal.positions.positions import move_sl
+        from mt5_cli.positions.positions import move_sl
         result = move_sl(400, sl=1.0950, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
@@ -446,7 +446,7 @@ class TestMoveSl:
         pos = _make_position(ticket=402, pos_type=0, sl=1.0900, tp=0.0)
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import move_sl
+        from mt5_cli.positions.positions import move_sl
         result = move_sl(402, sl=1.0950, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["result"] == "sl_moved"
@@ -466,7 +466,7 @@ class TestBreakeven:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.symbol_info.return_value = _sym_info(point=0.00001)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(500, buffer_points=10, is_live_intent=False)
         assert result["ok"] is True
         expected_sl = 1.1000 + 10 * 0.00001
@@ -481,7 +481,7 @@ class TestBreakeven:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.symbol_info.return_value = _sym_info(point=0.00001)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(501, buffer_points=10, is_live_intent=False)
         assert result["ok"] is True
         expected_sl = 1.1000 - 10 * 0.00001
@@ -496,7 +496,7 @@ class TestBreakeven:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.symbol_info.return_value = _sym_info(point=0.00001)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(502, buffer_points=0, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["sl_set_to"] == 1.2345
@@ -507,7 +507,7 @@ class TestBreakeven:
         """positions_get returns [] for ticket → MT5_TICKET_NOT_FOUND."""
         _setup_happy_path(mocked_mt5)
         mocked_mt5.positions_get.return_value = []
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(999, buffer_points=5, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_TICKET_NOT_FOUND"
@@ -519,7 +519,7 @@ class TestBreakeven:
         mocked_mt5.positions_get.return_value = [pos]
         mocked_mt5.symbol_info.return_value = _sym_info(point=0.00001)
         mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(503, buffer_points=5, is_live_intent=False)
         assert result["ok"] is True
         assert result["data"]["result"] == "breakeven_set"
@@ -529,7 +529,7 @@ class TestBreakeven:
     def test_breakeven_blocked_on_real_account(self, mocked_mt5):
         """is_live_intent=False on REAL account → RISK_LIVE_GATE_BLOCKED."""
         mocked_mt5.account_info.return_value = _acct(trade_mode=2)
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(500, buffer_points=5, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
@@ -543,7 +543,7 @@ class TestBreakeven:
         bad_result = _make_send_result(retcode=10006)
         bad_result.comment = "Rejected"
         mocked_mt5.order_send.return_value = bad_result
-        from mt5_universal.positions.positions import breakeven
+        from mt5_cli.positions.positions import breakeven
         result = breakeven(504, buffer_points=5, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_ORDER_REJECTED"

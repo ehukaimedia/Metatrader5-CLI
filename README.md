@@ -4,7 +4,7 @@ A pip-installable tool that gives AI agents and humans hands to MetaTrader 5.
 
 ## Status
 
-Under active refactor. The CLI is being rebuilt under `mt5_universal/`. The
+Under active refactor. The CLI is being rebuilt under `mt5_cli/`. The
 previous CLI is preserved at `archive/legacy-mt5/` as cherry-pick reference
 only. There is no working CLI on this branch yet.
 
@@ -15,7 +15,7 @@ from their own external workspace. It provides:
 
 - `mt5` — a CLI for shell use and scripts
 - `mt5-mcp` — an MCP server for AI agents (Claude Code, Cursor, etc.)
-- `mt5_universal` — a Python library for direct programmatic use
+- `mt5_cli` — a Python library for direct programmatic use
 
 You install once. Your MQL5 EAs, indicators, `.set` presets, and tester results
 live in YOUR project directory, never in this repo.

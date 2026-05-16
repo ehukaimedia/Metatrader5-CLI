@@ -58,7 +58,7 @@ def _config_path() -> Path:
     if "MT5_CONFIG" in os.environ:
         return Path(os.environ["MT5_CONFIG"])
     home = Path(os.path.expanduser("~"))
-    return home / ".config" / "cli-anything-mt5.json"
+    return home / ".config" / "metatrader5-cli.json"
 
 
 def load(overrides: dict[str, Any] | None = None) -> dict[str, Any]:

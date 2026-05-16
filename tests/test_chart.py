@@ -1,4 +1,4 @@
-"""Tests for mt5_universal/chart/ - Win32 chart-control primitives.
+"""Tests for mt5_cli/chart/ - Win32 chart-control primitives.
 
 Cherry-pick from archive/legacy-mt5/core/chart.py (941 LOC, with
 TDA-flavored orchestration stripped out). Tests use lazily-mocked
@@ -14,7 +14,7 @@ import pytest
 
 def _purge_chart_cache():
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.chart"):
+        if name.startswith("mt5_cli.chart"):
             sys.modules.pop(name, None)
 
 
@@ -63,7 +63,7 @@ def fake_pywin32(monkeypatch):
 
 def test_normalize_timeframe_canonicalizes_mn1():
     _purge_chart_cache()
-    from mt5_universal.chart import normalize_timeframe
+    from mt5_cli.chart import normalize_timeframe
     assert normalize_timeframe("MN1") == "MN"
     assert normalize_timeframe("m15") == "M15"
     assert normalize_timeframe("H4") == "H4"
@@ -71,14 +71,14 @@ def test_normalize_timeframe_canonicalizes_mn1():
 
 def test_normalize_timeframe_rejects_unknown():
     _purge_chart_cache()
-    from mt5_universal.chart import normalize_timeframe
+    from mt5_cli.chart import normalize_timeframe
     with pytest.raises(ValueError):
         normalize_timeframe("Q1")
 
 
 def test_parse_chart_title_bracket_form():
     _purge_chart_cache()
-    from mt5_universal.chart import parse_chart_title
+    from mt5_cli.chart import parse_chart_title
     sym, tf = parse_chart_title("[USDJPY,H1] - Live")
     assert sym == "USDJPY"
     assert tf == "H1"
@@ -86,7 +86,7 @@ def test_parse_chart_title_bracket_form():
 
 def test_parse_chart_title_plain_form():
     _purge_chart_cache()
-    from mt5_universal.chart import parse_chart_title
+    from mt5_cli.chart import parse_chart_title
     sym, tf = parse_chart_title("USDJPY,M15")
     assert sym == "USDJPY"
     assert tf == "M15"
@@ -94,7 +94,7 @@ def test_parse_chart_title_plain_form():
 
 def test_parse_chart_title_daily_alias():
     _purge_chart_cache()
-    from mt5_universal.chart import parse_chart_title
+    from mt5_cli.chart import parse_chart_title
     sym, tf = parse_chart_title("[EURUSD,Daily]")
     assert sym == "EURUSD"
     assert tf == "D1"
@@ -102,13 +102,13 @@ def test_parse_chart_title_daily_alias():
 
 def test_parse_chart_title_no_match():
     _purge_chart_cache()
-    from mt5_universal.chart import parse_chart_title
+    from mt5_cli.chart import parse_chart_title
     assert parse_chart_title("MetaTrader 5") == (None, None)
 
 
 def test_title_has_symbol_tf_matches_strictly():
     _purge_chart_cache()
-    from mt5_universal.chart import title_has_symbol_tf
+    from mt5_cli.chart import title_has_symbol_tf
     assert title_has_symbol_tf("[USDJPY,H1]", "USDJPY", "H1") is True
     assert title_has_symbol_tf("[USDJPY,H1]", "USDJPY", "M15") is False
     assert title_has_symbol_tf("[USDJPY,H1]", "EURUSD", "H1") is False
@@ -129,7 +129,7 @@ def test_find_window_returns_match(fake_pywin32):
     win32gui.GetWindowText.return_value = "MetaTrader 5"
     win32gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
 
-    from mt5_universal.chart import find_window
+    from mt5_cli.chart import find_window
     match = find_window("MT5")
     assert match is not None
     assert match.hwnd == 1234
@@ -137,12 +137,12 @@ def test_find_window_returns_match(fake_pywin32):
 
 
 def test_find_window_returns_none_when_no_match(fake_pywin32):
-    from mt5_universal.chart import find_window
+    from mt5_cli.chart import find_window
     assert find_window("MT5") is None
 
 
 def test_list_charts_fail_when_window_missing(fake_pywin32):
-    from mt5_universal.chart import list_charts
+    from mt5_cli.chart import list_charts
     env = list_charts("MT5")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
@@ -175,7 +175,7 @@ def test_list_charts_returns_envelope_with_chart_data(fake_pywin32):
         cb(2001, None)
     win32gui.EnumChildWindows.side_effect = fake_enum_children
 
-    from mt5_universal.chart import list_charts
+    from mt5_cli.chart import list_charts
     env = list_charts("MT5")
     assert env["ok"] is True
     titles = [c["title"] for c in env["data"]]
@@ -186,7 +186,7 @@ def test_list_charts_returns_envelope_with_chart_data(fake_pywin32):
 
 
 def test_current_title_fail_when_window_missing(fake_pywin32):
-    from mt5_universal.chart import current_title
+    from mt5_cli.chart import current_title
     env = current_title("MT5")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
@@ -201,7 +201,7 @@ def test_current_title_returns_parent_fallback_when_no_charts(fake_pywin32):
     win32gui.GetWindowText.return_value = "[USDJPY,H4] - Trading.com Markets MT5"
     win32gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
 
-    from mt5_universal.chart import current_title
+    from mt5_cli.chart import current_title
     env = current_title("MT5")
     assert env["ok"] is True
     assert env["data"]["symbol"] == "USDJPY"
@@ -222,7 +222,7 @@ def test_activate_chart_uses_mdi_when_parent_given(fake_pywin32):
     win32gui.EnumChildWindows.side_effect = fake_enum_children
     win32gui.GetClassName.side_effect = lambda hwnd: "MDIClient" if hwnd == 9999 else ""
 
-    from mt5_universal.chart import activate_chart
+    from mt5_cli.chart import activate_chart
     ok = activate_chart(2000, parent_hwnd=1000, settle_seconds=0)
     assert ok is True
     # Confirm WM_MDIACTIVATE was sent to the MDIClient hwnd
@@ -236,14 +236,14 @@ def test_activate_chart_uses_mdi_when_parent_given(fake_pywin32):
 
 
 def test_switch_tf_rejects_invalid_timeframe(fake_pywin32):
-    from mt5_universal.chart import switch_tf
+    from mt5_cli.chart import switch_tf
     env = switch_tf("Q1")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_INVALID_TIMEFRAME"
 
 
 def test_switch_tf_fails_when_window_missing(fake_pywin32):
-    from mt5_universal.chart import switch_tf
+    from mt5_cli.chart import switch_tf
     env = switch_tf("M15")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
@@ -255,7 +255,7 @@ def test_switch_tf_fails_when_window_missing(fake_pywin32):
 
 
 def test_symbol_fails_when_window_missing(fake_pywin32):
-    from mt5_universal.chart import symbol as chart_symbol
+    from mt5_cli.chart import symbol as chart_symbol
     env = chart_symbol("USDJPY")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
@@ -267,14 +267,14 @@ def test_symbol_fails_when_window_missing(fake_pywin32):
 
 
 def test_ensure_chart_rejects_invalid_timeframe(fake_pywin32):
-    from mt5_universal.chart import ensure_chart
+    from mt5_cli.chart import ensure_chart
     env = ensure_chart("USDJPY", timeframe="Q1")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_INVALID_TIMEFRAME"
 
 
 def test_ensure_chart_fails_when_window_missing(fake_pywin32):
-    from mt5_universal.chart import ensure_chart
+    from mt5_cli.chart import ensure_chart
     env = ensure_chart("USDJPY", timeframe="M15")
     # symbol() runs first, fails on missing window
     assert env["ok"] is False
@@ -287,14 +287,14 @@ def test_ensure_chart_fails_when_window_missing(fake_pywin32):
 
 
 def test_chart_module_does_not_import_metatrader5():
-    """Verify mt5_universal.chart never touches MetaTrader5 - it's a Win32
+    """Verify mt5_cli.chart never touches MetaTrader5 - it's a Win32
     GUI module, not a bridge consumer. Locked decision: only
-    mt5_universal/bridge/mt5_backend.py imports MetaTrader5.
+    mt5_cli/bridge/mt5_backend.py imports MetaTrader5.
     """
     import importlib
-    import mt5_universal.chart  # noqa: F401
+    import mt5_cli.chart  # noqa: F401
     # Inspect the module source on disk
-    chart_mod = importlib.import_module("mt5_universal.chart.chart")
+    chart_mod = importlib.import_module("mt5_cli.chart.chart")
     src = open(chart_mod.__file__, encoding="utf-8").read()
     assert "import MetaTrader5" not in src
     assert "from MetaTrader5" not in src

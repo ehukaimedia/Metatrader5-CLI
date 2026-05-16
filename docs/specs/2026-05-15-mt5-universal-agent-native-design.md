@@ -26,14 +26,14 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 1. Strip Ehukai / TDA / wavelet / Hybrid-WPVS semantics out of `core/`. Domain code lives in user plugins, not in the agnostic library.
 2. Make MT5's native Strategy Tester (EA + indicator) **fully driveable from the CLI** with structured JSON results.
 3. Expose the library as **both an MCP server and a CLI** so MCP-aware agents (Claude Code, Cursor, Claude Desktop) get typed tools while shell-based workflows keep working.
-4. Treat **Trading.com as the only currently supported broker**. Its quirks (FOK filling, no hedging, 22:00 UTC rollover, retcode help) live in `mt5_universal/config/trading_com.py` and merge into the standard config loader. Multi-broker support is a later addition; when a second broker is added, refactor to a `BrokerProfile` ABC at that time — do NOT pre-build the abstraction.
+4. Treat **Trading.com as the only currently supported broker**. Its quirks (FOK filling, no hedging, 22:00 UTC rollover, retcode help) live in `mt5_cli/config/trading_com.py` and merge into the standard config loader. Multi-broker support is a later addition; when a second broker is added, refactor to a `BrokerProfile` ABC at that time — do NOT pre-build the abstraction.
 5. **Portable**: no hardcoded user paths. Clone anywhere; `pip install -e .` works.
 
 ## 3. Non-goals
 
 - Replacing MT5 itself or building a Python-side backtester. The Strategy Tester is the canonical engine.
 - Transpiling Python to MQL5 or wrapping MQL5 in a Python DSL. Authors write MQL5 directly.
-- Live multi-broker abstraction at the protocol level. Other brokers also go through MT5; broker-specific quirks (filling mode, hedging, retcodes, rollover) currently live in `mt5_universal/config/trading_com.py`. When a second broker is added, factor the shared interface out at that time — do not pre-build the abstraction now.
+- Live multi-broker abstraction at the protocol level. Other brokers also go through MT5; broker-specific quirks (filling mode, hedging, retcodes, rollover) currently live in `mt5_cli/config/trading_com.py`. When a second broker is added, factor the shared interface out at that time — do not pre-build the abstraction now.
 - Rewriting any in-flight Ehukai / Wavelet / Hybrid-WPVS strategy. Those archive as-is and can be re-introduced as user-dir plugins later.
 - **Shipping any custom EA, indicator, strategy doc, backtest result, or workspace dir.** `metatrader5-cli` is a pip-installable tool that gives AI agents (and humans) hands to MT5. Users install via pip and operate `mt5` (CLI) or `mt5-mcp` (MCP server) **from their own external workspace** — they don't clone this repo or edit its code. The `ea/`, `indicators/`, `presets/`, `results/` discovery dirs live in the user's CWD or `~/.config/mt5-universal/`, **never in this repo**.
 
@@ -44,23 +44,23 @@ We want **an agnostic, agent-native CLI**: agents (and operators) can author the
 | 1 | "Agnostic" means **all four**: strategy-, indicator-, backtest-, broker-agnostic. Trading.com remains the canonical default profile. | Preserves working today while removing assumptions. |
 | 2 | **MQL5 is the canonical author format** for strategies and indicators. Python is the harness only (CLI + MCP + MQL5 scaffolding/compile/deploy + tester drive + results parsing). | MT5 Strategy Tester only runs MQL5; matches what the test environment actually executes. |
 | 3 | **MT5 Strategy Tester is THE backtest engine.** Both EA single/optimize/genetic/forward/scanner/stress and Indicator visual tests are CLI-driven. Drop the Python event-driven backtester. | Realistic ticks, broker-side fills, no parallel engine to maintain. |
-| 4 | **Hard fork** the existing core. Move legacy to `archive/`. Build the new core from scratch under `mt5_universal/`. | The user explicitly chose this over coexistence; cleanest result. |
+| 4 | **Hard fork** the existing core. Move legacy to `archive/`. Build the new core from scratch under `mt5_cli/`. | The user explicitly chose this over coexistence; cleanest result. |
 | 5 | **Library-first architecture.** Submodule-per-concern Python library. CLI and MCP are thin wrappers over the same library. | Each module has one job; FastMCP tools map 1:1; testable in isolation. |
 | 6 | **MCP + CLI dual surface** from one library. Same core powers both. | MCP-aware agents get schemas; shell agents/scripts keep working. |
-| 7 | **Portability rails** baked in from day 1. No hardcoded user paths anywhere in `mt5_universal/`, `mt5/`, or `mt5_mcp/`. CI greps source for forbidden path roots. | The user explicitly added this constraint. |
+| 7 | **Portability rails** baked in from day 1. No hardcoded user paths anywhere in `mt5_cli/`, `mt5/`, or `mt5_mcp/`. CI greps source for forbidden path roots. | The user explicitly added this constraint. |
 
-## 5. Cherry-picked patterns from CLI-Anything
+## 5. Design conventions
 
-[CLI-Anything](https://github.com/HKUDS/CLI-Anything) ships a `cli-anything-plugin/HARNESS.md` SOP + a registry of agent-native CLIs. We adopt 8 patterns:
+The library follows 8 conventions that keep agents productive and the codebase honest:
 
-1. **Single `utils/<app>_backend.py` rule** → reinforced as `mt5_universal/bridge/mt5_backend.py` being the **only** module that imports `MetaTrader5`.
-2. **Dual `--json` + human output** → already present, kept as the contract for every command.
-3. **`skills/SKILL.md` template** with YAML frontmatter (`name`, `description`), command-group tables, examples, **"For AI Agents" usage protocol** → applied to the archived `archive/legacy-mt5/skills/SKILL.md` (11k chars, hand-maintained, no frontmatter) by *migrating* it into the new package.
-4. **`skill_generator.py`** → introspects the Click command tree and regenerates the command-group tables in `SKILL.md` so they don't drift from the code. The curated workflow narrative stays hand-edited.
-5. **`ReplSkin` banner that prints SKILL.md path** → the archived `archive/legacy-mt5/utils/repl_skin.py` pattern is recreated in the new CLI so REPL startup shows the absolute path, letting an agent read the skill file via `Read` without guessing.
-6. **Templates / scaffolding** → `mt5 ea new <name> --template scalper` and `mt5 indicator new <name> --template oscillator` scaffold MQL5 source from packaged templates, mirroring CLI-Anything's `templates/` pattern.
-7. **MCP backend pattern, *inverted*** → CLI-Anything's `guides/mcp-backend.md` shows how to *consume* an MCP backend; we *publish* `mt5_universal` as an MCP server (`mt5-mcp` entry point, FastMCP).
-8. **HARNESS.md SOP + per-plugin TEST.md** → adopted as `MT5_HARNESS.md` (7-phase methodology) so future contributors and agents have a written extension SOP.
+1. **Single bridge module rule** → `mt5_cli/bridge/mt5_backend.py` is the **only** module that imports `MetaTrader5`. AST-enforced via `tests/test_bridge_singleton.py`.
+2. **Dual `--json` + human output** for every CLI command. The JSON shape is the canonical envelope (`{"ok": bool, "data": {...}, "error": {...}}`).
+3. **`skills/SKILL.md` with YAML frontmatter** (`name`, `description`), command-group tables, examples, and an "For AI Agents" usage protocol. Migrated from the archived 11k-char manifest in `archive/legacy-mt5/skills/SKILL.md` rather than rewritten.
+4. **`skill_generator.py`** introspects the Click command tree and regenerates only the command-group tables in `SKILL.md` so they don't drift from the code. The curated workflow narrative stays hand-edited.
+5. **`ReplSkin` banner prints SKILL.md path** so an agent can `Read` the skill file directly from the startup banner — no guessing the absolute path.
+6. **Templates / scaffolding** for MQL5 sources (`mt5 ea new <name>`, `mt5 indicator new <name>`) — minimal skeletons only, no strategy connotations.
+7. **MCP server publication** — `mt5-mcp` entry point exposes the library via FastMCP so agents get typed tools, not just a CLI.
+8. **`MT5_HARNESS.md` SOP** — a 7-phase methodology document so future contributors and agents have a written extension SOP for adding commands, EAs, or test surfaces.
 
 ## 6. Architecture
 
@@ -72,7 +72,7 @@ Metatrader5-CLI/
 │   ├── legacy-mt5/               # retired metatrader5_cli/mt5 package, kept as cherry-pick reference
 │   ├── legacy-docs/              # retired strategy docs/playgrounds/handoffs/specs
 │   └── legacy-mql5/              # Advanced_Wavelet_Entry_System and standalone MQL5 history
-├── mt5_universal/                # NEW: agnostic library (pip-installable)
+├── mt5_cli/                # NEW: agnostic library (pip-installable)
 │   ├── bridge/
 │   │   └── mt5_backend.py        # the ONE module that imports MetaTrader5
 │   ├── config/
@@ -104,9 +104,9 @@ Metatrader5-CLI/
 │   └── skills/
 │       └── SKILL.md              # migrated from archive/legacy-mt5/skills/SKILL.md
 ├── mt5/                          # CLI package — `pip install -e .` installs `mt5` script
-│   └── cli.py                    # thin click wrappers calling mt5_universal.*
+│   └── cli.py                    # thin click wrappers calling mt5_cli.*
 ├── mt5_mcp/                      # MCP server — installs `mt5-mcp` script
-│   └── server.py                 # FastMCP tools mapping 1:1 to mt5_universal functions
+│   └── server.py                 # FastMCP tools mapping 1:1 to mt5_cli functions
 ├── docs/
 │   ├── specs/                    # this file lives here
 │   ├── playgrounds/              # the refactor playground lives here
@@ -137,8 +137,8 @@ What lived at `metatrader5_cli/mt5/mql5/` before the wholesale archive move, now
 
 ### 6.3 Module boundary rules
 
-- `mt5_universal/bridge/mt5_backend.py` is the **only** module that imports `MetaTrader5`. CI test enforces this.
-- `mt5_universal/risk/` is called from `orders/` for **every** order call. CLI, MCP, plugin code, direct library import — all paths flow through it. Non-negotiable; preserved from the archived [mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) §1.
+- `mt5_cli/bridge/mt5_backend.py` is the **only** module that imports `MetaTrader5`. CI test enforces this.
+- `mt5_cli/risk/` is called from `orders/` for **every** order call. CLI, MCP, plugin code, direct library import — all paths flow through it. Non-negotiable; preserved from the archived [mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) §1.
 - Plugins (user EAs/indicators) never import from `mt5/` (CLI) or `mt5_mcp/`. Read-only relationship.
 - `ea/` and `indicators/` user dirs are searched in this order: current working directory → `~/.config/mt5-universal/{ea,indicators}/` or platform equivalent → installed entry points. First-match wins.
 
@@ -218,42 +218,42 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 - The live `metatrader5_cli/` package is gone. No compatibility shim or `mt5-legacy` entry point exists.
 - **Acceptance:** current suite is green via the transitional placeholder (`1 passed`), `archive/` is git-tracked, and no live module imports `MetaTrader5` because the new bridge has not landed yet.
 
-### Phase 2 — `mt5_universal/` skeleton
+### Phase 2 — `mt5_cli/` skeleton
 - Create the submodule tree from §6.1.
-- Recreate the surviving primitives fresh under `mt5_universal/`, cherry-picking patterns from `archive/legacy-mt5/core/` and `archive/legacy-mt5/utils/mt5_backend.py` without importing or moving the archived package back into the live tree.
+- Recreate the surviving primitives fresh under `mt5_cli/`, cherry-picking patterns from `archive/legacy-mt5/core/` and `archive/legacy-mt5/utils/mt5_backend.py` without importing or moving the archived package back into the live tree.
 - Submodules built: `bridge/` (single MetaTrader5 importer), `market/`, `rates/`, `account/`, `history/`, `risk/`, `orders/`, `positions/`, `reports/`, `config/`, `chart/` (pure Win32 + `chart/indicators_attach.py` bridge-mediated), `screenshot/`.
-- **Single-broker scope:** Trading.com only. `mt5_universal/config/trading_com.py` ships `TRADING_COM_DEFAULTS` (FOK filling, no hedging, 22:00 UTC rollover) merged into `config.DEFAULTS`, plus `retcode_help()` for actionable MT5 retcode explanations. NO `BrokerProfile` ABC, NO `generic_mt5.py` — multi-broker is a later addition.
-- CI guard: `tests/test_bridge_singleton.py` (AST-based) fails the suite if any module besides `mt5_universal/bridge/mt5_backend.py` imports MetaTrader5.
+- **Single-broker scope:** Trading.com only. `mt5_cli/config/trading_com.py` ships `TRADING_COM_DEFAULTS` (FOK filling, no hedging, 22:00 UTC rollover) merged into `config.DEFAULTS`, plus `retcode_help()` for actionable MT5 retcode explanations. NO `BrokerProfile` ABC, NO `generic_mt5.py` — multi-broker is a later addition.
+- CI guard: `tests/test_bridge_singleton.py` (AST-based) fails the suite if any module besides `mt5_cli/bridge/mt5_backend.py` imports MetaTrader5.
 - **Acceptance (Phase 2 complete at tag `phase-2-complete`):**
-  - `from mt5_universal import market, rates, orders, positions, account, history, risk` — no ImportError
-  - `from mt5_universal.chart import switch_tf, attach, detach, list_attached, find_window` — no ImportError
-  - `from mt5_universal.screenshot import take, dom, annotate` — no ImportError
-  - `MT5_CONFIG=/nonexistent.json python -c "from mt5_universal.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"` prints `FOK 22`
+  - `from mt5_cli import market, rates, orders, positions, account, history, risk` — no ImportError
+  - `from mt5_cli.chart import switch_tf, attach, detach, list_attached, find_window` — no ImportError
+  - `from mt5_cli.screenshot import take, dom, annotate` — no ImportError
+  - `MT5_CONFIG=/nonexistent.json python -c "from mt5_cli.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'))"` prints `FOK 22`
   - `python -m pytest -q` returns 214 passed (or higher as Phase 3+ grows the suite)
-  - `git grep -n "import MetaTrader5\|from MetaTrader5" -- mt5_universal` returns only `mt5_universal/bridge/mt5_backend.py:10`
+  - `git grep -n "import MetaTrader5\|from MetaTrader5" -- mt5_cli` returns only `mt5_cli/bridge/mt5_backend.py:10`
 
 ### Phase 3 — MQL5 plugin host
-- Add `mt5_universal/mql5/{compiler,deployer,discovery,templates}.py`.
+- Add `mt5_cli/mql5/{compiler,deployer,discovery,templates}.py`.
 - Document the user workspace convention. `mt5 ea new` / `mt5 indicator new` create `./ea` or `./indicators` in the user's current working directory when invoked; this repo does not ship those directories.
 - Wire `mt5 ea new <name>`, `mt5 ea compile <name>`, `mt5 ea deploy <name>`, and the indicator equivalents.
 - **Acceptance:** from a user workspace, `mt5 ea new demo --template scalper && mt5 ea compile demo && mt5 ea deploy demo` produces `./ea/demo.ex5` and a copy in the terminal's `Experts/` folder.
 
 ### Phase 4 — Strategy Tester driver
-- Add `mt5_universal/tester/{ea,indicator,ini_builder,launcher,results,cache}.py`.
+- Add `mt5_cli/tester/{ea,indicator,ini_builder,launcher,results,cache}.py`.
 - Wire CLI commands per §7.
 - Implement results parser for HTML report + journal CSV + optimization XML.
 - **Acceptance:** `mt5 tester ea single --expert demo --symbol AUDUSD --tf M5 --from 2024-01-01 --to 2024-06-30 --modelling ohlc-1m --json` returns a populated envelope; `mt5 tester indicator visual` produces a captured run.
 
 ### Phase 5 — Agent surface
-- Migrate `archive/legacy-mt5/skills/SKILL.md` → `mt5_universal/skills/SKILL.md`. Add YAML frontmatter (`name`, `description`).
+- Migrate `archive/legacy-mt5/skills/SKILL.md` → `mt5_cli/skills/SKILL.md`. Add YAML frontmatter (`name`, `description`).
 - Add `mt5_mcp/server.py` with FastMCP. One MCP tool per top-level CLI command group.
 - Recreate the archived ReplSkin pattern in the new CLI so the banner prints the SKILL.md absolute path.
 - Add `skill_generator.py` that introspects the Click tree and regenerates only the *Command Groups* section of SKILL.md (the curated workflow narrative stays hand-edited).
 - **Acceptance:** `mt5-mcp` runs as a stdio MCP server; `claude mcp add mt5 mt5-mcp` makes the tools visible to Claude Code; banner shows SKILL.md path.
 
 ### Phase 6 — Portability + tests + harness doc
-- `mt5_universal/config/paths.py` resolves `MT5_CONFIG`, `MT5_EA_DIR`, `MT5_INDICATORS_DIR`, `MT5_PRESETS_DIR`, `MT5_RESULTS_DIR`, `MT5_CACHE_DIR`, `MT5_LOG_DIR` against XDG / APPDATA / HOME.
-- `tests/test_no_hardcoded_paths.py` greps `mt5_universal/`, `mt5/`, `mt5_mcp/` for `C:\Users\`, `/home/`, `/Users/`, hardcoded drive letters. Fails on any hit.
+- `mt5_cli/config/paths.py` resolves `MT5_CONFIG`, `MT5_EA_DIR`, `MT5_INDICATORS_DIR`, `MT5_PRESETS_DIR`, `MT5_RESULTS_DIR`, `MT5_CACHE_DIR`, `MT5_LOG_DIR` against XDG / APPDATA / HOME.
+- `tests/test_no_hardcoded_paths.py` greps `mt5_cli/`, `mt5/`, `mt5_mcp/` for `C:\Users\`, `/home/`, `/Users/`, hardcoded drive letters. Fails on any hit.
 - Full pytest pyramid: unit (mocked bridge) + tester smoke (gated on `MT5_DEMO_INTEGRATION=1`).
 - Write `MT5_HARNESS.md` documenting the 7-phase methodology for adding new commands or new EAs.
 - **Acceptance:** suite runs on a fresh clone with no path edits; CI guard is green; `MT5_HARNESS.md` exists and links from README.
@@ -262,14 +262,14 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
 
 From the archived [mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) §1 — these survive the refactor unchanged:
 
-1. `mt5_universal/risk/` runs for **every** order call. Library callers cannot bypass it.
+1. `mt5_cli/risk/` runs for **every** order call. Library callers cannot bypass it.
 2. `--strategy-id TEXT` on all order commands. Auto-derives magic via `sha256(id)[:8] % 80000 + 100000` → range `[100000, 180000)`.
 3. Same JSON envelope (`{"ok": true/false, "data"/{...}, "error": {...}}`) returned by CLI `--json` and direct Python import.
 4. Live trading requires all three gates: `cfg["live"]: true` + `MT5_LIVE=1` env + `--live` CLI flag.
 
 ## 10. Portability rules
 
-No code in `mt5_universal/`, `mt5/`, or `mt5_mcp/` may contain absolute user paths, hardcoded MT5 install paths, hardcoded monitor indices, or machine-specific usernames/logins/account numbers. All paths route through `mt5_universal.config.paths`. CI test (`tests/test_no_hardcoded_paths.py`) greps the source tree and fails on any hit.
+No code in `mt5_cli/`, `mt5/`, or `mt5_mcp/` may contain absolute user paths, hardcoded MT5 install paths, hardcoded monitor indices, or machine-specific usernames/logins/account numbers. All paths route through `mt5_cli.config.paths`. CI test (`tests/test_no_hardcoded_paths.py`) greps the source tree and fails on any hit.
 
 Library code runs on Linux/macOS for development, testing, and *backtest mode* against cached data. Live mode short-circuits with a clear "MT5 terminal not available on this OS" if not on Windows.
 
@@ -288,5 +288,4 @@ These questions were open before Phase 1 and are now resolved by the wholesale a
 - [docs/code-reviews/codex-mt5-universal-playground-review-2026-05-15.md](../code-reviews/codex-mt5-universal-playground-review-2026-05-15.md) — review that prompted this spec (P1)
 - [archive/legacy-docs/specs/mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) — historical CLI spec (v0.5) for the archived legacy core
 - [archive/legacy-mt5/skills/SKILL.md](../../archive/legacy-mt5/skills/SKILL.md) — existing 11k-char SKILL.md being migrated in Phase 5
-- [CLI-Anything](https://github.com/HKUDS/CLI-Anything) — `cli-anything-plugin/HARNESS.md` SOP, `templates/SKILL.md.template`, `cli-hub-meta-skill/SKILL.md`, `guides/mcp-backend.md`
 - MT5 Strategy Tester docs (in MetaTrader5 terminal Help)

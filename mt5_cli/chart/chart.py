@@ -11,7 +11,7 @@ orthogonal to the MetaTrader5 SDK bridge - the bridge layer is not
 referenced from here. pywin32 is imported lazily so the module can be
 imported on non-Windows hosts for tests.
 
-Public surface (re-exported from `mt5_universal.chart.__init__`):
+Public surface (re-exported from `mt5_cli.chart.__init__`):
 - normalize_timeframe(tf) -> str
 - parse_chart_title(title) -> tuple[str | None, str | None]
 - title_has_symbol_tf(title, symbol, tf=None) -> bool
@@ -31,7 +31,7 @@ import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
-from mt5_universal.reports import fail, ok
+from mt5_cli.reports import fail, ok
 
 TIMEFRAMES = ("M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN")
 TOOLBAR_BUTTON_INDEX = {

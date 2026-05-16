@@ -1,13 +1,13 @@
 """
 orders.py — Order placement, modification, cancellation and fill-polling
-for mt5_universal.
+for mt5_cli.
 
 Cherry-picked from archive/legacy-mt5/core/order.py (685 LOC).
 9 public functions: list_pending, place_market, place_limit, place_stop,
 dryrun, cancel, cancel_all_pending, modify, poll_fill.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
-through ``mt5_universal.bridge.mt5_call()``.
+through ``mt5_cli.bridge.mt5_call()``.
 
 Deliberate divergences from legacy:
 
@@ -42,7 +42,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from mt5_universal.bridge import (
+from mt5_cli.bridge import (
     mt5_call,
     ensure_symbol,
     ORDER_FILLING_FOK,
@@ -65,8 +65,8 @@ from mt5_universal.bridge import (
     ORDER_TIME_GTC,
     ACCOUNT_TRADE_MODE_REAL,
 )
-from mt5_universal.reports import ok, fail
-from mt5_universal.risk import resolve_magic, check_order
+from mt5_cli.reports import ok, fail
+from mt5_cli.risk import resolve_magic, check_order
 
 # ---------------------------------------------------------------------------
 # Module-level look-up tables

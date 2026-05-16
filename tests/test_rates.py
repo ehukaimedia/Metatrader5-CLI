@@ -7,7 +7,7 @@ import pytest
 @pytest.fixture
 def mocked_mt5(monkeypatch):
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.rates"):
+        if name.startswith("mt5_cli.bridge") or name.startswith("mt5_cli.rates"):
             sys.modules.pop(name, None)
 
     fake = MagicMock(name="MetaTrader5")
@@ -37,7 +37,7 @@ def mocked_mt5(monkeypatch):
     monkeypatch.setitem(sys.modules, "MetaTrader5", fake)
     yield fake
     for name in list(sys.modules):
-        if name.startswith("mt5_universal.bridge") or name.startswith("mt5_universal.rates"):
+        if name.startswith("mt5_cli.bridge") or name.startswith("mt5_cli.rates"):
             sys.modules.pop(name, None)
 
 
@@ -50,7 +50,7 @@ def _bar(time_epoch=1700000000, open_=150.0, high=150.1, low=149.9, close=150.05
 def test_fetch_returns_envelope_with_bars(mocked_mt5):
     mocked_mt5.symbol_select.return_value = True
     mocked_mt5.copy_rates_from_pos.return_value = [_bar(), _bar(open_=150.05)]
-    from mt5_universal.rates import fetch
+    from mt5_cli.rates import fetch
     env = fetch("USDJPY", "M5", 2)
     assert env["ok"] is True
     assert len(env["data"]) == 2
@@ -60,7 +60,7 @@ def test_fetch_returns_envelope_with_bars(mocked_mt5):
 
 
 def test_fetch_unknown_timeframe_fails(mocked_mt5):
-    from mt5_universal.rates import fetch
+    from mt5_cli.rates import fetch
     env = fetch("USDJPY", "X9", 10)
     assert env["ok"] is False
     assert env["error"]["code"] == "MT5_INVALID_TIMEFRAME"
@@ -70,7 +70,7 @@ def test_fetch_resolves_M5_to_bridge_constant(mocked_mt5):
     """Verify the string 'M5' is resolved to mt5.TIMEFRAME_M5 (value=5 in fixture)."""
     mocked_mt5.symbol_select.return_value = True
     mocked_mt5.copy_rates_from_pos.return_value = [_bar()]
-    from mt5_universal.rates import fetch
+    from mt5_cli.rates import fetch
     fetch("USDJPY", "M5", 1)
     # First call args: symbol, timeframe, start_pos, count
     args, _kw = mocked_mt5.copy_rates_from_pos.call_args
@@ -81,7 +81,7 @@ def test_latest_uses_start_pos_1(mocked_mt5):
     """latest() returns the most-recently-closed bar — start_pos=1 (skip the open current bar)."""
     mocked_mt5.symbol_select.return_value = True
     mocked_mt5.copy_rates_from_pos.return_value = [_bar()]
-    from mt5_universal.rates import latest
+    from mt5_cli.rates import latest
     env = latest("USDJPY", "H1")
     assert env["ok"] is True
     args, _kw = mocked_mt5.copy_rates_from_pos.call_args
@@ -94,7 +94,7 @@ def test_range_passes_datetime(mocked_mt5):
     """range() takes datetime objects; legacy enforces datetime types."""
     mocked_mt5.symbol_select.return_value = True
     mocked_mt5.copy_rates_range.return_value = [_bar()]
-    from mt5_universal.rates import range as rates_range
+    from mt5_cli.rates import range as rates_range
     df = datetime(2026, 1, 1, tzinfo=timezone.utc)
     dt = datetime(2026, 1, 31, tzinfo=timezone.utc)
     env = rates_range("USDJPY", "M5", df, dt)
@@ -109,7 +109,7 @@ def test_ticks_returns_envelope(mocked_mt5):
     mocked_mt5.copy_ticks_from.return_value = [
         {"time": 1700000000, "bid": 150.0, "ask": 150.005, "last": 150.002, "volume": 10, "flags": 2},
     ]
-    from mt5_universal.rates import ticks
+    from mt5_cli.rates import ticks
     env = ticks("USDJPY", 1)
     assert env["ok"] is True
     assert env["data"][0]["bid"] == 150.0
@@ -119,6 +119,6 @@ def test_ticks_returns_envelope(mocked_mt5):
 def test_fetch_fails_when_mt5_returns_none(mocked_mt5):
     mocked_mt5.symbol_select.return_value = True
     mocked_mt5.copy_rates_from_pos.return_value = None
-    from mt5_universal.rates import fetch
+    from mt5_cli.rates import fetch
     env = fetch("USDJPY", "M5", 10)
     assert env["ok"] is False

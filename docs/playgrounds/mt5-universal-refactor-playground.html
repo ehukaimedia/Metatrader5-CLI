@@ -107,7 +107,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0a0c10;color:#d1
 <div id="topbar">
   <h1>MT5 CLI · Agent-Native Refactor (Strategy Tester driven)</h1>
   <span class="tag">7 phases</span>
-  <span class="tag green">cherry-picked from CLI-Anything</span>
+  <span class="tag green">agent-native conventions</span>
   <span class="tag orange">hard fork</span>
   <a href="../specs/2026-05-15-mt5-universal-review-context.md" class="tag" style="text-decoration:none;color:#fbbf24">Reviewers: read context first</a>
   <span class="tag" style="margin-left:auto;color:#6b7280">Pick a phase · click any node</span>
@@ -247,7 +247,7 @@ var NODES = {
 
   // Bridge
   bridge_old:     {label:'utils/mt5_backend', sub:'utils/mt5_backend.py',                x:540, y:580, w:200, h:48},
-  bridge_new:     {label:'mt5_universal.bridge', sub:'mt5_universal/bridge/mt5_backend.py', x:540, y:580, w:220, h:48},
+  bridge_new:     {label:'mt5_cli.bridge', sub:'mt5_cli/bridge/mt5_backend.py', x:540, y:580, w:220, h:48},
 
   // Phase 0 legacy
   legacy_cli:     {label:'mt5_cli.py',       sub:'1869 LOC monolith',                    x:560, y:30, w:160, h:42},
@@ -271,18 +271,18 @@ var NODES = {
   legacy_proj:    {label:'core/project',     sub:'core/project.py · config',             x:920, y:340, w:170, h:38},
   legacy_consumer:{label:'adaptive-forex-mt5/', sub:'downstream consumer',               x:1100, y:30, w:170, h:42},
 
-  // Phase 2: mt5_universal skeleton
-  univ_root:      {label:'mt5_universal/', sub:'pip-installable library',                x:560, y:90, w:200, h:44},
+  // Phase 2: mt5_cli skeleton
+  univ_root:      {label:'mt5_cli/', sub:'pip-installable library',                x:560, y:90, w:200, h:44},
   univ_bridge:    {label:'bridge.mt5_backend', sub:'ONLY file that imports MetaTrader5', x:540, y:580, w:220, h:48},
   univ_broker_base:{label:'broker.base',    sub:'BrokerProfile ABC',                     x:280, y:500, w:160, h:40},
   univ_broker_tc: {label:'broker.trading_com', sub:'default · FOK · no hedge · 22:00 UTC', x:460, y:500, w:240, h:40},
   univ_broker_gm: {label:'broker.generic_mt5', sub:'permissive default for other brokers', x:720, y:500, w:260, h:40},
-  univ_market:    {label:'market', sub:'mt5_universal/market/',                          x:100, y:280, w:130, h:40},
-  univ_rates:     {label:'rates', sub:'mt5_universal/rates/',                            x:240, y:280, w:130, h:40},
-  univ_account:   {label:'account', sub:'mt5_universal/account/',                        x:380, y:280, w:140, h:40},
-  univ_history:   {label:'history', sub:'mt5_universal/history/',                        x:530, y:280, w:140, h:40},
-  univ_orders:    {label:'orders', sub:'mt5_universal/orders/',                          x:680, y:280, w:140, h:40},
-  univ_positions: {label:'positions', sub:'mt5_universal/positions/',                    x:830, y:280, w:160, h:40},
+  univ_market:    {label:'market', sub:'mt5_cli/market/',                          x:100, y:280, w:130, h:40},
+  univ_rates:     {label:'rates', sub:'mt5_cli/rates/',                            x:240, y:280, w:130, h:40},
+  univ_account:   {label:'account', sub:'mt5_cli/account/',                        x:380, y:280, w:140, h:40},
+  univ_history:   {label:'history', sub:'mt5_cli/history/',                        x:530, y:280, w:140, h:40},
+  univ_orders:    {label:'orders', sub:'mt5_cli/orders/',                          x:680, y:280, w:140, h:40},
+  univ_positions: {label:'positions', sub:'mt5_cli/positions/',                    x:830, y:280, w:160, h:40},
   univ_risk:      {label:'risk', sub:'risk gate · every order passes through',           x:1000, y:280, w:200, h:40},
   univ_config:    {label:'config', sub:'4-layer resolution + portability',               x:100, y:380, w:200, h:40},
   univ_reports:   {label:'reports', sub:'JSON envelopes',                                x:320, y:380, w:160, h:40},
@@ -305,7 +305,7 @@ var NODES = {
   tester_cache:     {label:'tester.cache', sub:'user results/<run-id>/ snapshots',       x:850, y:485, w:260, h:38},
 
   // Phase 5: agent surface
-  mt5_cli_new:    {label:'mt5 CLI', sub:'thin click wrappers over mt5_universal',        x:200, y:30, w:200, h:44},
+  mt5_cli_new:    {label:'mt5 CLI', sub:'thin click wrappers over mt5_cli',        x:200, y:30, w:200, h:44},
   mt5_mcp:        {label:'mt5-mcp server', sub:'FastMCP · publishes library as MCP tools', x:420, y:30, w:290, h:44},
   skills_md:      {label:'skills/SKILL.md', sub:'agent-discoverable manifest',           x:740, y:30, w:200, h:44},
   skill_generator:{label:'skill_generator.py', sub:'introspect Click tree -> regenerate SKILL.md', x:960, y:30, w:330, h:44},
@@ -323,7 +323,7 @@ var NODES = {
 var NODE_CLI = {
   legacy_cli: 'mt5 --json analyze sniper-poc USDJPY',
   legacy_tester: 'tester.run_backtest(symbol="USDJPY", expert="EhukaiTDAEA", ...)',
-  univ_root: 'from mt5_universal import market, rates, orders, tester',
+  univ_root: 'from mt5_cli import market, rates, orders, tester',
   univ_bridge: '# only this module touches MetaTrader5\nfrom MetaTrader5 import initialize, order_send, ...',
   univ_market: 'mt5 --json market info USDJPY',
   univ_orders: 'mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500',
@@ -555,49 +555,49 @@ var PHASES = [
     id:0, title:'Current state', sub:'where we are today',
     bannerTitle:'Phase 0 — Current state (the starting point)',
     bannerDesc:'Monolithic mt5_cli.py (1869 LOC) wired to a domain-coupled core/. Ehukai / TDA / sniper / wavelet semantics baked into "agnostic" modules. core/tester.py only knows EhukaiTDAEA + AdaptiveTrailEA. MQL5 assets are split: Experts/ holds AdaptiveTrailEA.mq5 + EhukaiTDAEA.mq5; Hybrid_WPVS lives under mql5/Hybrid_WPVS_MT5_Bundle/; Advanced_Wavelet_Entry_System/ is on disk but untracked. The downstream adaptive-forex-mt5/ consumer has been moved to its own repo.',
-    pattern:[ tk('No CLI-Anything pattern applied yet — this is the starting state. The Ehukai/TDA semantics are tangled into '), tc('core/'), tk(': '), tc('analyze.py'), tk(' is 1098 LOC, '), tc('ehukai.py'), tk(' is 944 LOC, '), tc('tda_manifest.py'), tk(' exists, '), tc('tester.py'), tk(' only knows two specific EAs. An agent cannot "use MT5 generally" without inheriting all of this domain code.') ],
+    pattern:[ tk('No refactor applied yet — this is the starting state. The Ehukai/TDA semantics are tangled into '), tc('core/'), tk(': '), tc('analyze.py'), tk(' is 1098 LOC, '), tc('ehukai.py'), tk(' is 944 LOC, '), tc('tda_manifest.py'), tk(' exists, '), tc('tester.py'), tk(' only knows two specific EAs. An agent cannot "use MT5 generally" without inheriting all of this domain code.') ],
     capability:[ tb('Agent capability today: '), tk('Agent can shell out '), tc('mt5 --json ...'), tk(' but is locked into the Ehukai/TDA workflow. Cannot author a new EA without editing '), tc('core/tester.py'), tk('. The archived package preserves '), tc('archive/legacy-mt5/skills/SKILL.md'), tk(' (pre-trade workflow + risk gates + JSON envelope contract) for migration, but there is no MCP server, no scaffolding, and the manifest is hand-maintained.') ],
   },
   {
     id:1, title:'Archive legacy', sub:'hard fork — move out',
     bannerTitle:'Phase 1 — Archive the domain-coupled layer',
-    bannerDesc:'Phase 1 landed as a wholesale archive. The entire retired metatrader5_cli/mt5 package now lives under archive/legacy-mt5/ as cherry-pick reference; strategy-flavored docs/playgrounds/handoffs/specs live under archive/legacy-docs/; standalone Advanced_Wavelet_Entry_System material lives under archive/legacy-mql5/. Nothing from metatrader5_cli/ is imported by the live tree. Phase 2 builds mt5_universal/ fresh from archived patterns rather than moving surviving primitives back out of the archive.',
-    pattern:[ tb('CLI-Anything pattern: clean agent-harness/ root. '), tk('In CLI-Anything every CLI lives under '), tc('agent-harness/cli_anything/<app>/'), tk(' with one clear root. We mirror that: '), tb('everything domain-specific moves to archive/'), tk(' so the new '), tc('mt5_universal/'), tk(' root has nothing competing with it. Your in-flight Advanced_Wavelet_Entry / Hybrid_WPVS sources are preserved as archived reference — you re-author them in Phase 3 as user-dir plugins.') ],
+    bannerDesc:'Phase 1 landed as a wholesale archive. The entire retired metatrader5_cli/mt5 package now lives under archive/legacy-mt5/ as cherry-pick reference; strategy-flavored docs/playgrounds/handoffs/specs live under archive/legacy-docs/; standalone Advanced_Wavelet_Entry_System material lives under archive/legacy-mql5/. Nothing from metatrader5_cli/ is imported by the live tree. Phase 2 builds mt5_cli/ fresh from archived patterns rather than moving surviving primitives back out of the archive.',
+    pattern:[ tb('Convention: one clean package root. '), tk('Domain-specific code moves to '), tc('archive/'), tk(' so the new '), tc('mt5_cli/'), tk(' root has nothing competing with it. In-flight Advanced_Wavelet_Entry / Hybrid_WPVS sources are preserved as archived reference — re-author them in Phase 3 as user-dir plugins.') ],
     capability:[ tb('Capability gained: '), tk('None yet — this is the empty-the-room step. The agent surface temporarily shrinks; it is restored in Phase 2.') ],
   },
   {
-    id:2, title:'Universal core', sub:'mt5_universal/ skeleton',
+    id:2, title:'Universal core', sub:'mt5_cli/ skeleton',
     bannerTitle:'Phase 2 — Build the agnostic universal core',
-    bannerDesc:'Create mt5_universal/ as a pip-installable Python library. Submodules: bridge, broker, market, rates, orders, positions, account, history, risk, config, reports. Broker layer abstracts Trading.com (canonical default) and generic_mt5 (permissive). Every module is domain-neutral. The tool ships NO indicator math, NO EAs, NO strategies — users author their own MQL5; the tool provides hands to compile/deploy/test/attach/detach/screenshot/place-orders/manage-positions.',
-    pattern:[ tb('CLI-Anything pattern: single utils/<app>_backend.py. '), tk('CLI-Anything mandates exactly one backend module per CLI. We already had '), tc('utils/mt5_backend.py'), tk(' as the only file importing MetaTrader5 — reinforced as the '), tb('only'), tk(' module in '), tc('mt5_universal/bridge/'), tk(' allowed to touch the MT5 package. Broker quirks (FOK, hedging, retcodes, rollover) move out of bridge into '), tc('broker/trading_com.py'), tk(' + '), tc('broker/generic_mt5.py'), tk(' behind a '), tc('BrokerProfile'), tk(' ABC.') ],
-    capability:[ tb('Capability gained: '), tk('Agents now have a clean neutral surface — '), tc('mt5_universal.market.info()'), tk(', '), tc('.rates.fetch()'), tk(', '), tc('.orders.place_market()'), tk('. Risk gate still enforced on every order call. Trading.com still works exactly as before; it is now the '), tb('default BrokerProfile'), tk(', not hardcoded.') ],
+    bannerDesc:'Create mt5_cli/ as a pip-installable Python library. Submodules: bridge, broker, market, rates, orders, positions, account, history, risk, config, reports. Broker layer abstracts Trading.com (canonical default) and generic_mt5 (permissive). Every module is domain-neutral. The tool ships NO indicator math, NO EAs, NO strategies — users author their own MQL5; the tool provides hands to compile/deploy/test/attach/detach/screenshot/place-orders/manage-positions.',
+    pattern:[ tb('Convention: single bridge module. '), tk('Exactly one file imports the MetaTrader5 SDK: '), tc('mt5_cli/bridge/mt5_backend.py'), tk('. Everything else routes through '), tc('mt5_call(fn_name, ...)'), tk(' under a threading lock. AST-enforced by '), tc('tests/test_bridge_singleton.py'), tk('. Trading.com quirks (FOK filling, no hedging, 22:00 UTC rollover, retcode help) live in '), tc('mt5_cli/config/trading_com.py'), tk(' and merge into '), tc('DEFAULTS'), tk(' — single-broker scope, no abstraction.') ],
+    capability:[ tb('Capability gained: '), tk('Agents now have a clean neutral surface — '), tc('mt5_cli.market.info()'), tk(', '), tc('.rates.fetch()'), tk(', '), tc('.orders.place_market()'), tk('. Risk gate still enforced on every order call. Trading.com still works exactly as before; it is now the '), tb('default BrokerProfile'), tk(', not hardcoded.') ],
   },
   {
     id:3, title:'MQL5 plugin host', sub:'tool reaches into user workspace',
     bannerTitle:'Phase 3 — MQL5 plugin host (tool reaches into the USER\'s workspace)',
     bannerDesc:'This repo ships ONLY the tool (compiler + deployer + discovery + scaffold templates). The ea/, indicators/, presets/, and results/ directories live in the USER\'s workspace (CWD where they run mt5, or ~/.config/mt5-universal/ / platform equivalent). mt5 ea new <name> scaffolds USER-side from packaged MQL5 templates. mt5 ea compile <name> wraps metaeditor64.exe to build .mq5 -> .ex5 in the USER\'s dir. mt5 ea deploy <name> copies into the terminal Experts/Indicators folders. Auto-discovery first-match scans: ./ea (CWD) -> ~/.config/mt5-universal/ea/.',
-    pattern:[ tb('CLI-Anything patterns: CLI-Hub registry + templates/ scaffolding + skill_generator. '), tk('CLI-Hub uses '), tc('pip install cli-anything-<app>'), tk(' with per-app entry points. We adapt: '), tb('the tool ships only the scaffold templates and the discovery/compile/deploy machinery; the user\'s EA source lives in their workspace, not this repo'), tk('. '), tc('mt5 ea list / new / compile / deploy'), tk(' mirrors '), tc('cli-hub list / install'), tk(' but operates over the user\'s workspace.') ],
+    pattern:[ tb('Convention: tool ships hands, user owns artifacts. '), tk('The tool ships only the scaffold templates and the discovery/compile/deploy machinery; the user\'s EA source lives in their workspace, not this repo. '), tc('mt5 ea list / new / compile / deploy'), tk(' operate over the user\'s '), tc('./ea/'), tk(' (CWD) or '), tc('~/.config/mt5-universal/ea/'), tk(' — auto-discovery first-match wins.') ],
     capability:[ tb('Capability gained: '), tk('Agents author MQL5 in the USER\'s workspace. From the user\'s project dir: '), tc('mt5 ea new my_strategy'), tk(' creates '), tc('./ea/my_strategy.mq5'), tk(' from the one minimal EA skeleton. '), tc('mt5 ea compile my_strategy'), tk(' runs MetaEditor. '), tc('mt5 ea deploy my_strategy'), tk(' copies into the terminal. Same flow for indicators. The tool ships only the minimal skeleton (OnInit/OnDeinit/OnTick for EAs; OnInit/OnCalculate for indicators) — the user adds parameters, inputs, calculation, and entry/exit/management logic. Nothing about this work touches this repo.') ],
   },
   {
     id:4, title:'Strategy Tester driver', sub:'EA + indicator backtests',
     bannerTitle:'Phase 4 — Drive the MT5 Strategy Tester from the CLI',
     bannerDesc:'Add tester/ submodule. tester.ea: single / optimize / genetic / forward / market-scanner / stress. tester.indicator: visual test. tester.ini_builder generates the .ini + .set files MT5 expects. tester.launcher runs terminal64.exe /config in portable mode. tester.results parses HTML report + journal CSV + optimization XML into a JSON envelope. tester.cache snapshots every run under the user workspace results/<run-id>/ or configured results dir.',
-    pattern:[ tb('CLI-Anything pattern: dual JSON+human output + "For AI Agents" usage protocol. '), tk('CLI-Anything\'s SKILL.md template prescribes that every command supports '), tc('--json'), tk(' for parseable output and that agents "verify outputs after operations." We apply that here: every tester command returns a structured envelope with '), tc('deals'), tk(', '), tc('equity_curve'), tk(', '), tc('win_rate'), tk(', '), tc('profit_factor'), tk(', '), tc('max_drawdown'), tk(', '), tc('journal_events'), tk('. No HTML scraping by the agent — the CLI does it once and serves JSON.') ],
+    pattern:[ tb('Convention: dual JSON+human output. '), tk('Every command supports '), tc('--json'), tk(' for parseable output and agents verify results after operations. Tester commands return a structured envelope with '), tc('deals'), tk(', '), tc('equity_curve'), tk(', '), tc('win_rate'), tk(', '), tc('profit_factor'), tk(', '), tc('max_drawdown'), tk(', '), tc('journal_events'), tk('. No HTML scraping by the agent — the CLI does it once and serves JSON.') ],
     capability:[ tb('Capability gained: '), tk('Agents run '), tc('mt5 tester ea single --expert my_strategy --symbol AUDUSD --tf M5 --from 2021-05-09 --to 2026-05-09 --modelling real-ticks --json'), tk(' and get back structured JSON. Iterate: edit '), tc('ea/my_strategy.mq5'), tk(', recompile, rerun, '), tc('mt5 tester show <run-id>'), tk(' to compare. Optimization, forward, genetic, multi-symbol scanner, stress/delay tests all from the CLI.') ],
   },
   {
     id:5, title:'Agent surface', sub:'SKILL.md + MCP + ReplSkin',
     bannerTitle:'Phase 5 — Agent surface: SKILL.md, MCP server, ReplSkin',
-    bannerDesc:'Migrate archived archive/legacy-mt5/skills/SKILL.md (pre-trade workflow + risk gates + JSON envelope contract) into mt5_universal/skills/SKILL.md and add YAML frontmatter to make it agent-discoverable. Add mt5_mcp/server.py (FastMCP exposing the library as MCP tools). Recreate ReplSkin in the new CLI using the archived pattern so the banner prints the absolute SKILL.md path. Add skill_generator.py that introspects the Click tree and regenerates the command-group tables so they never drift; the curated workflow narrative stays hand-edited.',
-    pattern:[ tb('Four CLI-Anything cherry-picks here: '), tk('(1) '), tc('skills/SKILL.md'), tk(' template with YAML frontmatter, command-group tables, examples, "For AI Agents" usage protocol — applied to the existing 11k-char manifest, not built from scratch. (2) '), tc('ReplSkin'), tk(' with banner that auto-prints the SKILL.md absolute path so agents can read it. (3) '), tc('skill_generator.py'), tk(' introspects Click groups and regenerates the command-group tables — single source of truth for that section. (4) '), tc('mcp-backend.md'), tk(' guide, inverted: instead of consuming an MCP backend, we publish the universal core as an MCP server.') ],
+    bannerDesc:'Migrate archived archive/legacy-mt5/skills/SKILL.md (pre-trade workflow + risk gates + JSON envelope contract) into mt5_cli/skills/SKILL.md and add YAML frontmatter to make it agent-discoverable. Add mt5_mcp/server.py (FastMCP exposing the library as MCP tools). Recreate ReplSkin in the new CLI using the archived pattern so the banner prints the absolute SKILL.md path. Add skill_generator.py that introspects the Click tree and regenerates the command-group tables so they never drift; the curated workflow narrative stays hand-edited.',
+    pattern:[ tb('Four agent-surface conventions: '), tk('(1) '), tc('skills/SKILL.md'), tk(' with YAML frontmatter, command-group tables, examples, "For AI Agents" usage protocol — applied to the existing 11k-char manifest, not built from scratch. (2) '), tc('ReplSkin'), tk(' with banner that auto-prints the SKILL.md absolute path so agents can read it. (3) '), tc('skill_generator.py'), tk(' introspects Click groups and regenerates the command-group tables — single source of truth for that section. (4) The library is published AS an MCP server — agents consume our tools, not the other way around.') ],
     capability:[ tb('Agents have hands. '), tk('Claude Code / Cursor / Claude Desktop discover MT5 tools via MCP with typed schemas — no subprocess overhead. Shell-based agents still get '), tc('mt5 --json ...'), tk(' with SKILL.md describing every command group. '), tc('mt5 ea new'), tk(' and '), tc('mt5 indicator new'), tk(' let an agent author and register MQL5 in one turn, then test it via '), tc('mt5 tester ea single ...'), tk('.') ],
   },
   {
     id:6, title:'Portability + tests', sub:'XDG paths · CI guard · MT5_HARNESS.md',
     bannerTitle:'Phase 6 — Portability rails + test pyramid + harness doc',
-    bannerDesc:'Add mt5_universal/config/paths.py resolving XDG_CONFIG_HOME / APPDATA / HOME for config, EA dir, indicator dir, cache, logs. Add a CI test that greps the source tree for hardcoded user paths. Full pytest pyramid: unit with mocked bridge, tester smoke gated on MT5_DEMO_INTEGRATION=1. Write MT5_HARNESS.md documenting the methodology so the next contributor or agent has a written SOP.',
-    pattern:[ tb('CLI-Anything pattern: HARNESS.md SOP + TEST.md planning. '), tk('CLI-Anything\'s HARNESS.md prescribes a 7-phase methodology with explicit test planning before any test code. We adopt this verbatim as '), tc('MT5_HARNESS.md'), tk('. Portability rails — no hardcoded '), tc('C:\\\\Users\\\\'), tk(', '), tc('/home/'), tk(', '), tc('/Users/'), tk(' anywhere — are the user\'s portability constraint baked in and CI-enforced.') ],
+    bannerDesc:'Add mt5_cli/config/paths.py resolving XDG_CONFIG_HOME / APPDATA / HOME for config, EA dir, indicator dir, cache, logs. Add a CI test that greps the source tree for hardcoded user paths. Full pytest pyramid: unit with mocked bridge, tester smoke gated on MT5_DEMO_INTEGRATION=1. Write MT5_HARNESS.md documenting the methodology so the next contributor or agent has a written SOP.',
+    pattern:[ tb('Convention: HARNESS.md SOP + test-first planning. '), tk('A 7-phase methodology with explicit test planning before any test code, captured in '), tc('MT5_HARNESS.md'), tk('. Portability rails — no hardcoded '), tc('C:\\\\Users\\\\'), tk(', '), tc('/home/'), tk(', '), tc('/Users/'), tk(' anywhere — are baked in and CI-enforced.') ],
     capability:[ tb('Capability gained: '), tk('The CLI is '), tb('portable'), tk(' — clone anywhere, '), tc('pip install -e .'), tk(' works. '), tb('Testable end-to-end'), tk(' — agents can run the full test suite in CI to verify their new EA does not break the system. '), tb('Self-documenting'), tk(' — MT5_HARNESS.md tells the next agent how to extend the system without breaking the contract.') ],
   },
 ];
@@ -768,7 +768,7 @@ function describe(id, statusKey) {
     tester: 'Strategy Tester driver — wraps MT5\'s native tester. ',
     external: 'External system (outside the refactor scope). ',
     agent: 'External actor — the agent that consumes the CLI/MCP surface. ',
-    mcp: 'MCP server surface — exposes mt5_universal as MCP tools. ',
+    mcp: 'MCP server surface — exposes mt5_cli as MCP tools. ',
   };
   return (verbs[statusKey] || '') + 'Add a refactor note, question, or concern.';
 }
@@ -830,7 +830,7 @@ function renderCallouts() {
   pBox.className = 'callout';
   var pH = document.createElement('div');
   pH.className = 'callout-h';
-  pH.textContent = 'How CLI-Anything informed this phase';
+  pH.textContent = 'Design convention applied here';
   pBox.appendChild(pH);
   var pBody = document.createElement('div');
   pBody.className = 'callout-body';
@@ -906,7 +906,7 @@ function updatePrompt() {
   parts.push('## Goal of this phase');
   parts.push(ph.bannerDesc);
   parts.push('');
-  parts.push('## Cherry-picked pattern from CLI-Anything');
+  parts.push('## Design convention applied');
   parts.push(tokensToPlain(ph.pattern));
   parts.push('');
   parts.push('## Agent capability gained after this phase');

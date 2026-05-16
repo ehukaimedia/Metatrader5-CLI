@@ -2,9 +2,9 @@
 
 > **For agentic workers:** Follow the repo's AGENTS.md direction: use advisor, feature-dev, and code-reviewer/subagent passes for implementation integrity, and update the playground/spec/plan when architecture changes. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Hard-fork the archived tangled `metatrader5_cli/mt5/core/` patterns into a fresh, agnostic, agent-native Python library at `mt5_universal/` that drives MT5's native Strategy Tester from the CLI, publishes itself as both a `mt5` CLI and a `mt5-mcp` MCP server, and treats Trading.com as the canonical (but not hardcoded) broker profile.
+**Goal:** Hard-fork the archived tangled `metatrader5_cli/mt5/core/` patterns into a fresh, agnostic, agent-native Python library at `mt5_cli/` that drives MT5's native Strategy Tester from the CLI, publishes itself as both a `mt5` CLI and a `mt5-mcp` MCP server, and treats Trading.com as the canonical (but not hardcoded) broker profile.
 
-**Architecture:** Library-first. One Python package (`mt5_universal/`) with submodule-per-concern (bridge, broker, market, rates, orders, positions, account, history, risk, indicators, mql5, tester, config, reports, skills). The `mt5` CLI and `mt5-mcp` MCP server are thin wrappers over the same library. MQL5 is the canonical author format for EAs and indicators; MT5 Strategy Tester is the canonical backtest engine. No Python event-driven backtester. No coexistence shims with the legacy core.
+**Architecture:** Library-first. One Python package (`mt5_cli/`) with submodule-per-concern (bridge, broker, market, rates, orders, positions, account, history, risk, indicators, mql5, tester, config, reports, skills). The `mt5` CLI and `mt5-mcp` MCP server are thin wrappers over the same library. MQL5 is the canonical author format for EAs and indicators; MT5 Strategy Tester is the canonical backtest engine. No Python event-driven backtester. No coexistence shims with the legacy core.
 
 **Tech Stack:** Python 3.10+, Click 8.x (CLI), FastMCP (MCP server), MetaTrader5 Python package (bridge, Windows-only), pytest (tests), MetaEditor.exe + terminal64.exe (subprocess targets). The tool ships no indicator math; pandas/pandas-ta are NOT dependencies of the universal library.
 
@@ -16,7 +16,6 @@
 | Reviewer context | [docs/specs/2026-05-15-mt5-universal-review-context.md](../specs/2026-05-15-mt5-universal-review-context.md) |
 | Visual companion | [docs/playgrounds/mt5-universal-refactor-playground.html](../playgrounds/mt5-universal-refactor-playground.html) |
 | Archived legacy CLI spec (v0.5) | [archive/legacy-docs/specs/mt5-cli-spec.md](../../archive/legacy-docs/specs/mt5-cli-spec.md) |
-| CLI-Anything cherry-pick source | https://github.com/HKUDS/CLI-Anything |
 
 ## Locked decisions (do not re-litigate)
 
@@ -59,7 +58,7 @@ Metatrader5-CLI/
 │   ├── legacy-mt5/                       # retired metatrader5_cli/mt5 package, kept as cherry-pick reference
 │   ├── legacy-docs/                      # retired strategy docs/playgrounds/handoffs/specs
 │   └── legacy-mql5/                      # Advanced_Wavelet_Entry_System and other standalone MQL5 history
-├── mt5_universal/                        # NEW — agnostic library
+├── mt5_cli/                        # NEW — agnostic library
 │   ├── bridge/mt5_backend.py             # ONLY file that imports MetaTrader5
 │   ├── config/{config,trading_com}.py    # single-broker scope (Trading.com only)
 │   ├── market/, rates/, orders/, positions/, account/, history/, risk/
@@ -86,7 +85,7 @@ The legacy `metatrader5_cli/` package is fully archived after Phase 1 — nothin
 
 ## Phase 1 — Archive legacy (DONE, by wholesale user move)
 
-**Status:** Phase 1 was executed in a single user-driven wholesale move (commits `ce2cfac`, `bb61428`, `0df1093`). The entire `metatrader5_cli/mt5/` tree was relocated to `archive/legacy-mt5/`, the strategy-flavored docs/playgrounds/handoffs were swept to `archive/legacy-docs/`, the legacy MQL5 tree and `Advanced_Wavelet_Entry_System/` are under `archive/legacy-mql5/`, and 31 strategy-flavored code reviews were deleted. The `mt5_universal/` library does not yet exist — Phase 2 builds it fresh.
+**Status:** Phase 1 was executed in a single user-driven wholesale move (commits `ce2cfac`, `bb61428`, `0df1093`). The entire `metatrader5_cli/mt5/` tree was relocated to `archive/legacy-mt5/`, the strategy-flavored docs/playgrounds/handoffs were swept to `archive/legacy-docs/`, the legacy MQL5 tree and `Advanced_Wavelet_Entry_System/` are under `archive/legacy-mql5/`, and 31 strategy-flavored code reviews were deleted. The `mt5_cli/` library does not yet exist — Phase 2 builds it fresh.
 
 **What this differs from the original Phase 1 plan:**
 - Original, now superseded: split-archive only the strategy-flavored modules and leave surviving primitives in place for Phase 2 moves.
@@ -114,26 +113,26 @@ The legacy `metatrader5_cli/` package is fully archived after Phase 1 — nothin
 
 **For implementer subagents in Phase 2+:** when a task says "cherry-pick from archive/legacy-mt5/X.py", read X.py to understand the **pattern** (locking discipline, gate-by-gate risk check structure, MT5 constant naming, error-envelope shape). Do not copy the file verbatim. Rewrite under the new module names, with the broker abstraction (Phase 2.5-2.8), the agnostic naming, and any cleanups that drop now-irrelevant special cases.
 
-## Phase 2 — `mt5_universal/` skeleton (12 tasks)
+## Phase 2 — `mt5_cli/` skeleton (12 tasks)
 
-**Goal:** Create the new agnostic library fresh under `mt5_universal/`. Cherry-pick only the useful patterns from `archive/legacy-mt5/core/` into new module names. Single-broker scope: Trading.com only, via `config/trading_com.py` merged into the standard config loader (NO `BrokerProfile` ABC — multi-broker is a later addition). **No indicator math ships from this layer** — the tool only provides hands.
+**Goal:** Create the new agnostic library fresh under `mt5_cli/`. Cherry-pick only the useful patterns from `archive/legacy-mt5/core/` into new module names. Single-broker scope: Trading.com only, via `config/trading_com.py` merged into the standard config loader (NO `BrokerProfile` ABC — multi-broker is a later addition). **No indicator math ships from this layer** — the tool only provides hands.
 
-### Task 2.1: Create mt5_universal/ package skeleton
+### Task 2.1: Create mt5_cli/ package skeleton
 
 **Files:**
-- Create: `mt5_universal/__init__.py`
-- Create: `mt5_universal/{bridge,broker,market,rates,orders,positions,account,history,risk,indicators,mql5,tester,config,reports,skills}/__init__.py`
+- Create: `mt5_cli/__init__.py`
+- Create: `mt5_cli/{bridge,broker,market,rates,orders,positions,account,history,risk,indicators,mql5,tester,config,reports,skills}/__init__.py`
 
 - [ ] **Step 1: Create the package directory tree**
 
 ```powershell
 $dirs = @(
-  "mt5_universal",
-  "mt5_universal\bridge", "mt5_universal\broker", "mt5_universal\market",
-  "mt5_universal\rates", "mt5_universal\orders", "mt5_universal\positions",
-  "mt5_universal\account", "mt5_universal\history", "mt5_universal\risk",
-  "mt5_universal\indicators", "mt5_universal\mql5", "mt5_universal\tester",
-  "mt5_universal\config", "mt5_universal\reports", "mt5_universal\skills"
+  "mt5_cli",
+  "mt5_cli\bridge", "mt5_cli\broker", "mt5_cli\market",
+  "mt5_cli\rates", "mt5_cli\orders", "mt5_cli\positions",
+  "mt5_cli\account", "mt5_cli\history", "mt5_cli\risk",
+  "mt5_cli\indicators", "mt5_cli\mql5", "mt5_cli\tester",
+  "mt5_cli\config", "mt5_cli\reports", "mt5_cli\skills"
 )
 foreach ($d in $dirs) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
 ```
@@ -147,16 +146,16 @@ foreach ($d in $dirs) { New-Item -ItemType File -Force -Path (Join-Path $d "__in
 - [ ] **Step 3: Verify**
 
 ```powershell
-(Get-ChildItem -Path mt5_universal -Recurse -Filter __init__.py).Count   # expect 16
+(Get-ChildItem -Path mt5_cli -Recurse -Filter __init__.py).Count   # expect 16
 ```
 
 - [ ] **Step 4: Don't commit yet — coupled with Task 2.2**
 
-### Task 2.2: Cherry-pick the bridge into mt5_universal/bridge/
+### Task 2.2: Cherry-pick the bridge into mt5_cli/bridge/
 
 **Files:**
-- Create: `mt5_universal/bridge/mt5_backend.py` (the ONLY module that imports `MetaTrader5`)
-- Create: `mt5_universal/bridge/__init__.py` (re-export public API)
+- Create: `mt5_cli/bridge/mt5_backend.py` (the ONLY module that imports `MetaTrader5`)
+- Create: `mt5_cli/bridge/__init__.py` (re-export public API)
 - Create: `tests/test_bridge.py`
 - Delete: `tests/test_phase_transition.py` (transitional placeholder; real tests now carry the suite)
 
@@ -179,7 +178,7 @@ def mocked_mt5(monkeypatch):
     # The bridge imports MetaTrader5 at module import time. Purge bridge modules
     # so each test binds to this test's fake instead of a cached earlier fake.
     for name in list(sys.modules):
-        if name == "mt5_universal.bridge" or name.startswith("mt5_universal.bridge."):
+        if name == "mt5_cli.bridge" or name.startswith("mt5_cli.bridge."):
             sys.modules.pop(name, None)
 
     fake = MagicMock(name="MetaTrader5")
@@ -198,29 +197,29 @@ def mocked_mt5(monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "MetaTrader5", fake)
     yield fake
     for name in list(sys.modules):
-        if name == "mt5_universal.bridge" or name.startswith("mt5_universal.bridge."):
+        if name == "mt5_cli.bridge" or name.startswith("mt5_cli.bridge."):
             sys.modules.pop(name, None)
 
 
 def test_bridge_imports(mocked_mt5):
-    from mt5_universal.bridge import connect, mt5_call, ensure_symbol, reconnect_once  # noqa: F401
+    from mt5_cli.bridge import connect, mt5_call, ensure_symbol, reconnect_once  # noqa: F401
 
 
 def test_connect_is_idempotent(mocked_mt5):
-    from mt5_universal.bridge import connect
+    from mt5_cli.bridge import connect
     connect(login=1, password="x", server="s")
     connect(login=1, password="x", server="s")
     assert mocked_mt5.initialize.call_count <= 1
 
 
 def test_connect_without_password_calls_bare_initialize(mocked_mt5):
-    from mt5_universal.bridge import connect
+    from mt5_cli.bridge import connect
     connect()
     mocked_mt5.initialize.assert_called_once_with()
 
 
 def test_mt5_call_dispatches(mocked_mt5):
-    from mt5_universal.bridge import mt5_call
+    from mt5_cli.bridge import mt5_call
     mocked_mt5.symbol_info_tick.return_value = MagicMock(bid=1.0, ask=1.0001)
     out = mt5_call("symbol_info_tick", "EURUSD")
     assert out is not None
@@ -228,14 +227,14 @@ def test_mt5_call_dispatches(mocked_mt5):
 
 
 def test_ensure_symbol_returns_bool(mocked_mt5):
-    from mt5_universal.bridge import ensure_symbol
+    from mt5_cli.bridge import ensure_symbol
     assert ensure_symbol("USDJPY") is True
     mocked_mt5.symbol_select.assert_called_with("USDJPY", True)
 
 
 def test_filling_constants_re_exported(mocked_mt5):
     import importlib
-    import mt5_universal.bridge as br
+    import mt5_cli.bridge as br
     importlib.reload(br)
     assert br.ORDER_FILLING_FOK == 1
     assert br.ORDER_FILLING_IOC == 2
@@ -257,7 +256,7 @@ Expected: fail on missing bridge exports/attributes. Task 2.1 creates the packag
 
 - [ ] **Step 3: Write the new bridge**
 
-Create `mt5_universal/bridge/mt5_backend.py`. Open `archive/legacy-mt5/utils/mt5_backend.py` side-by-side and **cherry-pick**:
+Create `mt5_cli/bridge/mt5_backend.py`. Open `archive/legacy-mt5/utils/mt5_backend.py` side-by-side and **cherry-pick**:
 - The `_lock = threading.Lock()` module-level lock
 - The `_initialized` boolean for connect-once semantics
 - `connect()` shape with double-checked locking + the `mt5.initialize(password=None)` quirk handling (call `mt5.initialize()` with no args when password is None)
@@ -269,7 +268,7 @@ Create `mt5_universal/bridge/mt5_backend.py`. Open `archive/legacy-mt5/utils/mt5
 
 **Skip** anything tied to the legacy CLI's `_compose_live_intent` or other CLI-flavored helpers — those belong with the CLI in Phase 3, not the bridge.
 
-Write `mt5_universal/bridge/__init__.py`:
+Write `mt5_cli/bridge/__init__.py`:
 
 ```python
 """Bridge layer — the ONLY module in the codebase allowed to import MetaTrader5."""
@@ -314,9 +313,9 @@ Expected: 6 PASS.
 
 ```bash
 git add -A
-git commit -m "Phase 2: cherry-pick bridge into mt5_universal/bridge/
+git commit -m "Phase 2: cherry-pick bridge into mt5_cli/bridge/
 
-Fresh bridge module under mt5_universal/. Locking discipline,
+Fresh bridge module under mt5_cli/. Locking discipline,
 idempotent connect(), mt5_call dispatcher, and MT5 constant
 re-exports written from scratch using archive/legacy-mt5/utils/mt5_backend.py
 as the reference pattern, NOT as a wholesale port. The single-bridge
@@ -324,31 +323,31 @@ rule (only file that imports MetaTrader5) is enforced at the package
 boundary. Transitional placeholder test removed."
 ```
 
-### Task 2.3: Cherry-pick the surviving primitives into mt5_universal/
+### Task 2.3: Cherry-pick the surviving primitives into mt5_cli/
 
-The legacy `metatrader5_cli/mt5/core/` had 7 agnostic primitives now archived. We re-create each one under `mt5_universal/` as a separate sub-task — **one fresh implementer subagent per sub-task**.
+The legacy `metatrader5_cli/mt5/core/` had 7 agnostic primitives now archived. We re-create each one under `mt5_cli/` as a separate sub-task — **one fresh implementer subagent per sub-task**.
 
-**Shared prerequisite:** complete Task 2.10's `mt5_universal.reports.ok()/fail()` helper immediately after Task 2.2 and before dispatching any 2.3 primitive, even though it is listed later in this phase. Do not inline seven separate envelope helpers; the primitives should all return the same canonical report envelope from the start.
+**Shared prerequisite:** complete Task 2.10's `mt5_cli.reports.ok()/fail()` helper immediately after Task 2.2 and before dispatching any 2.3 primitive, even though it is listed later in this phase. Do not inline seven separate envelope helpers; the primitives should all return the same canonical report envelope from the start.
 
 Same shape every time:
 
 1. Open the reference file under `archive/legacy-mt5/core/<name>.py`
 2. Write the failing test in `tests/test_<name>.py` (model the test patterns on `archive/legacy-mt5/tests/test_core.py` `class Test<Name>`)
 3. Run pytest — fails (module missing)
-4. Write the new module under `mt5_universal/<name>/<name>.py`, cherry-picking patterns from the archive (NOT a verbatim port). Use absolute imports from `mt5_universal.bridge`. Wrap returns in `mt5_universal.reports.ok()` / `fail()`.
-5. Wire `mt5_universal/<name>/__init__.py` to re-export the public API
+4. Write the new module under `mt5_cli/<name>/<name>.py`, cherry-picking patterns from the archive (NOT a verbatim port). Use absolute imports from `mt5_cli.bridge`. Wrap returns in `mt5_cli.reports.ok()` / `fail()`.
+5. Wire `mt5_cli/<name>/__init__.py` to re-export the public API
 6. Run pytest — pass
 7. Commit
 
 | Sub-task | New module path | Reference (archive) | Notes |
 |---|---|---|---|
-| **2.3.A** | `mt5_universal/account/account.py` | `archive/legacy-mt5/core/account.py` | `info()`, `balance()`, `risk(cfg)`. The risk envelope's `safe_to_trade` flag must remain. |
-| **2.3.B** | `mt5_universal/history/history.py` | `archive/legacy-mt5/core/history.py` | `orders()`, `deals()`, `stats()`. ISO-8601 timestamps. `strategy_id` filter via `resolve_magic` (lands in 2.3.E — temporarily inline the magic resolution if 2.3.E hasn't shipped). |
-| **2.3.C** | `mt5_universal/market/market.py` | `archive/legacy-mt5/core/market.py` | `info()`, `tick()`, `depth()`, `search()`, `sessions()`. `depth()` is the longest function — DOM bid/ask normalization, spread_points, midpoint, imbalance. The `market_book_add` / `market_book_get` / `market_book_release` must release after each one-shot read. |
-| **2.3.D** | `mt5_universal/rates/rates.py` | `archive/legacy-mt5/core/rates.py` | `fetch()`, `latest()`, `ticks()`. Test the timeframe-string-to-constant map (`"M5" → mt5.TIMEFRAME_M5`). |
-| **2.3.E** | `mt5_universal/risk/risk.py` | `archive/legacy-mt5/core/risk.py` | **The 11-gate risk module — the most important sub-task.** TDD every gate separately (1 test per gate). `archive/legacy-mt5/tests/test_core.py` `class TestRisk` lists them: strategy-id length, live-gate, symbol allowlist, max lot, SL distance, spread, hedge guard, max positions, free margin, daily loss cap, rate limiter. Cherry-pick the gate names + `RISK_*` error codes + thresholds. `resolve_magic()` SHA-256 derivation (sha256(id)[:8] % 80000 + 100000 → range [100000, 180000)). `compute_volume_from_risk_pct()`. `daily_loss()` realized + floating combined. Rate limiter sliding-60s window via `collections.deque`. |
-| **2.3.F** | `mt5_universal/orders/orders.py` (note plural rename) | `archive/legacy-mt5/core/order.py` | `place_market()`, `place_limit()`, `dryrun()`, `list_pending()`, `cancel()`, `poll_fill()`. Every mutating function takes keyword-only `is_live_intent`. `dryrun()` calls `order_check` (NOT `order_send`). FOK filling is hardcoded (Trading.com policy via `_resolve_filling`) — no broker abstraction needed under single-broker scope. |
-| **2.3.G** | `mt5_universal/positions/positions.py` (note plural rename) | `archive/legacy-mt5/core/position.py` | `list()`, `close()`, `close_all()`, `breakeven()`, `move_sl()`. Keyword-only `is_live_intent` on every mutator. `breakeven()` sets SL to open ± `buffer_points` (default 0). |
+| **2.3.A** | `mt5_cli/account/account.py` | `archive/legacy-mt5/core/account.py` | `info()`, `balance()`, `risk(cfg)`. The risk envelope's `safe_to_trade` flag must remain. |
+| **2.3.B** | `mt5_cli/history/history.py` | `archive/legacy-mt5/core/history.py` | `orders()`, `deals()`, `stats()`. ISO-8601 timestamps. `strategy_id` filter via `resolve_magic` (lands in 2.3.E — temporarily inline the magic resolution if 2.3.E hasn't shipped). |
+| **2.3.C** | `mt5_cli/market/market.py` | `archive/legacy-mt5/core/market.py` | `info()`, `tick()`, `depth()`, `search()`, `sessions()`. `depth()` is the longest function — DOM bid/ask normalization, spread_points, midpoint, imbalance. The `market_book_add` / `market_book_get` / `market_book_release` must release after each one-shot read. |
+| **2.3.D** | `mt5_cli/rates/rates.py` | `archive/legacy-mt5/core/rates.py` | `fetch()`, `latest()`, `ticks()`. Test the timeframe-string-to-constant map (`"M5" → mt5.TIMEFRAME_M5`). |
+| **2.3.E** | `mt5_cli/risk/risk.py` | `archive/legacy-mt5/core/risk.py` | **The 11-gate risk module — the most important sub-task.** TDD every gate separately (1 test per gate). `archive/legacy-mt5/tests/test_core.py` `class TestRisk` lists them: strategy-id length, live-gate, symbol allowlist, max lot, SL distance, spread, hedge guard, max positions, free margin, daily loss cap, rate limiter. Cherry-pick the gate names + `RISK_*` error codes + thresholds. `resolve_magic()` SHA-256 derivation (sha256(id)[:8] % 80000 + 100000 → range [100000, 180000)). `compute_volume_from_risk_pct()`. `daily_loss()` realized + floating combined. Rate limiter sliding-60s window via `collections.deque`. |
+| **2.3.F** | `mt5_cli/orders/orders.py` (note plural rename) | `archive/legacy-mt5/core/order.py` | `place_market()`, `place_limit()`, `dryrun()`, `list_pending()`, `cancel()`, `poll_fill()`. Every mutating function takes keyword-only `is_live_intent`. `dryrun()` calls `order_check` (NOT `order_send`). FOK filling is hardcoded (Trading.com policy via `_resolve_filling`) — no broker abstraction needed under single-broker scope. |
+| **2.3.G** | `mt5_cli/positions/positions.py` (note plural rename) | `archive/legacy-mt5/core/position.py` | `list()`, `close()`, `close_all()`, `breakeven()`, `move_sl()`. Keyword-only `is_live_intent` on every mutator. `breakeven()` sets SL to open ± `buffer_points` (default 0). |
 
 **Worked example for sub-task 2.3.A — `account` (the others follow the same shape):**
 
@@ -374,7 +373,7 @@ def mocked_mt5(monkeypatch):
 
 
 def test_account_info_returns_envelope(mocked_mt5):
-    from mt5_universal.account import info
+    from mt5_cli.account import info
     env = info()
     assert env["ok"] is True
     assert env["data"]["balance"] == 10000.0
@@ -382,7 +381,7 @@ def test_account_info_returns_envelope(mocked_mt5):
 
 
 def test_account_balance_subset(mocked_mt5):
-    from mt5_universal.account import balance
+    from mt5_cli.account import balance
     env = balance()
     assert env["ok"] is True
     assert "balance" in env["data"]
@@ -395,11 +394,11 @@ def test_account_balance_subset(mocked_mt5):
 python -m pytest tests/test_account.py -v
 ```
 
-- [ ] **Step 3: Write `mt5_universal/account/account.py`**
+- [ ] **Step 3: Write `mt5_cli/account/account.py`**
 
-Open `archive/legacy-mt5/core/account.py`. Cherry-pick `info()`, `balance()`, `risk(cfg)`. Imports come from `mt5_universal.bridge` (not the archived `utils.mt5_backend`).
+Open `archive/legacy-mt5/core/account.py`. Cherry-pick `info()`, `balance()`, `risk(cfg)`. Imports come from `mt5_cli.bridge` (not the archived `utils.mt5_backend`).
 
-- [ ] **Step 4: Wire `mt5_universal/account/__init__.py`**
+- [ ] **Step 4: Wire `mt5_cli/account/__init__.py`**
 
 ```python
 from .account import info, balance, risk
@@ -412,12 +411,12 @@ __all__ = ["info", "balance", "risk"]
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mt5_universal/account/ tests/test_account.py
-git commit -m "Phase 2.3.A: cherry-pick account primitive into mt5_universal/
+git add mt5_cli/account/ tests/test_account.py
+git commit -m "Phase 2.3.A: cherry-pick account primitive into mt5_cli/
 
 info() / balance() / risk(cfg) ported pattern-for-pattern from
 archive/legacy-mt5/core/account.py with absolute imports from
-mt5_universal.bridge and the standard ok/fail envelope shape."
+mt5_cli.bridge and the standard ok/fail envelope shape."
 ```
 
 **After all 7 sub-tasks complete:**
@@ -443,7 +442,7 @@ Same shape as the other 2.3 sub-tasks:
 1. Cherry-pick reference: `archive/legacy-mt5/core/order.py` (lines around `place_stop`, `modify`, `cancel_all_pending`)
 2. Write failing tests in `tests/test_orders.py` (extend the existing test classes — TestPlaceStop, TestModify, TestCancelAllPending)
 3. Run, fail
-4. Implement under `mt5_universal/orders/orders.py`
+4. Implement under `mt5_cli/orders/orders.py`
 5. Update `__init__.py` to re-export
 6. Run, green
 7. Commit
@@ -458,8 +457,8 @@ git tag phase-2.3.H-complete
 ### Task 2.4: Add config layer with 4-layer resolution
 
 **Files:**
-- Create: `mt5_universal/config/__init__.py`
-- Create: `mt5_universal/config/config.py` (the resolution logic)
+- Create: `mt5_cli/config/__init__.py`
+- Create: `mt5_cli/config/config.py` (the resolution logic)
 - Create: `tests/test_config.py`
 
 (`paths.py` lands in Phase 6 with the full portability rails. This task only does the 4-layer settings resolver.)
@@ -473,7 +472,7 @@ import os
 
 import pytest
 
-from mt5_universal.config import load
+from mt5_cli.config import load
 
 
 @pytest.fixture
@@ -526,16 +525,16 @@ def test_overrides_arg_takes_highest_precedence(clean_env, tmp_path, monkeypatch
 python -m pytest tests/test_config.py -v
 ```
 
-Expected: ImportError because `mt5_universal.config.load` doesn't exist.
+Expected: ImportError because `mt5_cli.config.load` doesn't exist.
 
 - [ ] **Step 3: Implement the config loader**
 
-Create `mt5_universal/config/config.py`:
+Create `mt5_cli/config/config.py`:
 
 ```python
 """4-layer settings resolution: DEFAULTS → file → env → CLI overrides.
 
-Path resolution (where the config FILE lives) is in mt5_universal/config/paths.py
+Path resolution (where the config FILE lives) is in mt5_cli/config/paths.py
 (added in Phase 6). This module just reads/merges the layers.
 """
 import json
@@ -578,7 +577,7 @@ def _config_path() -> Path:
     if "MT5_CONFIG" in os.environ:
         return Path(os.environ["MT5_CONFIG"])
     home = Path(os.path.expanduser("~"))
-    return home / ".config" / "cli-anything-mt5.json"
+    return home / ".config" / "metatrader5-cli.json"
 
 
 def load(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -610,7 +609,7 @@ def mask_secrets(cfg: dict[str, Any]) -> dict[str, Any]:
     return masked
 ```
 
-Wire `mt5_universal/config/__init__.py`:
+Wire `mt5_cli/config/__init__.py`:
 
 ```python
 from .config import DEFAULTS, load, save, mask_secrets
@@ -629,10 +628,10 @@ Expected: 4 PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mt5_universal/config/ tests/test_config.py
+git add mt5_cli/config/ tests/test_config.py
 git commit -m "Phase 2: add config loader with 4-layer resolution
 
-DEFAULTS -> file (MT5_CONFIG or ~/.config/cli-anything-mt5.json) ->
+DEFAULTS -> file (MT5_CONFIG or ~/.config/metatrader5-cli.json) ->
 env (MT5_LOGIN/PASSWORD/SERVER/LIVE) -> CLI overrides. Path
 resolution stays simple here; the full XDG/APPDATA resolver lands
 in Phase 6 as paths.py."
@@ -641,9 +640,9 @@ in Phase 6 as paths.py."
 ### Task 2.5: Add Trading.com order-placement settings (single-broker)
 
 **Files:**
-- Create: `mt5_universal/config/trading_com.py`
+- Create: `mt5_cli/config/trading_com.py`
 - Create: `tests/test_config_trading_com.py`
-- Modify: `mt5_universal/config/config.py` (merge Trading.com defaults into the loaded config)
+- Modify: `mt5_cli/config/config.py` (merge Trading.com defaults into the loaded config)
 
 **Scope reduction from the original plan:** the original Phase 2 had four tasks (`BrokerProfile` ABC, Trading.com profile, generic_mt5 profile, wire orders to broker profile). The user has locked single-broker scope — **Trading.com only**. Multi-broker support is a later addition, NOT in scope for this Phase 2. So no abstraction, no ABC, no `generic_mt5.py`, no profile-lookup wiring. Just plain Trading.com settings merged into the standard config loader.
 
@@ -656,8 +655,8 @@ When a second broker is added in the future, refactor through a `BrokerProfile` 
 Create `tests/test_config_trading_com.py`:
 
 ```python
-from mt5_universal.config import load
-from mt5_universal.config.trading_com import TRADING_COM_DEFAULTS, retcode_help
+from mt5_cli.config import load
+from mt5_cli.config.trading_com import TRADING_COM_DEFAULTS, retcode_help
 
 
 def test_trading_com_defaults_shape():
@@ -689,7 +688,7 @@ python -m pytest tests/test_config_trading_com.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/config/trading_com.py`:
+Create `mt5_cli/config/trading_com.py`:
 
 ```python
 """Trading.com order-placement settings.
@@ -736,7 +735,7 @@ def retcode_help(retcode: int) -> str:
     return RETCODE_HELP.get(retcode, f"Retcode {retcode}: see MT5 docs.")
 ```
 
-Modify `mt5_universal/config/config.py` so `load()` merges `TRADING_COM_DEFAULTS` into the `DEFAULTS` dict before the file/env/override resolution chain:
+Modify `mt5_cli/config/config.py` so `load()` merges `TRADING_COM_DEFAULTS` into the `DEFAULTS` dict before the file/env/override resolution chain:
 
 ```python
 from .trading_com import TRADING_COM_DEFAULTS
@@ -751,7 +750,7 @@ DEFAULTS = {
 
 ```bash
 python -m pytest -q
-git add mt5_universal/config/ tests/test_config_trading_com.py
+git add mt5_cli/config/ tests/test_config_trading_com.py
 git commit -m "Phase 2.5: Trading.com order-placement settings (single-broker)
 
 Single Trading.com config module — no BrokerProfile abstraction, no
@@ -768,11 +767,11 @@ retcode_help(retcode) gives agents actionable explanations of MT5 trade
 retcodes (10008/10027/10030 + the common 10004-10021 range)."
 ```
 
-### Task 2.6: Cherry-pick chart-control primitives into mt5_universal/chart/
+### Task 2.6: Cherry-pick chart-control primitives into mt5_cli/chart/
 
 **Files:**
-- Create: `mt5_universal/chart/chart.py`
-- Replace: `mt5_universal/chart/__init__.py`
+- Create: `mt5_cli/chart/chart.py`
+- Replace: `mt5_cli/chart/__init__.py`
 - Create: `tests/test_chart.py`
 
 The tool gives agents hands to control MT5's active chart: switch the active chart's symbol or timeframe, ensure a specific symbol+timeframe chart is the active one, list all open charts. The agent uses these primitives to compose its own multi-timeframe analysis or screenshot workflows. The tool does NOT orchestrate (no `screenshot tda` loop, no manifest writing, no analytical framework).
@@ -792,15 +791,15 @@ Cherry-pick the pure chart-control primitives:
 - `screenshot_tda` orchestration (it's a strategy workflow — user composes from primitives)
 - `depth-of-market` GUI panel opening (DOM lives in `market.depth()` for structured data; if a GUI screenshot is needed it's Task 2.7's job)
 
-Tests cover each primitive with Win32 API mocked via `pywin32` MagicMock fixture. Use the cache-safe pattern (purge `mt5_universal.bridge*`, `mt5_universal.chart*` before/after).
+Tests cover each primitive with Win32 API mocked via `pywin32` MagicMock fixture. Use the cache-safe pattern (purge `mt5_cli.bridge*`, `mt5_cli.chart*` before/after).
 
-Detailed test + implementation steps follow the same shape as Task 2.3.C (market). The implementer should read `archive/legacy-mt5/core/chart.py` for the Win32 message-passing pattern (WM_COMMAND, WM_MDIACTIVATE) and the title-polling settle loops, then rewrite cleanly under `mt5_universal/chart/`.
+Detailed test + implementation steps follow the same shape as Task 2.3.C (market). The implementer should read `archive/legacy-mt5/core/chart.py` for the Win32 message-passing pattern (WM_COMMAND, WM_MDIACTIVATE) and the title-polling settle loops, then rewrite cleanly under `mt5_cli/chart/`.
 
-### Task 2.7: Cherry-pick screenshot primitives into mt5_universal/screenshot/
+### Task 2.7: Cherry-pick screenshot primitives into mt5_cli/screenshot/
 
 **Files:**
-- Create: `mt5_universal/screenshot/screenshot.py`
-- Replace: `mt5_universal/screenshot/__init__.py`
+- Create: `mt5_cli/screenshot/screenshot.py`
+- Replace: `mt5_cli/screenshot/__init__.py`
 - Create: `tests/test_screenshot.py`
 
 The tool gives agents hands to capture the active MT5 chart or DOM panel as PNG. The agent uses these primitives to build its own screenshot workflows (e.g., a TDA review loop: `switch_tf → take → switch_tf → take → ...` — but the LOOP is the agent's, not the tool's).
@@ -821,7 +820,7 @@ Same cache-safe fixture pattern. Detailed steps follow Task 2.3.C shape.
 ### Task 2.8: Chart-indicator attach/detach primitives
 
 **Files:**
-- Create: `mt5_universal/chart/indicators_attach.py` (or extend `chart.py`)
+- Create: `mt5_cli/chart/indicators_attach.py` (or extend `chart.py`)
 - Modify: `tests/test_chart.py` (add attach/detach test class)
 
 The tool gives agents hands to attach a user-compiled MQL5 indicator (`.ex5`) to the active chart, detach one by name, or list what's currently attached. The user's indicator math is unchanged; the tool just manages chart-state attachment.
@@ -854,15 +853,15 @@ Tests follow the same cache-safe pattern. Use MagicMock for the MT5 chart calls;
 ### Task 2.10: Add reports module (JSON envelope helpers)
 
 **Files:**
-- Create: `mt5_universal/reports/__init__.py`
-- Create: `mt5_universal/reports/envelope.py`
+- Create: `mt5_cli/reports/__init__.py`
+- Create: `mt5_cli/reports/envelope.py`
 - Create: `tests/test_reports_envelope.py`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # tests/test_reports_envelope.py
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 
 def test_ok_envelope_shape():
@@ -890,7 +889,7 @@ python -m pytest tests/test_reports_envelope.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/reports/envelope.py`:
+Create `mt5_cli/reports/envelope.py`:
 
 ```python
 """Standard JSON envelope returned by every CLI command and library function.
@@ -911,7 +910,7 @@ def fail(code: str, message: str, *, data: dict | None = None) -> dict:
     return {"ok": False, "error": err}
 ```
 
-Wire `mt5_universal/reports/__init__.py`:
+Wire `mt5_cli/reports/__init__.py`:
 
 ```python
 from .envelope import ok, fail
@@ -923,7 +922,7 @@ __all__ = ["ok", "fail"]
 
 ```bash
 python -m pytest tests/test_reports_envelope.py -v
-git add mt5_universal/reports/ tests/test_reports_envelope.py
+git add mt5_cli/reports/ tests/test_reports_envelope.py
 git commit -m "Phase 2: add reports.envelope with ok() / fail() helpers
 
 Standard JSON envelope shape used by every CLI command, library
@@ -946,12 +945,12 @@ touch tests/__init__.py
 
 ```python
 # tests/test_bridge_singleton.py
-"""CI guard: only mt5_universal/bridge/mt5_backend.py may import MetaTrader5."""
+"""CI guard: only mt5_cli/bridge/mt5_backend.py may import MetaTrader5."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = {"mt5_universal/bridge/mt5_backend.py"}
-SCAN_DIRS = ["mt5_universal", "mt5", "mt5_mcp"]
+ALLOWED = {"mt5_cli/bridge/mt5_backend.py"}
+SCAN_DIRS = ["mt5_cli", "mt5", "mt5_mcp"]
 
 
 def test_only_bridge_imports_metatrader5():
@@ -990,8 +989,8 @@ python -m pytest tests/test_bridge_singleton.py -v
 git add tests/ pytest.ini
 git commit -m "Phase 2: CI guard — bridge is the only MetaTrader5 importer
 
-Greps mt5_universal/, mt5/, mt5_mcp/ for any import MetaTrader5
-outside of mt5_universal/bridge/mt5_backend.py. Fails the suite on
+Greps mt5_cli/, mt5/, mt5_mcp/ for any import MetaTrader5
+outside of mt5_cli/bridge/mt5_backend.py. Fails the suite on
 any leak."
 ```
 
@@ -1000,19 +999,19 @@ any leak."
 - [ ] **Step 1: Verify all imports work**
 
 ```bash
-python -c "from mt5_universal import market, rates, orders, positions, account, history, risk; print('imports OK')"
-python -c "from mt5_universal.chart import switch_tf, attach, detach, list_attached, find_window; from mt5_universal.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
+python -c "from mt5_cli import market, rates, orders, positions, account, history, risk; print('imports OK')"
+python -c "from mt5_cli.chart import switch_tf, attach, detach, list_attached, find_window; from mt5_cli.screenshot import take, dom, annotate; print('chart+screenshot imports OK')"
 
 # Pin MT5_CONFIG to a non-existent path so the user's real config file
 # (if any) does not override DEFAULTS in this purity check.
-MT5_CONFIG=/nonexistent.json python -c "from mt5_universal.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'), '/', retcode_help(10030)[:30])"
+MT5_CONFIG=/nonexistent.json python -c "from mt5_cli.config import load, retcode_help; cfg = load(); print(cfg['filling'], cfg.get('rollover_utc_hour'), '/', retcode_help(10030)[:30])"
 ```
 
 All three must print without ImportError. The third confirms Task 2.5's
 Trading.com merge landed: `FOK 22 / Wrong filling mode. Trading.co`
 (filling='FOK', rollover_utc_hour=22, retcode_help is exported from the
 single-broker config surface). The `MT5_CONFIG=/nonexistent.json` pin
-prevents a developer's local `~/.config/cli-anything-mt5.json` from
+prevents a developer's local `~/.config/metatrader5-cli.json` from
 shadowing DEFAULTS during the purity check.
 
 - [ ] **Step 2: Full suite green**
@@ -1038,7 +1037,7 @@ git log --oneline -8
 
 **Files:**
 - Modify: `README.md` — add a "User workspace layout" section
-- Add: `mt5_universal/skills/USER_WORKSPACE.md` — minimal one-pager linked from SKILL.md
+- Add: `mt5_cli/skills/USER_WORKSPACE.md` — minimal one-pager linked from SKILL.md
 
 **Why this task is tiny:** this repo ships only the tool. The `ea/`, `indicators/`, `presets/`, `results/` directories live in the USER's workspace (their CWD when they run `mt5`, or `~/.config/mt5-universal/{ea,indicators,presets,results}/`). We do NOT create those dirs here, ship example EAs, or maintain a `results/` snapshot dir in this repo. The CLI commands (Tasks 3.2-3.6) operate on the user's CWD by default.
 
@@ -1073,7 +1072,7 @@ You can also keep your EAs and indicators centrally under `~/.config/mt5-univers
 
 - [ ] **Step 2: Add the workspace one-pager (referenced from SKILL.md in Phase 5)**
 
-Create `mt5_universal/skills/USER_WORKSPACE.md`:
+Create `mt5_cli/skills/USER_WORKSPACE.md`:
 
 ```markdown
 # User workspace conventions for `metatrader5-cli`
@@ -1107,7 +1106,7 @@ This repo is a tool. It contains no EAs, no indicators, no .set presets, no back
 - [ ] **Step 3: Commit**
 
 ```bash
-git add README.md mt5_universal/skills/USER_WORKSPACE.md
+git add README.md mt5_cli/skills/USER_WORKSPACE.md
 git commit -m "Phase 3: document the user-workspace convention
 
 README gets a user-workspace section; the tool ships a USER_WORKSPACE.md
@@ -1119,7 +1118,7 @@ machine. .gitignore is unchanged (nothing to ignore here)."
 ### Task 3.2: Implement mql5.compiler (metaeditor64.exe wrapper)
 
 **Files:**
-- Create: `mt5_universal/mql5/compiler.py`
+- Create: `mt5_cli/mql5/compiler.py`
 - Create: `tests/test_mql5_compiler.py`
 
 - [ ] **Step 1: Write the failing test (mocked subprocess)**
@@ -1131,7 +1130,7 @@ from pathlib import Path
 
 import pytest
 
-from mt5_universal.mql5 import compiler
+from mt5_cli.mql5 import compiler
 
 
 def test_locate_metaeditor_returns_none_when_missing(monkeypatch):
@@ -1185,7 +1184,7 @@ python -m pytest tests/test_mql5_compiler.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/mql5/compiler.py`:
+Create `mt5_cli/mql5/compiler.py`:
 
 ```python
 """Compile MQL5 source via metaeditor64.exe.
@@ -1200,7 +1199,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 _CANDIDATE_PATHS = [
     Path(r"C:\Program Files\MetaTrader 5\metaeditor64.exe"),
@@ -1270,7 +1269,7 @@ def compile_source(src: Path, *, include_dir: Path | None = None, timeout: int =
 
 ```bash
 python -m pytest tests/test_mql5_compiler.py -v
-git add mt5_universal/mql5/compiler.py tests/test_mql5_compiler.py
+git add mt5_cli/mql5/compiler.py tests/test_mql5_compiler.py
 git commit -m "Phase 3: add mql5.compiler — metaeditor64.exe wrapper
 
 Resolves MetaEditor via MT5_METAEDITOR_PATH env, common install
@@ -1281,7 +1280,7 @@ errors/warnings/log path."
 ### Task 3.3: Implement mql5.deployer
 
 **Files:**
-- Create: `mt5_universal/mql5/deployer.py`
+- Create: `mt5_cli/mql5/deployer.py`
 - Create: `tests/test_mql5_deployer.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -1292,7 +1291,7 @@ from pathlib import Path
 
 import pytest
 
-from mt5_universal.mql5 import deployer
+from mt5_cli.mql5 import deployer
 
 
 def test_resolve_terminal_data_dir_via_env(monkeypatch, tmp_path):
@@ -1343,7 +1342,7 @@ python -m pytest tests/test_mql5_deployer.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/mql5/deployer.py`:
+Create `mt5_cli/mql5/deployer.py`:
 
 ```python
 """Copy compiled MQL5 artifacts to the MT5 terminal's Experts/ or Indicators/ folder.
@@ -1355,7 +1354,7 @@ import os
 import shutil
 from pathlib import Path
 
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 _CANDIDATE_DATA_DIRS = [
     Path(os.path.expanduser(r"~\AppData\Roaming\MetaQuotes\Terminal")),
@@ -1418,14 +1417,14 @@ def deploy_indicator(src: Path) -> dict:
 
 ```bash
 python -m pytest tests/test_mql5_deployer.py -v
-git add mt5_universal/mql5/deployer.py tests/test_mql5_deployer.py
+git add mt5_cli/mql5/deployer.py tests/test_mql5_deployer.py
 git commit -m "Phase 3: add mql5.deployer — copy .mq5 + .ex5 to terminal MQL5 dir"
 ```
 
 ### Task 3.4: Implement mql5.discovery (auto-find user EAs/indicators)
 
 **Files:**
-- Create: `mt5_universal/mql5/discovery.py`
+- Create: `mt5_cli/mql5/discovery.py`
 - Create: `tests/test_mql5_discovery.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -1434,7 +1433,7 @@ git commit -m "Phase 3: add mql5.deployer — copy .mq5 + .ex5 to terminal MQL5 
 # tests/test_mql5_discovery.py
 from pathlib import Path
 
-from mt5_universal.mql5 import discovery
+from mt5_cli.mql5 import discovery
 
 
 def test_discover_eas_finds_mq5_files(tmp_path, monkeypatch):
@@ -1482,7 +1481,7 @@ python -m pytest tests/test_mql5_discovery.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/mql5/discovery.py`:
+Create `mt5_cli/mql5/discovery.py`:
 
 ```python
 """Auto-discover user MQL5 EAs and indicators.
@@ -1559,7 +1558,7 @@ def get_indicator(name: str) -> dict | None:
 
 ```bash
 python -m pytest tests/test_mql5_discovery.py -v
-git add mt5_universal/mql5/discovery.py tests/test_mql5_discovery.py
+git add mt5_cli/mql5/discovery.py tests/test_mql5_discovery.py
 git commit -m "Phase 3: add mql5.discovery — auto-find user EAs/indicators
 
 Search order: ./ea or ./indicators (cwd) -> ~/.config/mt5-universal/.
@@ -1570,16 +1569,16 @@ compiled boolean."
 ### Task 3.5: Add MQL5 templates + scaffolding
 
 **Files:**
-- Create: `mt5_universal/mql5/templates/ea_minimal.mq5`
-- Create: `mt5_universal/mql5/templates/indicator_minimal.mq5`
-- Create: `mt5_universal/mql5/scaffold.py`
+- Create: `mt5_cli/mql5/templates/ea_minimal.mq5`
+- Create: `mt5_cli/mql5/templates/indicator_minimal.mq5`
+- Create: `mt5_cli/mql5/scaffold.py`
 - Create: `tests/test_mql5_scaffold.py`
 
 The tool ships **only minimal skeleton templates** — no strategy classification, no opinionated parameter suggestions, no trading-style hints. A template is just the smallest MQL5 boilerplate that compiles and loads. The user authors their own strategy / indicator math inside it. metatrader5-cli is hands for agents to control MT5; what the EA/indicator DOES is the user's domain entirely.
 
 - [ ] **Step 1: Write template files**
 
-Create `mt5_universal/mql5/templates/ea_minimal.mq5` — bare EA skeleton with the user-supplied name as a `{{name}}` placeholder. No strategy-flavored input parameters; no trading logic.
+Create `mt5_cli/mql5/templates/ea_minimal.mq5` — bare EA skeleton with the user-supplied name as a `{{name}}` placeholder. No strategy-flavored input parameters; no trading logic.
 
 ```cpp
 //+------------------------------------------------------------------+
@@ -1595,7 +1594,7 @@ void OnDeinit(const int reason) { /* cleanup if needed */ }
 void OnTick()                   { /* author entry / management / exit here */ }
 ```
 
-Create `mt5_universal/mql5/templates/indicator_minimal.mq5` — bare indicator skeleton, one default buffer, no calculation.
+Create `mt5_cli/mql5/templates/indicator_minimal.mq5` — bare indicator skeleton, one default buffer, no calculation.
 
 ```cpp
 //+------------------------------------------------------------------+
@@ -1624,7 +1623,7 @@ int OnCalculate(const int rates_total, const int prev_calculated, const datetime
 # tests/test_mql5_scaffold.py
 from pathlib import Path
 import pytest
-from mt5_universal.mql5 import scaffold
+from mt5_cli.mql5 import scaffold
 
 
 def test_scaffold_ea_writes_minimal_file(tmp_path):
@@ -1665,7 +1664,7 @@ python -m pytest tests/test_mql5_scaffold.py -v
 
 - [ ] **Step 4: Implement**
 
-Create `mt5_universal/mql5/scaffold.py`:
+Create `mt5_cli/mql5/scaffold.py`:
 
 ```python
 """Scaffold new MQL5 EAs and indicators from packaged minimal templates.
@@ -1676,7 +1675,7 @@ to author in their own workspace.
 """
 from pathlib import Path
 
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 _TEMPLATE_ROOT = Path(__file__).parent / "templates"
 
@@ -1708,7 +1707,7 @@ def create_indicator(name: str, *, target_dir: Path | str = Path("indicators")) 
     return _scaffold(name, Path(target_dir), _IND_TEMPLATE)
 ```
 
-- [ ] **Step 5: Update `mt5_universal/mql5/__init__.py`** to re-export the public API
+- [ ] **Step 5: Update `mt5_cli/mql5/__init__.py`** to re-export the public API
 
 ```python
 from . import compiler, deployer, discovery, scaffold
@@ -1722,7 +1721,7 @@ In `setup.py`, change `package_data` to include the templates:
 
 ```python
     package_data={
-        "mt5_universal.mql5": [
+        "mt5_cli.mql5": [
             "templates/*.mq5",
         ],
     },
@@ -1732,7 +1731,7 @@ In `setup.py`, change `package_data` to include the templates:
 
 ```bash
 python -m pytest tests/test_mql5_scaffold.py -v
-git add mt5_universal/mql5/ tests/test_mql5_scaffold.py setup.py
+git add mt5_cli/mql5/ tests/test_mql5_scaffold.py setup.py
 git commit -m "Phase 3: add minimal MQL5 templates + scaffold
 
 Ships one minimal EA template (ea_minimal.mq5) and one minimal indicator
@@ -1771,7 +1770,7 @@ main()
 Create `mt5/cli.py`:
 
 ```python
-"""Thin click wrapper over mt5_universal.
+"""Thin click wrapper over mt5_cli.
 
 Each command translates CLI args to library calls and prints the
 JSON envelope (with --json) or human-readable text.
@@ -1781,7 +1780,7 @@ from pathlib import Path
 
 import click
 
-from mt5_universal.mql5 import compiler, deployer, discovery, scaffold
+from mt5_cli.mql5 import compiler, deployer, discovery, scaffold
 
 
 def _emit(envelope: dict, as_json: bool) -> None:
@@ -1928,7 +1927,7 @@ ls /tmp/eatest/demo.mq5
 git add mt5/ setup.py
 git commit -m "Phase 3: wire mt5 ea new/list/compile/deploy + indicator equivalents
 
-Thin click wrapper at mt5/cli.py over mt5_universal.mql5. Console
+Thin click wrapper at mt5/cli.py over mt5_cli.mql5. Console
 script switches from the legacy metatrader5_cli entry to mt5.cli:main."
 ```
 
@@ -2037,7 +2036,7 @@ git tag phase-3-complete
 ### Task 4.1: Add tester.cache (run-id snapshots)
 
 **Files:**
-- Create: `mt5_universal/tester/cache.py`
+- Create: `mt5_cli/tester/cache.py`
 - Create: `tests/test_tester_cache.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -2047,7 +2046,7 @@ git tag phase-3-complete
 from datetime import datetime
 from pathlib import Path
 
-from mt5_universal.tester import cache
+from mt5_cli.tester import cache
 
 
 def test_make_run_id_format():
@@ -2081,7 +2080,7 @@ python -m pytest tests/test_tester_cache.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/tester/cache.py`:
+Create `mt5_cli/tester/cache.py`:
 
 ```python
 """Per-run snapshot cache under results/<run-id>/."""
@@ -2124,14 +2123,14 @@ def get_run(run_id: str, *, root: Path | str = "results") -> dict | None:
 
 ```bash
 python -m pytest tests/test_tester_cache.py -v
-git add mt5_universal/tester/cache.py tests/test_tester_cache.py
+git add mt5_cli/tester/cache.py tests/test_tester_cache.py
 git commit -m "Phase 4: tester.cache — run-id snapshot dirs under results/"
 ```
 
 ### Task 4.2: Implement tester.ini_builder
 
 **Files:**
-- Create: `mt5_universal/tester/ini_builder.py`
+- Create: `mt5_cli/tester/ini_builder.py`
 - Create: `tests/test_tester_ini_builder.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -2140,7 +2139,7 @@ git commit -m "Phase 4: tester.cache — run-id snapshot dirs under results/"
 # tests/test_tester_ini_builder.py
 from pathlib import Path
 
-from mt5_universal.tester import ini_builder
+from mt5_cli.tester import ini_builder
 
 
 def test_build_single_ea_ini_includes_required_fields(tmp_path):
@@ -2201,7 +2200,7 @@ python -m pytest tests/test_tester_ini_builder.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/tester/ini_builder.py`:
+Create `mt5_cli/tester/ini_builder.py`:
 
 ```python
 """Generate the .ini config file MT5's terminal64.exe /config: needs."""
@@ -2308,14 +2307,14 @@ def write_ini(path: Path, content: str) -> Path:
 
 ```bash
 python -m pytest tests/test_tester_ini_builder.py -v
-git add mt5_universal/tester/ini_builder.py tests/test_tester_ini_builder.py
+git add mt5_cli/tester/ini_builder.py tests/test_tester_ini_builder.py
 git commit -m "Phase 4: tester.ini_builder generates .ini files for terminal64 /config"
 ```
 
 ### Task 4.3: Implement tester.launcher (terminal64.exe /config wrapper)
 
 **Files:**
-- Create: `mt5_universal/tester/launcher.py`
+- Create: `mt5_cli/tester/launcher.py`
 - Create: `tests/test_tester_launcher.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -2325,7 +2324,7 @@ git commit -m "Phase 4: tester.ini_builder generates .ini files for terminal64 /
 import subprocess
 from pathlib import Path
 
-from mt5_universal.tester import launcher
+from mt5_cli.tester import launcher
 
 
 def test_locate_terminal_uses_env(monkeypatch, tmp_path):
@@ -2372,7 +2371,7 @@ python -m pytest tests/test_tester_launcher.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/tester/launcher.py`:
+Create `mt5_cli/tester/launcher.py`:
 
 ```python
 """Run MT5's terminal64.exe in tester mode via /config:<ini>."""
@@ -2380,7 +2379,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 _CANDIDATE_PATHS = [
     Path(r"C:\Program Files\MetaTrader 5\terminal64.exe"),
@@ -2426,14 +2425,14 @@ def run(*, ini_path: Path, run_dir: Path, timeout: int = 600) -> dict:
 
 ```bash
 python -m pytest tests/test_tester_launcher.py -v
-git add mt5_universal/tester/launcher.py tests/test_tester_launcher.py
+git add mt5_cli/tester/launcher.py tests/test_tester_launcher.py
 git commit -m "Phase 4: tester.launcher runs terminal64.exe /config:<ini> /portable"
 ```
 
 ### Task 4.4: Implement tester.results — HTML report parser
 
 **Files:**
-- Create: `mt5_universal/tester/results.py`
+- Create: `mt5_cli/tester/results.py`
 - Create: `tests/test_tester_results_html.py`
 - Create: `tests/fixtures/sample_report.html`
 
@@ -2464,7 +2463,7 @@ Create `tests/fixtures/sample_report.html` (this is a minimal MT5-tester-style r
 # tests/test_tester_results_html.py
 from pathlib import Path
 
-from mt5_universal.tester import results
+from mt5_cli.tester import results
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_report.html"
 
@@ -2505,7 +2504,7 @@ python -m pytest tests/test_tester_results_html.py -v
 
 - [ ] **Step 4: Implement (HTML parser only — CSV / XML / envelope land in next tasks)**
 
-Create `mt5_universal/tester/results.py`:
+Create `mt5_cli/tester/results.py`:
 
 ```python
 """Parse MT5 Strategy Tester output: HTML report + journal CSV + optimization XML.
@@ -2655,7 +2654,7 @@ def parse_html_report(path: Path) -> dict[str, Any]:
     return {"metadata": metadata, "stats": stats, "deals": deals}
 ```
 
-Wire `mt5_universal/tester/__init__.py`:
+Wire `mt5_cli/tester/__init__.py`:
 
 ```python
 from . import cache, ini_builder, launcher, results
@@ -2667,14 +2666,14 @@ __all__ = ["cache", "ini_builder", "launcher", "results"]
 
 ```bash
 python -m pytest tests/test_tester_results_html.py -v
-git add mt5_universal/tester/results.py mt5_universal/tester/__init__.py tests/test_tester_results_html.py tests/fixtures/sample_report.html
+git add mt5_cli/tester/results.py mt5_cli/tester/__init__.py tests/test_tester_results_html.py tests/fixtures/sample_report.html
 git commit -m "Phase 4: tester.results.parse_html_report extracts stats + deals"
 ```
 
 ### Task 4.5: Add journal CSV parser
 
 **Files:**
-- Modify: `mt5_universal/tester/results.py`
+- Modify: `mt5_cli/tester/results.py`
 - Create: `tests/test_tester_results_journal.py`
 - Create: `tests/fixtures/sample_journal.csv`
 
@@ -2695,7 +2694,7 @@ git commit -m "Phase 4: tester.results.parse_html_report extracts stats + deals"
 # tests/test_tester_results_journal.py
 from pathlib import Path
 
-from mt5_universal.tester import results
+from mt5_cli.tester import results
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_journal.csv"
 
@@ -2721,7 +2720,7 @@ python -m pytest tests/test_tester_results_journal.py -v
 
 - [ ] **Step 4: Implement — append to results.py**
 
-Add to `mt5_universal/tester/results.py`:
+Add to `mt5_cli/tester/results.py`:
 
 ```python
 def _to_iso(stamp: str) -> str:
@@ -2751,14 +2750,14 @@ def parse_journal(path: Path) -> list[dict[str, Any]]:
 
 ```bash
 python -m pytest tests/test_tester_results_journal.py -v
-git add mt5_universal/tester/results.py tests/test_tester_results_journal.py tests/fixtures/sample_journal.csv
+git add mt5_cli/tester/results.py tests/test_tester_results_journal.py tests/fixtures/sample_journal.csv
 git commit -m "Phase 4: tester.results.parse_journal — CSV journal -> JSON events"
 ```
 
 ### Task 4.6: Add optimization XML parser + envelope assembler
 
 **Files:**
-- Modify: `mt5_universal/tester/results.py`
+- Modify: `mt5_cli/tester/results.py`
 - Create: `tests/fixtures/sample_optimization.xml`
 - Create: `tests/test_tester_results_envelope.py`
 
@@ -2792,7 +2791,7 @@ git commit -m "Phase 4: tester.results.parse_journal — CSV journal -> JSON eve
 # tests/test_tester_results_envelope.py
 from pathlib import Path
 
-from mt5_universal.tester import results
+from mt5_cli.tester import results
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -2839,12 +2838,12 @@ python -m pytest tests/test_tester_results_envelope.py -v
 
 - [ ] **Step 4: Implement — append to results.py**
 
-Add to `mt5_universal/tester/results.py`:
+Add to `mt5_cli/tester/results.py`:
 
 ```python
 import xml.etree.ElementTree as ET
 
-from mt5_universal.reports import ok
+from mt5_cli.reports import ok
 
 
 def parse_optimization_xml(path: Path) -> list[dict[str, Any]]:
@@ -2899,7 +2898,7 @@ def assemble(
 
 ```bash
 python -m pytest tests/test_tester_results_envelope.py -v
-git add mt5_universal/tester/results.py tests/test_tester_results_envelope.py tests/fixtures/sample_optimization.xml
+git add mt5_cli/tester/results.py tests/test_tester_results_envelope.py tests/fixtures/sample_optimization.xml
 git commit -m "Phase 4: tester.results — XML opt parser + assemble() envelope
 
 assemble() combines HTML stats/deals + CSV journal + optimization XML
@@ -2910,7 +2909,7 @@ empty arrays / None for the missing piece)."
 ### Task 4.7: Implement tester.ea — single mode
 
 **Files:**
-- Create: `mt5_universal/tester/ea.py`
+- Create: `mt5_cli/tester/ea.py`
 - Create: `tests/test_tester_ea.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -2919,7 +2918,7 @@ empty arrays / None for the missing piece)."
 # tests/test_tester_ea.py
 from pathlib import Path
 
-from mt5_universal.tester import ea
+from mt5_cli.tester import ea
 
 
 def test_single_returns_envelope_with_run_id(monkeypatch, tmp_path):
@@ -2992,7 +2991,7 @@ python -m pytest tests/test_tester_ea.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/tester/ea.py`:
+Create `mt5_cli/tester/ea.py`:
 
 ```python
 """High-level tester.ea operations: single, optimize, scanner, stress.
@@ -3001,8 +3000,8 @@ Composes ini_builder + launcher + results.assemble + cache.
 """
 from pathlib import Path
 
-from mt5_universal.mql5 import discovery
-from mt5_universal.reports import ok, fail
+from mt5_cli.mql5 import discovery
+from mt5_cli.reports import ok, fail
 from . import cache, ini_builder, launcher, results
 
 
@@ -3069,7 +3068,7 @@ def single(
 
 ```bash
 python -m pytest tests/test_tester_ea.py -v
-git add mt5_universal/tester/ea.py tests/test_tester_ea.py
+git add mt5_cli/tester/ea.py tests/test_tester_ea.py
 git commit -m "Phase 4: tester.ea.single composes ini + launcher + results
 
 Builds the .ini, launches terminal64 in portable mode, parses the
@@ -3080,7 +3079,7 @@ report + journal, returns the standard envelope with run_id + stats
 ### Task 4.8: Implement tester.ea — optimize/forward + scanner + stress
 
 **Files:**
-- Modify: `mt5_universal/tester/ea.py`
+- Modify: `mt5_cli/tester/ea.py`
 - Modify: `tests/test_tester_ea.py`
 
 - [ ] **Step 1: Add tests**
@@ -3132,7 +3131,7 @@ python -m pytest tests/test_tester_ea.py -v
 
 - [ ] **Step 3: Implement — append to tester/ea.py**
 
-Add to `mt5_universal/tester/ea.py`:
+Add to `mt5_cli/tester/ea.py`:
 
 ```python
 _OPT_MODES = {"complete": 1, "genetic": 2, "math": 4}
@@ -3240,7 +3239,7 @@ def stress(
 
 ```bash
 python -m pytest tests/test_tester_ea.py -v
-git add mt5_universal/tester/ea.py tests/test_tester_ea.py
+git add mt5_cli/tester/ea.py tests/test_tester_ea.py
 git commit -m "Phase 4: tester.ea — optimize/scanner/stress modes
 
 optimize: complete | genetic | math, optional forward window.
@@ -3252,7 +3251,7 @@ varies by MT5 version)."
 ### Task 4.9: Implement tester.indicator (visual test)
 
 **Files:**
-- Create: `mt5_universal/tester/indicator.py`
+- Create: `mt5_cli/tester/indicator.py`
 - Create: `tests/test_tester_indicator.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -3261,7 +3260,7 @@ varies by MT5 version)."
 # tests/test_tester_indicator.py
 from pathlib import Path
 
-from mt5_universal.tester import indicator
+from mt5_cli.tester import indicator
 
 
 def test_visual_returns_envelope_with_run_id(monkeypatch, tmp_path):
@@ -3302,13 +3301,13 @@ python -m pytest tests/test_tester_indicator.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/tester/indicator.py`:
+Create `mt5_cli/tester/indicator.py`:
 
 ```python
 from pathlib import Path
 
-from mt5_universal.mql5 import discovery
-from mt5_universal.reports import ok, fail
+from mt5_cli.mql5 import discovery
+from mt5_cli.reports import ok, fail
 from . import cache, ini_builder, launcher
 
 
@@ -3354,7 +3353,7 @@ def visual(
     })
 ```
 
-Update `mt5_universal/tester/__init__.py`:
+Update `mt5_cli/tester/__init__.py`:
 
 ```python
 from . import cache, ea, ini_builder, indicator, launcher, results
@@ -3366,7 +3365,7 @@ __all__ = ["cache", "ea", "ini_builder", "indicator", "launcher", "results"]
 
 ```bash
 python -m pytest tests/test_tester_indicator.py -v
-git add mt5_universal/tester/indicator.py mt5_universal/tester/__init__.py tests/test_tester_indicator.py
+git add mt5_cli/tester/indicator.py mt5_cli/tester/__init__.py tests/test_tester_indicator.py
 git commit -m "Phase 4: tester.indicator.visual — drive MT5 indicator visual test"
 ```
 
@@ -3381,8 +3380,8 @@ git commit -m "Phase 4: tester.indicator.visual — drive MT5 indicator visual t
 Add at the end of `mt5/cli.py`:
 
 ```python
-from mt5_universal.tester import ea as tester_ea, indicator as tester_indicator, cache as tester_cache
-from mt5_universal.tester import results as tester_results
+from mt5_cli.tester import ea as tester_ea, indicator as tester_indicator, cache as tester_cache
+from mt5_cli.tester import results as tester_results
 
 
 @main.group("tester")
@@ -3555,20 +3554,20 @@ mt5 --json tester list           # empty array initially
 
 **Goal:** Make agents discoverable and runnable. Migrate the archived 11k-char SKILL.md from `archive/legacy-mt5/skills/`, add YAML frontmatter, add MCP server, recreate ReplSkin in the new CLI so it prints the SKILL.md path, and add a skill_generator that introspects the Click tree.
 
-### Task 5.1: Migrate SKILL.md to mt5_universal/skills/ with YAML frontmatter
+### Task 5.1: Migrate SKILL.md to mt5_cli/skills/ with YAML frontmatter
 
 **Files:**
-- Create: `mt5_universal/skills/SKILL.md` from archived source `archive/legacy-mt5/skills/SKILL.md`
-- Modify: `mt5_universal/skills/SKILL.md` — prepend YAML frontmatter; replace any references to legacy commands with new equivalents
+- Create: `mt5_cli/skills/SKILL.md` from archived source `archive/legacy-mt5/skills/SKILL.md`
+- Modify: `mt5_cli/skills/SKILL.md` — prepend YAML frontmatter; replace any references to legacy commands with new equivalents
 - Modify: `setup.py` package_data
 
 - [ ] **Step 1: Copy archived manifest and add frontmatter**
 
 ```powershell
-Copy-Item archive\legacy-mt5\skills\SKILL.md mt5_universal\skills\SKILL.md
+Copy-Item archive\legacy-mt5\skills\SKILL.md mt5_cli\skills\SKILL.md
 ```
 
-Edit `mt5_universal/skills/SKILL.md` to prepend (use the Edit tool):
+Edit `mt5_cli/skills/SKILL.md` to prepend (use the Edit tool):
 
 ```markdown
 ---
@@ -3588,8 +3587,8 @@ Search the doc for any of: `mt5 ea adaptive-trail`, `mt5 analyze sniper-poc`, `m
 
 ```python
     package_data={
-        "mt5_universal.mql5": ["templates/*.mq5"],
-        "mt5_universal.skills": ["SKILL.md"],
+        "mt5_cli.mql5": ["templates/*.mq5"],
+        "mt5_cli.skills": ["SKILL.md"],
     },
 ```
 
@@ -3599,24 +3598,24 @@ Search the doc for any of: `mt5 ea adaptive-trail`, `mt5 analyze sniper-poc`, `m
 
 ```bash
 git add -A
-git commit -m "Phase 5: migrate SKILL.md to mt5_universal/skills/ + add frontmatter
+git commit -m "Phase 5: migrate SKILL.md to mt5_cli/skills/ + add frontmatter
 
 YAML frontmatter (name, description) makes the skill discoverable by
-Claude Code / cli-anything-hub. Legacy command references either
+Claude Code's skill loader. Legacy command references either
 removed or pointed at the archived spec."
 ```
 
 ### Task 5.2: Implement skill_generator (introspect Click tree → command-group tables)
 
 **Files:**
-- Create: `mt5_universal/skills/generator.py`
+- Create: `mt5_cli/skills/generator.py`
 - Create: `tests/test_skill_generator.py`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # tests/test_skill_generator.py
-from mt5_universal.skills.generator import build_command_tables
+from mt5_cli.skills.generator import build_command_tables
 
 import click
 
@@ -3659,7 +3658,7 @@ python -m pytest tests/test_skill_generator.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/skills/generator.py`:
+Create `mt5_cli/skills/generator.py`:
 
 ```python
 """Introspect a Click root and produce per-group command tables for SKILL.md."""
@@ -3692,7 +3691,7 @@ def render_markdown_tables(tables: dict[str, list[dict]]) -> str:
 
 ```bash
 python -m pytest tests/test_skill_generator.py -v
-git add mt5_universal/skills/generator.py tests/test_skill_generator.py
+git add mt5_cli/skills/generator.py tests/test_skill_generator.py
 git commit -m "Phase 5: skill_generator — Click introspection + markdown table render"
 ```
 
@@ -3705,7 +3704,7 @@ git commit -m "Phase 5: skill_generator — Click introspection + markdown table
 - [ ] **Step 1: Append to mt5/cli.py**
 
 ```python
-from mt5_universal.skills.generator import build_command_tables, render_markdown_tables
+from mt5_cli.skills.generator import build_command_tables, render_markdown_tables
 
 
 @main.group("skills")
@@ -3714,7 +3713,7 @@ def skills_group():
 
 
 @skills_group.command("regenerate")
-@click.option("--target", default="mt5_universal/skills/SKILL.md", type=click.Path(dir_okay=False))
+@click.option("--target", default="mt5_cli/skills/SKILL.md", type=click.Path(dir_okay=False))
 @click.pass_context
 def cmd_skills_regenerate(ctx, target):
     """Regenerate the auto-generated Command Groups section.
@@ -3738,7 +3737,7 @@ def cmd_skills_regenerate(ctx, target):
     _emit({"ok": True, "data": {"target": str(target), "groups": sorted(tables)}}, ctx.obj["json"])
 ```
 
-- [ ] **Step 2: Add the markers to mt5_universal/skills/SKILL.md**
+- [ ] **Step 2: Add the markers to mt5_cli/skills/SKILL.md**
 
 Edit the SKILL.md and insert (anywhere appropriate, typically after the introduction):
 
@@ -3813,12 +3812,12 @@ Select-String -Path archive\legacy-mt5\utils\repl_skin.py -Pattern "def.*banner|
 
 - [ ] **Step 2: Implement the new ReplSkin**
 
-Create a fresh `mt5/repl.py` using `archive/legacy-mt5/utils/repl_skin.py` only as a pattern. Imports must point at the new `mt5.cli` command tree and `mt5_universal.*` modules, never at `metatrader5_cli.*`. In the banner function, include the resolved packaged SKILL.md path:
+Create a fresh `mt5/repl.py` using `archive/legacy-mt5/utils/repl_skin.py` only as a pattern. Imports must point at the new `mt5.cli` command tree and `mt5_cli.*` modules, never at `metatrader5_cli.*`. In the banner function, include the resolved packaged SKILL.md path:
 
 ```python
 import importlib.resources as _r
 try:
-    skill_path = _r.files("mt5_universal.skills").joinpath("SKILL.md")
+    skill_path = _r.files("mt5_cli.skills").joinpath("SKILL.md")
     print(f"  SKILL.md: {skill_path}")
 except (ModuleNotFoundError, FileNotFoundError):
     pass
@@ -3861,19 +3860,19 @@ touch mt5_mcp/__init__.py
 Create `mt5_mcp/server.py`:
 
 ```python
-"""mt5-mcp — FastMCP server publishing mt5_universal as MCP tools.
+"""mt5-mcp — FastMCP server publishing mt5_cli as MCP tools.
 
 Each tool maps 1:1 to a library function. Read-only tools are exposed
 unconditionally; mutating tools require an explicit live_intent flag.
 """
 from fastmcp import FastMCP
 
-from mt5_universal.config import load as load_config
-from mt5_universal.market.market import info as market_info, tick as market_tick
-from mt5_universal.rates.rates import fetch as rates_fetch
-from mt5_universal.account.account import info as account_info
-from mt5_universal.history.history import deals as history_deals
-from mt5_universal.mql5 import discovery as mql5_discovery
+from mt5_cli.config import load as load_config
+from mt5_cli.market.market import info as market_info, tick as market_tick
+from mt5_cli.rates.rates import fetch as rates_fetch
+from mt5_cli.account.account import info as account_info
+from mt5_cli.history.history import deals as history_deals
+from mt5_cli.mql5 import discovery as mql5_discovery
 
 mcp = FastMCP("mt5-universal")
 
@@ -3989,9 +3988,9 @@ mt5-mcp console script registered."
 - [ ] **Step 1: Append mutating tools to mt5_mcp/server.py**
 
 ```python
-from mt5_universal.orders.orders import place_market, dryrun as orders_dryrun
-from mt5_universal.positions.positions import close as position_close, list as position_list
-from mt5_universal.tester import ea as tester_ea, indicator as tester_indicator
+from mt5_cli.orders.orders import place_market, dryrun as orders_dryrun
+from mt5_cli.positions.positions import close as position_close, list as position_list
+from mt5_cli.tester import ea as tester_ea, indicator as tester_indicator
 
 
 @mcp.tool()
@@ -4081,7 +4080,7 @@ mt5 skills regenerate
 - [ ] **Step 2: Inspect the result**
 
 ```bash
-grep -A 50 "BEGIN COMMANDS" mt5_universal/skills/SKILL.md | head -60
+grep -A 50 "BEGIN COMMANDS" mt5_cli/skills/SKILL.md | head -60
 ```
 
 Expected: tables for `ea`, `indicator`, `tester`, `skills` (and any others) populated.
@@ -4098,7 +4097,7 @@ mt5-mcp --help 2>&1 | head -10 || true
 
 ```bash
 python -m pytest -q
-git add mt5_universal/skills/SKILL.md
+git add mt5_cli/skills/SKILL.md
 git commit -m "Phase 5: regenerate SKILL.md command tables"
 git tag phase-5-complete
 ```
@@ -4117,10 +4116,10 @@ generator would produce now. Catches drift between code and docs."""
 from pathlib import Path
 
 from mt5.cli import main as cli_root
-from mt5_universal.skills.generator import build_command_tables, render_markdown_tables
+from mt5_cli.skills.generator import build_command_tables, render_markdown_tables
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL = ROOT / "mt5_universal" / "skills" / "SKILL.md"
+SKILL = ROOT / "mt5_cli" / "skills" / "SKILL.md"
 
 
 def test_skill_md_command_tables_in_sync():
@@ -4146,11 +4145,11 @@ git commit -m "Phase 5: CI test — SKILL.md command tables stay in sync with th
 
 **Goal:** Lock down portability rails and cross-platform path resolution. Add the CI hardcoded-path guard. Write the methodology SOP that future contributors and agents follow.
 
-### Task 6.1: Implement mt5_universal/config/paths.py (full XDG/APPDATA resolution)
+### Task 6.1: Implement mt5_cli/config/paths.py (full XDG/APPDATA resolution)
 
 **Files:**
-- Create: `mt5_universal/config/paths.py`
-- Modify: `mt5_universal/config/__init__.py`
+- Create: `mt5_cli/config/paths.py`
+- Modify: `mt5_cli/config/__init__.py`
 - Create: `tests/test_config_paths.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -4159,7 +4158,7 @@ git commit -m "Phase 5: CI test — SKILL.md command tables stay in sync with th
 # tests/test_config_paths.py
 from pathlib import Path
 
-from mt5_universal.config import paths
+from mt5_cli.config import paths
 
 
 def test_config_file_uses_env_when_set(monkeypatch, tmp_path):
@@ -4199,7 +4198,7 @@ python -m pytest tests/test_config_paths.py -v
 
 - [ ] **Step 3: Implement**
 
-Create `mt5_universal/config/paths.py`:
+Create `mt5_cli/config/paths.py`:
 
 ```python
 """Cross-platform path resolution. Every module that needs a filesystem
@@ -4267,7 +4266,7 @@ def log_dir() -> Path:
     return cache_dir() / "logs"
 ```
 
-Update `mt5_universal/config/__init__.py`:
+Update `mt5_cli/config/__init__.py`:
 
 ```python
 from .config import DEFAULTS, load, save, mask_secrets
@@ -4278,7 +4277,7 @@ __all__ = ["DEFAULTS", "load", "save", "mask_secrets", "paths"]
 
 - [ ] **Step 4: Update config.config to use paths.config_file()**
 
-In `mt5_universal/config/config.py`, replace `_config_path()` with:
+In `mt5_cli/config/config.py`, replace `_config_path()` with:
 
 ```python
 from .paths import config_file as _config_path
@@ -4290,7 +4289,7 @@ from .paths import config_file as _config_path
 
 ```bash
 python -m pytest tests/test_config_paths.py -v
-git add mt5_universal/config/ tests/test_config_paths.py
+git add mt5_cli/config/ tests/test_config_paths.py
 git commit -m "Phase 6: full XDG/APPDATA path resolver
 
 paths.config_file/ea_dir/indicators_dir/presets_dir/results_dir/
@@ -4301,15 +4300,15 @@ module. Resolution: MT5_<NAME> env -> XDG -> APPDATA (Win) -> HOME."
 ### Task 6.2: Update mql5/discovery + tester/cache to use config.paths
 
 **Files:**
-- Modify: `mt5_universal/mql5/discovery.py`
-- Modify: `mt5_universal/tester/cache.py`
+- Modify: `mt5_cli/mql5/discovery.py`
+- Modify: `mt5_cli/tester/cache.py`
 
 - [ ] **Step 1: Update discovery to consult paths.ea_dir() / paths.indicators_dir()**
 
-In `mt5_universal/mql5/discovery.py`, replace `_search_paths`:
+In `mt5_cli/mql5/discovery.py`, replace `_search_paths`:
 
 ```python
-from mt5_universal.config import paths
+from mt5_cli.config import paths
 
 
 def _search_paths(kind: str) -> list[Path]:
@@ -4320,10 +4319,10 @@ def _search_paths(kind: str) -> list[Path]:
 
 - [ ] **Step 2: Update cache to default to paths.results_dir()**
 
-In `mt5_universal/tester/cache.py`, change the default `root` parameter:
+In `mt5_cli/tester/cache.py`, change the default `root` parameter:
 
 ```python
-from mt5_universal.config import paths
+from mt5_cli.config import paths
 
 
 def run_dir(run_id: str, *, root: Path | str | None = None) -> Path:
@@ -4350,7 +4349,7 @@ def get_run(run_id: str, *, root: Path | str | None = None) -> dict | None:
 
 ```bash
 python -m pytest -q
-git add mt5_universal/mql5/discovery.py mt5_universal/tester/cache.py
+git add mt5_cli/mql5/discovery.py mt5_cli/tester/cache.py
 git commit -m "Phase 6: route discovery + cache through config.paths
 
 EA/indicator discovery falls back to paths.ea_dir / paths.indicators_dir
@@ -4366,13 +4365,13 @@ when no cwd subdir exists. Tester cache defaults to paths.results_dir."
 
 ```python
 # tests/test_no_hardcoded_paths.py
-"""CI guard: no module under mt5_universal/, mt5/, mt5_mcp/ may contain
-hardcoded user paths. Path resolution goes through mt5_universal.config.paths."""
+"""CI guard: no module under mt5_cli/, mt5/, mt5_mcp/ may contain
+hardcoded user paths. Path resolution goes through mt5_cli.config.paths."""
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCAN_DIRS = ["mt5_universal", "mt5", "mt5_mcp"]
+SCAN_DIRS = ["mt5_cli", "mt5", "mt5_mcp"]
 FORBIDDEN = [
     re.compile(r"C:\\\\Users\\\\"),
     re.compile(r"C:\\\\Users/"),
@@ -4382,9 +4381,9 @@ FORBIDDEN = [
 ]
 # Files allowed to contain hardcoded paths (e.g., Windows install candidates).
 ALLOWLIST = {
-    "mt5_universal/mql5/compiler.py",        # _CANDIDATE_PATHS for metaeditor64.exe
-    "mt5_universal/mql5/deployer.py",        # _CANDIDATE_DATA_DIRS
-    "mt5_universal/tester/launcher.py",      # _CANDIDATE_PATHS for terminal64.exe
+    "mt5_cli/mql5/compiler.py",        # _CANDIDATE_PATHS for metaeditor64.exe
+    "mt5_cli/mql5/deployer.py",        # _CANDIDATE_DATA_DIRS
+    "mt5_cli/tester/launcher.py",      # _CANDIDATE_PATHS for terminal64.exe
 }
 
 
@@ -4413,7 +4412,7 @@ python -m pytest tests/test_no_hardcoded_paths.py -v
 git add tests/test_no_hardcoded_paths.py
 git commit -m "Phase 6: CI portability guard — fail on hardcoded user paths
 
-Greps mt5_universal/, mt5/, mt5_mcp/ for C:\\Users\\, /home/<user>/,
+Greps mt5_cli/, mt5/, mt5_mcp/ for C:\\Users\\, /home/<user>/,
 /Users/<user>/, or absolute drive paths outside an explicit allowlist
 (metaeditor64 / terminal64 / data-dir candidate lookups)."
 ```
@@ -4439,7 +4438,7 @@ This is the standing order; a plan that contradicts it is the plan that's wrong.
 |---|---|---|
 | 0 | Baseline | green tests on `mt5-universal` branch |
 | 1 | Archive legacy | `archive/legacy-mt5/` + `archive/legacy-docs/` + `archive/legacy-mql5/` |
-| 2 | `mt5_universal/` skeleton | the agnostic library |
+| 2 | `mt5_cli/` skeleton | the agnostic library |
 | 3 | MQL5 plugin host | `ea/` + `indicators/` user dirs, scaffolding |
 | 4 | Strategy Tester driver | `mt5 tester ea/indicator …` |
 | 5 | Agent surface | SKILL.md + MCP server + ReplSkin |
@@ -4447,7 +4446,7 @@ This is the standing order; a plan that contradicts it is the plan that's wrong.
 
 ## Adding a new CLI command
 
-1. **Library function first.** Implement in `mt5_universal/<concern>/`. Return `mt5_universal.reports.ok(...)` or `fail(...)`.
+1. **Library function first.** Implement in `mt5_cli/<concern>/`. Return `mt5_cli.reports.ok(...)` or `fail(...)`.
 2. **Test against the function** — not against the CLI. CLI tests are smoke tests, not unit tests.
 3. **Add the click command** in `mt5/cli.py`. Pass `ctx.obj["json"]` to `_emit`.
 4. **Run `mt5 skills regenerate`** so SKILL.md picks up the new command.
@@ -4461,18 +4460,18 @@ Do not add `ea_scalper.mq5`, `indicator_oscillator.mq5`, or similar variants. Th
 
 ## Adding a new broker profile
 
-1. Create `mt5_universal/broker/<name>.py`.
+1. Create `mt5_cli/broker/<name>.py`.
 2. Subclass `BrokerProfile`. Set `name`, `allows_hedging`, `preferred_filling`, `rollover_utc_hour`. Implement `retcode_help`.
 3. Call `register(YourProfile())` at module bottom.
-4. Add `from . import <name>  # noqa: F401` to `mt5_universal/broker/__init__.py`.
+4. Add `from . import <name>  # noqa: F401` to `mt5_cli/broker/__init__.py`.
 5. Add a test in `tests/`.
 
 ## What never changes
 
-- `mt5_universal/bridge/mt5_backend.py` is the only file that imports `MetaTrader5`.
-- Every order call passes through `mt5_universal/risk/risk.check_order(..., is_live_intent=...)`.
+- `mt5_cli/bridge/mt5_backend.py` is the only file that imports `MetaTrader5`.
+- Every order call passes through `mt5_cli/risk/risk.check_order(..., is_live_intent=...)`.
 - Live trading needs all three gates: `cfg["live"]: true` + `MT5_LIVE=1` + `is_live_intent=True`.
-- No hardcoded user paths anywhere in `mt5_universal/`, `mt5/`, `mt5_mcp/`. Use `mt5_universal.config.paths.*`.
+- No hardcoded user paths anywhere in `mt5_cli/`, `mt5/`, `mt5_mcp/`. Use `mt5_cli.config.paths.*`.
 - Every CLI command returns the standard envelope: `{"ok": true, "data": ...}` or `{"ok": false, "error": {"code": ..., "message": ..., "data": ...}}`.
 
 ## Pre-merge checklist
@@ -4480,7 +4479,7 @@ Do not add `ea_scalper.mq5`, `indicator_oscillator.mq5`, or similar variants. Th
 - [ ] `python -m pytest -q` green
 - [ ] `git diff --check master...HEAD` clean
 - [ ] If you touched a CLI command, `mt5 skills regenerate` was run and the SKILL.md change is committed
-- [ ] If you added a `mt5_universal/` module, `tests/test_bridge_singleton.py` and `tests/test_no_hardcoded_paths.py` still pass
+- [ ] If you added a `mt5_cli/` module, `tests/test_bridge_singleton.py` and `tests/test_no_hardcoded_paths.py` still pass
 - [ ] You added at least one unit test per new function (TDD: write the failing test first)
 
 ## See also
@@ -4488,7 +4487,6 @@ Do not add `ea_scalper.mq5`, `indicator_oscillator.mq5`, or similar variants. Th
 - [docs/specs/2026-05-15-mt5-universal-agent-native-design.md](docs/specs/2026-05-15-mt5-universal-agent-native-design.md) — the spec
 - [docs/specs/2026-05-15-mt5-universal-review-context.md](docs/specs/2026-05-15-mt5-universal-review-context.md) — what reviewers care about
 - [docs/playgrounds/mt5-universal-refactor-playground.html](docs/playgrounds/mt5-universal-refactor-playground.html) — the visual companion
-- [CLI-Anything HARNESS.md](https://github.com/HKUDS/CLI-Anything/blob/main/cli-anything-plugin/HARNESS.md) — the SOP we cherry-picked from
 ```
 
 - [ ] **Step 2: Commit**
@@ -4498,8 +4496,7 @@ git add MT5_HARNESS.md
 git commit -m "Phase 6: write MT5_HARNESS.md — methodology SOP
 
 7-phase recap, how to add a CLI command / EA template / broker
-profile, the never-changes list, pre-merge checklist. Models
-CLI-Anything's HARNESS.md."
+profile, the never-changes list, pre-merge checklist."
 ```
 
 ### Task 6.5: Update README.md to point at the new layout
@@ -4568,7 +4565,7 @@ Expected: empty output, exit 0.
 - [ ] **Step 4: Bridge import check via grep (belt + suspenders)**
 
 ```bash
-grep -rn "import MetaTrader5\|from MetaTrader5" mt5_universal/ mt5/ mt5_mcp/ | grep -v bridge/mt5_backend.py
+grep -rn "import MetaTrader5\|from MetaTrader5" mt5_cli/ mt5/ mt5_mcp/ | grep -v bridge/mt5_backend.py
 ```
 
 Expected: empty output.
@@ -4591,7 +4588,7 @@ All must execute without ImportError or click usage errors.
 
 ```bash
 git status --short | grep -v '^??'
-# If SKILL.md drifted: mt5 skills regenerate && git add mt5_universal/skills/SKILL.md && git commit -m "Phase 6: regenerate SKILL.md final pass"
+# If SKILL.md drifted: mt5 skills regenerate && git add mt5_cli/skills/SKILL.md && git commit -m "Phase 6: regenerate SKILL.md final pass"
 ```
 
 ### Task 6.7: Tag final + push
@@ -4630,7 +4627,7 @@ The refactor is **complete** when all of the following are true:
 | SKILL.md in sync | `python -m pytest tests/test_skill_md_in_sync.py` | PASS |
 | Whitespace clean | `git diff --check master...HEAD` | exit 0 |
 | Legacy archived | `git ls-tree -r HEAD -- archive/ \| wc -l` | > 0 |
-| Legacy not imported | `grep -rn "from .core.ehukai\|from .core.analyze\|from .core.tester" mt5_universal/ mt5/ mt5_mcp/` | empty |
+| Legacy not imported | `grep -rn "from .core.ehukai\|from .core.analyze\|from .core.tester" mt5_cli/ mt5/ mt5_mcp/` | empty |
 | CLI installed | `mt5 --help` | shows ea / indicator / tester / skills groups |
 | MCP installed | `mt5-mcp --help` (or stdio smoke) | runs without import errors |
 | Phase tags present | `git tag --list 'phase-*-complete'` | 6 tags (phase-1 through phase-6) |

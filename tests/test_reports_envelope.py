@@ -1,4 +1,4 @@
-from mt5_universal.reports import ok, fail
+from mt5_cli.reports import ok, fail
 
 
 def test_ok_envelope_shape():

@@ -1,12 +1,12 @@
-"""Tests for mt5_universal/config/trading_com.py and its merge into config.py.
+"""Tests for mt5_cli/config/trading_com.py and its merge into config.py.
 
 Task 2.5: Trading.com order-placement settings (single-broker).
 No BrokerProfile abstraction - single-broker scope per user direction.
 """
 import pytest
 
-from mt5_universal.config import load
-from mt5_universal.config.trading_com import (
+from mt5_cli.config import load
+from mt5_cli.config.trading_com import (
     TRADING_COM_DEFAULTS,
     retcode_help as _retcode_help,
 )
@@ -45,7 +45,7 @@ def test_config_load_merges_trading_com_defaults(clean_env, monkeypatch, tmp_pat
 
 
 def test_retcode_help_importable_from_config_package():
-    from mt5_universal.config import retcode_help
+    from mt5_cli.config import retcode_help
     assert callable(retcode_help)
     result = retcode_help(10030)
     assert isinstance(result, str)

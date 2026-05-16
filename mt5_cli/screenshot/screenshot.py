@@ -11,7 +11,7 @@ PIL for annotation / post-processing, and win32gui for the DOM menu
 poke. All heavy deps are imported lazily so the module imports cleanly
 on hosts without them (and tests can sys.modules-mock them).
 
-Public surface (re-exported from `mt5_universal.screenshot.__init__`):
+Public surface (re-exported from `mt5_cli.screenshot.__init__`):
 - take(output_path=None, window_substring="MT5", monitor=None, cfg=None) -> envelope
 - annotate(input_path, output_path, text, xy=(10,10)) -> envelope
 - dom(symbol, output_path=None, ..., open_panel=True, close_panel=True) -> envelope
@@ -26,7 +26,7 @@ from ctypes import wintypes
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mt5_universal.reports import fail, ok
+from mt5_cli.reports import fail, ok
 
 _DEFAULT_SCREENSHOT_DIR = Path(tempfile.gettempdir()) / "mt5-cli" / "screenshots"
 
@@ -293,9 +293,9 @@ def _open_dom_panel(symbol_name: str, window_substring: str, settle_seconds: flo
     """Send WM_COMMAND for the 'Charts > Depth Of Market' menu item."""
     import win32gui  # noqa: PLC0415
 
-    # Use chart.find_window for window discovery (mt5_universal.chart is
+    # Use chart.find_window for window discovery (mt5_cli.chart is
     # the canonical chart-window matcher).
-    from mt5_universal.chart import find_window
+    from mt5_cli.chart import find_window
     match = find_window(window_substring)
     if not match:
         return fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")
@@ -334,7 +334,7 @@ def _is_dom_child_title(title: str, symbol_name: str) -> bool:
 
 def _close_dom_panel(symbol_name: str, window_substring: str) -> dict:
     import win32gui  # noqa: PLC0415
-    from mt5_universal.chart import find_window
+    from mt5_cli.chart import find_window
     match = find_window(window_substring)
     if not match:
         return fail("CHART_WINDOW_NOT_FOUND", f"No MT5 window matched '{window_substring}'.")

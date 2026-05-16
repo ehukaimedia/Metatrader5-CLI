@@ -1,22 +1,22 @@
 """
-account.py — Account snapshot primitives for mt5_universal.
+account.py — Account snapshot primitives for mt5_cli.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` via the bridge.
 
 Pattern-ported from archive/legacy-mt5/core/account.py; imports and envelope
-construction rewritten for mt5_universal.
+construction rewritten for mt5_cli.
 """
 from __future__ import annotations
 
-from mt5_universal.bridge import (
+from mt5_cli.bridge import (
     mt5_call,
     ACCOUNT_TRADE_MODE_DEMO,
     ACCOUNT_TRADE_MODE_CONTEST,
     ACCOUNT_TRADE_MODE_REAL,
 )
-from mt5_universal.reports import ok, fail
-from mt5_universal.risk import daily_loss
+from mt5_cli.reports import ok, fail
+from mt5_cli.risk import daily_loss
 
 # Map raw MT5 trade_mode integers to "demo" or "real" only.
 # CONTEST accounts (broker competitions with simulated funds) collapse to "demo"
