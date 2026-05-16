@@ -16,9 +16,15 @@ setup(
         "pygetwindow>=0.0.9",
         "pywin32>=306; platform_system=='Windows'",
     ],
-    # Console scripts intentionally omitted until Phase 3 (`mt5 = mt5.cli:main`)
-    # and Phase 5 (`mt5-mcp = mt5_mcp.server:main`) wire them. The legacy
-    # `mt5 = metatrader5_cli.mt5.mt5_cli:main` entry point is removed because
-    # the metatrader5_cli/ package no longer exists in the live tree.
+    entry_points={
+        "console_scripts": [
+            "mt5 = mt5.cli:main",
+        ],
+    },
+    # Phase 5 will add `mt5-mcp = mt5_mcp.server:main` when the MCP server
+    # lands. The legacy `mt5 = metatrader5_cli.mt5.mt5_cli:main` entry
+    # point is gone (the metatrader5_cli/ package was archived in Phase 1);
+    # `pip install -e .` after this change replaces the stale binary with
+    # the new mt5.cli:main wrapper.
     python_requires=">=3.10",
 )

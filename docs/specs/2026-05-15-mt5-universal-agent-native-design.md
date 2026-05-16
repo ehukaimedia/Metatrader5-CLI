@@ -232,11 +232,39 @@ Each phase gets its own commit (or PR-equivalent), green tests, and a HEAD tag.
   - `python -m pytest -q` returns 214 passed (or higher as Phase 3+ grows the suite)
   - `git grep -n "import MetaTrader5\|from MetaTrader5" -- mt5_cli` returns only `mt5_cli/bridge/mt5_backend.py:10`
 
-### Phase 3 — MQL5 plugin host
+### Phase 3 — `mt5` CLI + MQL5 plugin host
+
+Phase 3 ships in two sub-phases:
+
+**3a (SHIPPED): `mt5` CLI scaffolding around the Phase 2 library.**
+- Create `mt5/` package (`cli.py`, `emit.py`, `__init__.py`, `__main__.py`).
+- Register `mt5 = mt5.cli:main` console_script in `setup.py`.
+- 11 command groups exposing the full Phase 2 library:
+  `connect`, `status`, `account`, `market`, `rates`, `order`, `position`,
+  `history`, `chart`, `screenshot`, `config`. Global `--json` flag for
+  agent-parseable output; per-command `--live` flag on mutating order /
+  position commands (one third of the live triple lock).
+- Every command returns the standard envelope; exit code is always 0
+  (envelope's `ok` field carries success).
+- **Acceptance (3a):** `mt5 --help` lists all 11 groups; `mt5 --json
+  config show` prints the resolved DEFAULTS; `mt5 --json status` against
+  a live MT5 returns the account envelope; the `mt5` binary is installed
+  by `pip install -e .` and replaces the legacy stale entry point.
+  Verified end-to-end against live Trading.com demo (commit landing this).
+
+**3b (TODO): MQL5 plugin host.**
 - Add `mt5_cli/mql5/{compiler,deployer,discovery,templates}.py`.
-- Document the user workspace convention. `mt5 ea new` / `mt5 indicator new` create `./ea` or `./indicators` in the user's current working directory when invoked; this repo does not ship those directories.
-- Wire `mt5 ea new <name>`, `mt5 ea compile <name>`, `mt5 ea deploy <name>`, and the indicator equivalents.
-- **Acceptance:** from a user workspace, `mt5 ea new demo && mt5 ea compile demo && mt5 ea deploy demo` produces `./ea/demo.ex5` and a copy in the terminal's `Experts/` folder. (Only the minimal MQL5 skeleton ships; strategy-flavored variants like scalper/swing are deliberately NOT shipped per locked decision #10 — hands, not strategies.)
+- Document the user workspace convention. `mt5 ea new` / `mt5 indicator
+  new` create `./ea` or `./indicators` in the user's current working
+  directory when invoked; this repo does not ship those directories.
+- Wire `mt5 ea new <name>`, `mt5 ea compile <name>`, `mt5 ea deploy
+  <name>`, and the indicator equivalents.
+- **Acceptance (3b):** from a user workspace, `mt5 ea new demo && mt5
+  ea compile demo && mt5 ea deploy demo` produces `./ea/demo.ex5` and a
+  copy in the terminal's `Experts/` folder. (Only the minimal MQL5
+  skeleton ships; strategy-flavored variants like scalper/swing are
+  deliberately NOT shipped per locked decision #10 — hands, not
+  strategies.)
 
 ### Phase 4 — Strategy Tester driver
 - Add `mt5_cli/tester/{ea,indicator,ini_builder,launcher,results,cache}.py`.
