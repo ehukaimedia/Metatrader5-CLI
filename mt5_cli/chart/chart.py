@@ -843,17 +843,24 @@ def ensure_chart(
         )
         if not new_result.get("ok"):
             return new_result
-        # new_chart's envelope already contains symbol + timeframe + hwnd
-        # in the shape ensure_chart promises.
-        return ok({
+        # Propagate new_chart's actual outcome. When new_chart partially
+        # succeeds (chart opened but timeframe switch failed) it sets
+        # data.timeframe=None and attaches tf_switch_warning. We MUST
+        # surface both - reporting timeframe=normalized_timeframe here
+        # would lie to the caller about what's on screen.
+        new_data = new_result.get("data", {})
+        envelope_data = {
             "symbol": symbol_name.upper(),
-            "timeframe": normalized_timeframe,
-            "title": new_result.get("data", {}).get("menu_path"),
-            "hwnd": new_result.get("data", {}).get("hwnd"),
-            "parent_hwnd": new_result.get("data", {}).get("parent_hwnd"),
+            "timeframe": new_data.get("timeframe"),
+            "title": new_data.get("menu_path"),
+            "hwnd": new_data.get("hwnd"),
+            "parent_hwnd": new_data.get("parent_hwnd"),
             "activated_existing": False,
             "opened_new": True,
-        })
+        }
+        if "tf_switch_warning" in new_data:
+            envelope_data["tf_switch_warning"] = new_data["tf_switch_warning"]
+        return ok(envelope_data)
 
     # Activate-existing branch (chart_id supplied OR a chart already
     # exists for this symbol).
@@ -1057,11 +1064,20 @@ def close_chart(
         time.sleep(settle_seconds)
 
     # Verify the chart is actually gone (MT5 may have shown a save-profile
-    # confirmation dialog and kept the chart open).
+    # confirmation dialog and kept the chart open). If the after-enumerate
+    # itself raises we MUST NOT silently substitute an empty list - that
+    # would let the chart_id-not-in-empty-set check report closed=True
+    # while verification never actually ran. Fail closed with the
+    # exception repr so the caller can investigate.
     try:
         after_charts = enumerate_chart_children(match.hwnd)
-    except Exception:  # noqa: BLE001
-        after_charts = []
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            "CHART_CLOSE_VERIFY_FAILED",
+            f"Posted WM_CLOSE to chart_id {chart_id} but could not enumerate "
+            f"charts afterwards to verify ({exc!r}). The chart's actual state "
+            "is unknown; check via screenshot.take().",
+        )
     after_hwnds = {c.hwnd for c in after_charts}
     if chart_id in after_hwnds:
         return fail(

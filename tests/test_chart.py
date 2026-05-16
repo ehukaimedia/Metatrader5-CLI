@@ -338,6 +338,58 @@ def test_ensure_chart_opens_new_when_symbol_has_no_existing_chart(
     assert called_with == {"symbol": "USDJPY", "timeframe": "H1"}
 
 
+def test_ensure_chart_propagates_tf_switch_warning_from_new_chart(
+    fake_pywin32, monkeypatch,
+):
+    """When new_chart() partially succeeds (chart opened but timeframe
+    switch failed), ensure_chart() must surface BOTH the timeframe=None
+    and the tf_switch_warning. Returning timeframe=normalized_timeframe
+    here recreates the label-vs-reality bug the chart layer has been
+    closing - the caller would think H1 is up when actually the chart
+    is on whatever timeframe MT5 defaulted to."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.return_value = "MetaTrader 5"
+    win32gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+    win32gui.EnumChildWindows.return_value = None  # no existing charts
+
+    warning_payload = {
+        "code": "CHART_TIMEFRAME_VERIFY_FAILED",
+        "message": "MT5 active child title did not show timeframe H1",
+    }
+
+    def fake_new_chart(symbol, *, timeframe=None, **kw):
+        return {
+            "ok": True,
+            "data": {
+                "hwnd": 9001,
+                "symbol": symbol.upper(),
+                "timeframe": None,
+                "parent_hwnd": 1000,
+                "command_id": 7777,
+                "menu_path": f"File > New Chart > {symbol.upper()}",
+                "tf_switch_warning": warning_payload,
+            },
+        }
+
+    import sys as _sys
+    import types as _types
+    fake_module = _types.ModuleType("mt5_cli.chart.new_chart")
+    fake_module.new_chart = fake_new_chart
+    monkeypatch.setitem(_sys.modules, "mt5_cli.chart.new_chart", fake_module)
+
+    from mt5_cli.chart import ensure_chart
+    env = ensure_chart("USDJPY", timeframe="H1")
+    assert env["ok"] is True
+    assert env["data"]["opened_new"] is True
+    # timeframe MUST reflect the actual on-screen state (None), not the request
+    assert env["data"]["timeframe"] is None
+    assert env["data"]["tf_switch_warning"] == warning_payload
+
+
 def test_ensure_chart_activates_existing_when_symbol_chart_already_open(
     fake_pywin32,
 ):
@@ -487,6 +539,119 @@ def test_cycle_chart_next_activates_subsequent_chart(fake_pywin32):
     assert any(target_hwnd in c.args for c in activations)
 
 
+def test_cycle_chart_next_wraps_from_last_to_first(fake_pywin32):
+    """Three charts open with the last (2700) active. cycle_chart('next')
+    must wrap to the first (2500). cycled_from must be 2700, the actual
+    active chart - not a fallback."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2500: "[USDJPY,M15]", 2600: "[EURUSD,H1]", 2700: "[GBPUSD,H4]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+        2600: "AfxFrameOrView140s",
+        2700: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _extra):
+        if parent == 1000:
+            cb(2500, None)
+            cb(2600, None)
+            cb(2700, None)
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+    # Chart 2700 is the active foreground window
+    win32gui.GetForegroundWindow.return_value = 2700
+    win32gui.GetParent.side_effect = lambda h: {2700: 1000}.get(h, 0)
+
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="next", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["cycled_from"] == 2700
+    assert env["data"]["hwnd"] == 2500  # wrapped to first
+    assert env["data"]["direction"] == "next"
+
+
+def test_cycle_chart_prev_wraps_from_first_to_last(fake_pywin32):
+    """First chart (2500) is active; cycle_chart('prev') must wrap to the
+    last (2700)."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2500: "[USDJPY,M15]", 2600: "[EURUSD,H1]", 2700: "[GBPUSD,H4]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+        2600: "AfxFrameOrView140s",
+        2700: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _extra):
+        if parent == 1000:
+            cb(2500, None)
+            cb(2600, None)
+            cb(2700, None)
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+    win32gui.GetForegroundWindow.return_value = 2500
+    win32gui.GetParent.side_effect = lambda h: {2500: 1000}.get(h, 0)
+
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="prev", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["cycled_from"] == 2500
+    assert env["data"]["hwnd"] == 2700  # wrapped to last
+    assert env["data"]["direction"] == "prev"
+
+
+def test_cycle_chart_no_active_falls_back_to_index_zero(fake_pywin32):
+    """When no chart is marked active (none in foreground/MDI focus),
+    cycle_chart defaults active_index to 0 and reports cycled_from as
+    charts[0].hwnd. This is a FALLBACK label, not an observed active
+    chart - the test locks this documented behavior so future readers
+    don't misinterpret cycled_from as ground truth in this branch."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2500: "[USDJPY,M15]", 2600: "[EURUSD,H1]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2500: "AfxFrameOrView140s",
+        2600: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    def fake_enum_children(parent, cb, _extra):
+        if parent == 1000:
+            cb(2500, None)
+            cb(2600, None)
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+    # No active chart: GetForegroundWindow returns 0
+    win32gui.GetForegroundWindow.return_value = 0
+    win32gui.GetFocus.return_value = 0
+
+    from mt5_cli.chart import cycle_chart
+    env = cycle_chart(direction="next", settle_seconds=0)
+    assert env["ok"] is True
+    # Fallback: cycled_from is index 0 (NOT a verified active chart)
+    assert env["data"]["cycled_from"] == 2500
+    # next from index 0 -> index 1
+    assert env["data"]["hwnd"] == 2600
+
+
 # ---------------------------------------------------------------------------
 # close_chart - WM_CLOSE on chart child
 # ---------------------------------------------------------------------------
@@ -576,6 +741,50 @@ def test_close_chart_posts_wm_close_then_verifies_gone(fake_pywin32):
     ]
     assert close_calls
     assert close_calls[0].args == (2500, 0x0010, 0, 0)
+
+
+def test_close_chart_fails_verify_when_after_enumerate_raises(fake_pywin32):
+    """Edge case: post-close enumeration itself raises (e.g. MT5 froze,
+    Win32 call failed). Previously we silently substituted an empty list
+    which made chart_id-not-in-empty-set true and reported closed=True
+    even though verification never actually ran. Must fail with
+    CHART_CLOSE_VERIFY_FAILED + exception repr in message."""
+    win32gui, _, _ = fake_pywin32
+
+    def fake_enum_windows(cb, _extra):
+        cb(1000, None)
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5", 2000: "[EURUSD,H1]",
+    }.get(h, "")
+    win32gui.GetClassName.side_effect = lambda h: {
+        1000: "MetaQuotes::MetaTrader::Frame",
+        2000: "AfxFrameOrView140s",
+    }.get(h, "")
+
+    # Counter-based side_effect: succeed for the before-enumerate
+    # (calls 1-2, since _find_mdi_client + the chart enumeration), then
+    # raise on the after-enumerate.
+    call_state = {"n": 0}
+    sentinel_exc = RuntimeError("post-close enum failed")
+
+    def fake_enum_children(parent, cb, _):
+        call_state["n"] += 1
+        if call_state["n"] <= 2:
+            if parent == 1000:
+                cb(2000, None)
+            return
+        # After WM_CLOSE: blow up to simulate enum failure
+        raise sentinel_exc
+
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+
+    from mt5_cli.chart import close_chart
+    env = close_chart(chart_id=2000, settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_CLOSE_VERIFY_FAILED"
+    # The exception repr must be in the message so callers can diagnose
+    assert "post-close enum failed" in env["error"]["message"]
 
 
 def test_close_chart_fails_verify_when_chart_still_present(fake_pywin32):

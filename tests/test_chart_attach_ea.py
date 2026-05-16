@@ -257,6 +257,41 @@ def test_attach_ea_activates_chart_when_chart_id_given(fake_pywin32):
     assert mdi_calls[0].args == (7777, 0x0222, 5555, 0)
 
 
+def test_attach_ea_fails_when_activate_chart_returns_false(fake_pywin32, monkeypatch):
+    """If activate_chart() returns False (stale hwnd, wrong parent), the
+    EA menu poke MUST NOT fire — otherwise MT5 attaches the EA to
+    whichever chart is currently active, which is the precise wrong-
+    chart bug the explicit chart_id arg exists to prevent. Must return
+    CHART_ID_NOT_FOUND with the requested chart_id in the message."""
+    # The chart package's __init__ re-exports attach_ea as a function, so
+    # `import mt5_cli.chart.attach_ea as alias` resolves to the function,
+    # not the submodule. Reach the submodule via sys.modules and patch
+    # the activate_chart name in its module namespace.
+    import sys as _sys
+    import mt5_cli.chart.attach_ea  # noqa: F401 - ensure submodule loaded
+    ea_mod = _sys.modules["mt5_cli.chart.attach_ea"]
+    monkeypatch.setattr(ea_mod, "activate_chart",
+                        lambda hwnd, parent_hwnd, settle_seconds=0: False)
+
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", chart_id=9999, settle_seconds=0)
+
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_ID_NOT_FOUND"
+    assert "9999" in env["error"]["message"]
+
+    # WM_COMMAND (0x0111) must NOT have been posted — fail-closed before
+    # the menu activation happens.
+    wm_command_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0111
+    ]
+    assert not wm_command_calls, (
+        "attach_ea posted WM_COMMAND despite activate_chart returning False; "
+        "the EA could land on the wrong chart"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bridge isolation
 # ---------------------------------------------------------------------------

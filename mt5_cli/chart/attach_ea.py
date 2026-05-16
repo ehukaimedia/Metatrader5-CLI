@@ -107,7 +107,19 @@ def attach_ea(
         )
 
     if chart_id is not None:
-        activate_chart(chart_id, match.hwnd, settle_seconds=0)
+        # Capture activate_chart()'s bool result. If it could not activate
+        # the requested chart (stale hwnd, wrong parent, MDIClient lookup
+        # failed) we MUST NOT post WM_COMMAND - the EA would attach to
+        # whichever chart happens to be active, which is the exact wrong-
+        # chart bug the explicit chart_id arg exists to prevent.
+        if not activate_chart(chart_id, match.hwnd, settle_seconds=0):
+            return fail(
+                "CHART_ID_NOT_FOUND",
+                f"Could not activate chart_id {chart_id} before EA attach. "
+                "Refusing to post the menu command because the EA could "
+                "land on the wrong chart. Verify the hwnd via "
+                "list_charts() and retry.",
+            )
 
     menu = win32gui.GetMenu(match.hwnd)
     if not menu:
