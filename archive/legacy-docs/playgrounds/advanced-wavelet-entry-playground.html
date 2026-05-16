@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Advanced Wavelet Entry Playground</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#090d12;color:#e5e7eb;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100vh;display:grid;grid-template-rows:56px 1fr 148px;overflow:hidden}header{display:flex;align-items:center;gap:12px;padding:0 18px;background:#101722;border-bottom:1px solid #233044}h1{font-size:16px;margin:0;font-weight:650}.tag{font-size:12px;color:#9ca3af;border:1px solid #334155;border-radius:999px;padding:4px 9px}.shell{display:grid;grid-template-columns:300px 1fr;min-height:0}aside{background:#0c121b;border-right:1px solid #233044;padding:14px;overflow:auto}.stage{padding:18px;overflow:auto}.group{margin-bottom:16px}.group h2{font-size:12px;color:#93c5fd;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px}.preset{width:100%;text-align:left;background:#121c2a;color:#dbeafe;border:1px solid #334155;border-radius:6px;padding:9px;margin-bottom:8px;cursor:pointer}.preset.active{border-color:#38bdf8;background:#0f2633}label{display:block;font-size:12px;color:#cbd5e1;margin:10px 0 4px}select,input[type=range]{width:100%}.flow{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:12px}.node{background:#111827;border:1px solid #263244;border-radius:8px;padding:12px;min-height:120px}.node h3{font-size:14px;margin:0 0 6px;color:#f9fafb}.node p{font-size:12px;line-height:1.45;color:#a8b3c4;margin:0}.metric{margin-top:10px;display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px}.good{color:#86efac}.warn{color:#fde68a}.bad{color:#fca5a5}.grid{display:grid;grid-template-columns:repeat(3,minmax(170px,1fr));gap:10px;margin-top:14px}.card{border:1px solid #263244;border-radius:8px;padding:10px;background:#0d1520}.card b{font-size:13px}.card div{font-size:12px;color:#a8b3c4;margin-top:4px}.bar{height:8px;background:#202b3a;border-radius:999px;overflow:hidden;margin-top:8px}.bar span{display:block;height:100%;background:#38bdf8}table{width:100%;border-collapse:collapse;margin-top:16px;font-size:12px}th,td{text-align:left;padding:8px;border-bottom:1px solid #263244}th{color:#93c5fd;font-weight:600}.promptbox{display:grid;grid-template-columns:1fr 126px;background:#0c121b;border-top:1px solid #233044;min-height:0}.prompt{padding:12px 16px;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow:auto;color:#d1d5db}.copy{border-left:1px solid #233044;display:flex;align-items:center;justify-content:center}.copy button{background:#38bdf8;color:#06111a;border:0;border-radius:6px;padding:9px 12px;font-weight:650;cursor:pointer}@media(max-width:900px){body{height:auto;min-height:100vh;overflow:auto}.shell{grid-template-columns:1fr}.flow,.grid{grid-template-columns:1fr}.promptbox{grid-template-columns:1fr}.copy{border-left:0;border-top:1px solid #233044;padding:10px}}
+</style>
+</head>
+<body>
+<header><h1>Advanced Wavelet Entry Playground</h1><span class="tag">closed-bar research architecture</span></header>
+<div class="shell">
+<aside>
+  <div class="group">
+    <h2>Presets</h2>
+    <button class="preset active" data-preset="diagnostic">Diagnostic CSV</button>
+    <button class="preset" data-preset="hc80">High confidence 0.80</button>
+    <button class="preset" data-preset="tiny">Demo tiny trade</button>
+  </div>
+  <div class="group">
+    <h2>Research Settings</h2>
+    <label for="symbol">Symbol focus</label>
+    <select id="symbol">
+      <option>GBPUSD</option><option>AUDUSD</option><option>USDJPY</option><option>EURJPY</option><option>GBPJPY</option><option>AUDJPY</option>
+    </select>
+    <label for="threshold">Score threshold: <span id="thresholdText">0.70</span></label>
+    <input id="threshold" type="range" min="0.60" max="0.90" step="0.05" value="0.70">
+    <label for="exit">Time exit</label>
+    <select id="exit"><option value="24">24 M5 bars</option><option value="48">48 M5 bars</option><option value="12">12 M5 bars</option></select>
+    <label><input id="atr" type="checkbox"> ATR SL/TP enabled</label>
+    <label><input id="trade" type="checkbox"> Demo tiny-trade mode</label>
+  </div>
+</aside>
+<main class="stage">
+  <div class="flow">
+    <section class="node"><h3>1. Indicator</h3><p>Advanced_Wavelet_Entry_Signal exposes closed-bar signal buffers and transparent feature diagnostics. Shift 0 stays blank.</p><div class="metric"><span>Leakage risk</span><b class="good">guarded</b></div></section>
+    <section class="node"><h3>2. Research EA</h3><p>Advanced_Wavelet_Entry_ResearchEA reads iCustom buffer shift 1, exports signal CSVs, and delays forward-return labels.</p><div class="metric"><span>Default mode</span><b class="good">observe-only</b></div></section>
+    <section class="node"><h3>3. Safety Rails</h3><p>Demo guard, one position per symbol/magic, spread filter, daily guards, exact-ticket close, and 0.01 lot safety cap.</p><div class="metric"><span>Live risk</span><b class="warn">demo only</b></div></section>
+    <section class="node"><h3>4. Validation</h3><p>CSV discovery first, execution smoke second, then real ticks and Forward = 1/3 before promotion.</p><div class="metric"><span>Profit claim</span><b class="bad">none</b></div></section>
+  </div>
+  <div class="grid" id="features"></div>
+  <table>
+    <thead><tr><th>Layer</th><th>Reuse</th><th>Replace</th></tr></thead>
+    <tbody>
+      <tr><td>Signal</td><td>Closed-bar buffers and debug masks</td><td>Hybrid WPVS entry formula</td></tr>
+      <tr><td>Diagnostics</td><td>CSV-first workflow and delayed labels</td><td>Forward labels as trade evidence</td></tr>
+      <tr><td>Execution</td><td>Trading.com safety rails</td><td>Any live-trading default</td></tr>
+    </tbody>
+  </table>
+</main>
+</div>
+<div class="promptbox"><div id="prompt" class="prompt"></div><div class="copy"><button id="copy">Copy Prompt</button></div></div>
+<script>
+const DEFAULTS={preset:"diagnostic",symbol:"GBPUSD",threshold:0.70,exit:"24",atr:false,trade:false};
+const state={...DEFAULTS};
+const presets={
+ diagnostic:{preset:"diagnostic",threshold:0.70,exit:"24",atr:false,trade:false},
+ hc80:{preset:"hc80",threshold:0.80,exit:"24",atr:false,trade:false},
+ tiny:{preset:"tiny",threshold:0.80,exit:"24",atr:false,trade:true}
+};
+const featureData=[
+ ["Wavelet energy","Multi-scale Haar-like energy normalized by ATR","82"],
+ ["Noise ratio","High-frequency energy divided by total energy; lower is better","64"],
+ ["Volume anomaly","Closed-bar tick volume versus older baseline","56"],
+ ["Pivot context","Prior support/resistance distance without right-side confirmation","70"],
+ ["Structure class","HH/HL, breakout, neutral, or LH/LL context","62"],
+ ["Spread burden","Indicator context plus current EA entry gate","74"]
+];
+function renderFeatures(){
+ const root=document.getElementById("features"); root.innerHTML="";
+ featureData.forEach(([title,body,width])=>{
+  const div=document.createElement("div");
+  div.className="card";
+  div.innerHTML=`<b>${title}</b><div>${body}</div><div class="bar"><span style="width:${width}%"></span></div>`;
+  root.appendChild(div);
+ });
+}
+function updatePrompt(){
+ let parts=[];
+ parts.push(`Continue Advanced Wavelet Entry research on ${state.symbol} M5 using closed-bar shift 1 only.`);
+ parts.push(`Use score threshold ${state.threshold.toFixed(2)} and a ${state.exit}-bar time exit.`);
+ parts.push(state.atr?"Include the ATR SL/TP comparison after the no-stop baseline.":"Keep ATR SL/TP disabled for the first smoke comparison.");
+ parts.push(state.trade?"Use demo-only tiny-trade mode with 0.01 lots and the safety cap unchanged.":"Keep observe-only diagnostic CSV mode; do not place trades.");
+ parts.push("Analyze signal count, 12/24/48-bar forward returns, spread burden, active months, and year/symbol stability before promoting any setting.");
+ document.getElementById("prompt").textContent=parts.join(" ");
+}
+function syncControls(){
+ document.getElementById("symbol").value=state.symbol;
+ document.getElementById("threshold").value=state.threshold.toFixed(2);
+ document.getElementById("thresholdText").textContent=state.threshold.toFixed(2);
+ document.getElementById("exit").value=state.exit;
+ document.getElementById("atr").checked=state.atr;
+ document.getElementById("trade").checked=state.trade;
+ document.querySelectorAll(".preset").forEach(b=>b.classList.toggle("active",b.dataset.preset===state.preset));
+}
+function updateAll(){syncControls();renderFeatures();updatePrompt();}
+document.querySelectorAll(".preset").forEach(btn=>btn.addEventListener("click",()=>{Object.assign(state,presets[btn.dataset.preset]);updateAll();}));
+document.getElementById("symbol").addEventListener("change",e=>{state.symbol=e.target.value;state.preset="custom";updateAll();});
+document.getElementById("threshold").addEventListener("input",e=>{state.threshold=parseFloat(e.target.value);state.preset="custom";updateAll();});
+document.getElementById("exit").addEventListener("change",e=>{state.exit=e.target.value;state.preset="custom";updateAll();});
+document.getElementById("atr").addEventListener("change",e=>{state.atr=e.target.checked;state.preset="custom";updateAll();});
+document.getElementById("trade").addEventListener("change",e=>{state.trade=e.target.checked;state.preset="custom";updateAll();});
+document.getElementById("copy").addEventListener("click",async()=>{await navigator.clipboard.writeText(document.getElementById("prompt").textContent);document.getElementById("copy").textContent="Copied";setTimeout(()=>document.getElementById("copy").textContent="Copy Prompt",900);});
+updateAll();
+</script>
+</body>
+</html>

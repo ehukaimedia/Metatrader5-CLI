@@ -1,0 +1,53 @@
+; WF_FractalTrainerEA forward-period demo-trading backtest preset
+; Purpose: test the simple HH/HL bullish vs LH/LL bearish execution wrapper.
+; Use Strategy Tester with Optimization OFF.
+; Recommended date: 2024.09.07 to 2026.05.09, matching the prior forward segment.
+;
+; Fractal and wavelet base profile
+InpFractalLeftBars=2||2||1||2||N
+InpFractalRightBars=4||4||1||4||N
+InpATRPeriod=14||14||1||14||N
+InpATRLongPeriod=100||100||1||1000||N
+InpWaveletWindow=96||96||1||96||N
+InpMaxWaveletLevel=3||3||1||3||N
+InpMomentumFast=8||8||1||80||N
+InpMomentumSlow=34||34||1||340||N
+InpRangeLookback=80||80||1||800||N
+InpMinDeltaATR=0.0||0.0||0.000000||0.000000||N
+; Adaptive wavelet self-tuning
+InpAdaptiveWavelets=2||2||1||2||N
+InpMaxAdaptiveProfiles=4||4||1||4||N
+InpProfileScoreAlpha=0.03||0.03||0.003000||0.300000||N
+; Adaptive model
+InpLoadWeights=true||false||0||true||N
+InpResetWeights=false||false||0||true||N
+InpHeuristicSeed=true||false||0||true||N
+InpOnlineLearning=false||false||0||true||N
+InpWarmupBars=0||0||1||10||N
+InpWarmupTrain=false||false||0||true||N
+InpLearningRate=0.010||0.010||0.001000||0.010||N
+InpL2Shrink=0.00001||0.00001||0.000001||0.000100||N
+InpSoftmaxTemperature=1.0||1.0||0.100000||10.000000||N
+InpModelScope=0||0||0||2||N
+InpModelTag=M5_FX_USDJPY_FWD24
+InpModelFileOverride=
+InpSaveWeightsOnDeinit=false||false||0||true||N
+; Prediction gate
+InpConfidenceThreshold=0.30||0.30||0.010000||0.30||N
+; Forward validation and set-file export
+InpForwardSetting=0||0||0||4||N
+InpExportSetFiles=false||false||0||true||N
+InpExportBestSetFromOptimization=false||false||0||true||N
+InpExportIndicatorLiveSet=false||false||0||true||N
+InpExportEALiveSet=false||false||0||true||N
+InpSetFileTag=TRADETEST
+InpLiveSetDemoTradingDefault=false||false||0||true||N
+; Optional demo trading, enabled for Strategy Tester only
+InpEnableDemoTrading=true||false||0||true||N
+InpLots=0.01||0.01||0.001000||0.100000||N
+InpMagic=260511||260511||1||2605110||N
+InpStopATR=2.0||2.0||0.200000||20.000000||N
+InpTakeProfitATR=2.5||2.5||0.250000||25.000000||N
+InpCloseOnOpposite=true||false||0||true||N
+InpMaxSpreadPoints=35||35||1||350||N
+InpDeviationPoints=10||10||1||100||N
