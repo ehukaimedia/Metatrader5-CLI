@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MT5 CLI · Agent-Native Refactor Playground</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0c10;color:#d1d5db;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px}
+#topbar{background:#111318;border-bottom:1px solid #1f2937;padding:8px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+#topbar h1{font-size:15px;font-weight:600;color:#f9fafb;letter-spacing:.3px}
+.tag{background:#1f2937;color:#9ca3af;padding:2px 8px;border-radius:10px;font-size:11px}
+.tag.green{background:#064e3b;color:#a7f3d0}
+.tag.orange{background:#7c2d12;color:#fed7aa}
+#workspace{display:flex;flex:1;overflow:hidden}
+#sidebar{width:310px;background:#0e1117;border-right:1px solid #1f2937;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#sidebar-inner{flex:1;overflow-y:auto;padding:14px}
+#sidebar-inner::-webkit-scrollbar{width:4px}
+#sidebar-inner::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
+.s-section{margin-bottom:18px}
+.s-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#6b7280;margin-bottom:8px;font-weight:600}
+.phase-grid{display:flex;flex-direction:column;gap:4px}
+.phase-btn{background:#1f2937;border:1px solid #374151;color:#d1d5db;padding:8px 10px;border-radius:5px;cursor:pointer;font-size:12px;text-align:left;display:flex;align-items:center;gap:8px;transition:all .12s;width:100%}
+.phase-btn:hover{background:#374151;color:#f9fafb}
+.phase-btn.active{background:#1e3a5f;border-color:#3b82f6;color:#93c5fd}
+.phase-num{display:inline-block;width:20px;height:20px;border-radius:50%;background:#0a0c10;border:1px solid #374151;text-align:center;line-height:18px;font-size:11px;font-weight:600;flex-shrink:0}
+.phase-btn.active .phase-num{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.phase-body{flex:1;min-width:0;text-align:left}
+.phase-title{font-size:12px;font-weight:500}
+.phase-sub{font-size:10px;color:#6b7280;margin-top:1px}
+.callout{background:#0f1620;border:1px solid #1e3a5f;border-left:3px solid #3b82f6;border-radius:5px;padding:10px 11px;margin-top:6px}
+.callout.green{border-color:#14532d;border-left-color:#22c55e}
+.callout-h{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#60a5fa;margin-bottom:5px;font-weight:600}
+.callout.green .callout-h{color:#86efac}
+.callout-body{font-size:11.5px;color:#d1d5db;line-height:1.55}
+.callout-body code{background:#1f2937;padding:1px 5px;border-radius:3px;font-size:11px;color:#fbbf24;font-family:'SFMono-Regular',Consolas,monospace}
+.callout-body strong{color:#f9fafb}
+.callout-body br{display:block;content:'';margin-top:4px}
+#comment-list{display:flex;flex-direction:column;gap:6px}
+.comment-item{background:#1a1f2a;border:1px solid #1f2937;border-radius:6px;padding:8px 10px;position:relative}
+.c-target{font-size:11px;color:#60a5fa;font-weight:600;margin-bottom:3px}
+.c-text{font-size:12px;color:#d1d5db;line-height:1.4;word-break:break-word;padding-right:18px}
+.c-phase{font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;margin-top:4px}
+.comment-del{position:absolute;top:6px;right:8px;background:none;border:none;color:#6b7280;cursor:pointer;font-size:15px;line-height:1;padding:0}
+.comment-del:hover{color:#ef4444}
+.no-comments{color:#4b5563;font-size:11.5px;font-style:italic}
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#canvas-wrap{flex:1;overflow:hidden;position:relative;background:#0a0c10;cursor:grab}
+#canvas-wrap.grabbing{cursor:grabbing}
+#svg-el{position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible}
+#phase-banner{position:absolute;top:12px;left:14px;background:#0e1117;border:1px solid #1f2937;border-radius:6px;padding:10px 14px;max-width:520px;z-index:5}
+#phase-banner h2{font-size:13px;color:#f9fafb;margin-bottom:3px;font-weight:600}
+#phase-banner p{font-size:11.5px;color:#9ca3af;line-height:1.5}
+#zoom-btns{position:absolute;bottom:12px;right:14px;display:flex;gap:5px;z-index:10}
+#zoom-btns button{background:#1f2937;border:1px solid #374151;color:#d1d5db;width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+#zoom-btns button:hover{background:#374151}
+#legend{position:absolute;bottom:12px;left:14px;background:#0e1117;border:1px solid #1f2937;border-radius:6px;padding:8px 11px;display:flex;gap:13px;font-size:11px;z-index:5;flex-wrap:wrap;max-width:520px}
+.legend-item{display:flex;align-items:center;gap:5px}
+.legend-dot{width:9px;height:9px;border-radius:2px}
+#prompt-area{height:160px;border-top:1px solid #1f2937;display:flex;background:#0e1117;flex-shrink:0}
+#prompt-text{flex:1;padding:12px 14px;font-size:12px;line-height:1.6;color:#d1d5db;overflow-y:auto;white-space:pre-wrap;font-family:'SFMono-Regular',Consolas,monospace}
+#prompt-text::-webkit-scrollbar{width:4px}
+#prompt-text::-webkit-scrollbar-thumb{background:#374151}
+#prompt-actions{display:flex;flex-direction:column;justify-content:flex-end;padding:10px 12px;gap:6px}
+#copy-btn{background:#1e3a5f;border:1px solid #3b82f6;color:#93c5fd;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;font-weight:500}
+#copy-btn:hover{background:#2d5a9e}
+#copy-feedback{font-size:11px;color:#34d399;text-align:center;height:14px}
+#modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+#modal-overlay.visible{display:flex}
+#modal-box{background:#161b26;border:1px solid #374151;border-radius:10px;padding:20px;width:540px;max-width:90vw}
+#modal-box h3{font-size:14px;font-weight:600;color:#f9fafb;margin-bottom:3px}
+.m-subtitle{font-size:11px;color:#60a5fa;margin-bottom:6px;font-family:monospace}
+.m-status{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.m-desc{font-size:12px;color:#9ca3af;line-height:1.5;margin-bottom:10px;background:#0e1117;padding:8px 10px;border-radius:6px;border:1px solid #1f2937}
+.m-cli{font-size:11px;color:#fbbf24;font-family:'SFMono-Regular',Consolas,monospace;background:#0a0c10;padding:8px 10px;border-radius:6px;border:1px solid #1f2937;margin-bottom:10px;white-space:pre-wrap}
+#modal-textarea{width:100%;height:80px;background:#0e1117;border:1px solid #374151;color:#d1d5db;padding:8px;border-radius:6px;font-size:12px;resize:none;outline:none;font-family:inherit}
+#modal-textarea:focus{border-color:#3b82f6}
+#modal-textarea::placeholder{color:#4b5563}
+.modal-btns{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+.modal-btns button{padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px;border:none}
+#modal-save{background:#1e3a5f;color:#93c5fd;border:1px solid #3b82f6}
+#modal-save:hover{background:#2d5a9e}
+#modal-cancel{background:#1f2937;color:#9ca3af;border:1px solid #374151}
+#modal-cancel:hover{background:#374151}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <h1>MT5 CLI · Agent-Native Refactor (Strategy Tester driven)</h1>
+  <span class="tag">7 phases</span>
+  <span class="tag green">cherry-picked from CLI-Anything</span>
+  <span class="tag orange">hard fork</span>
+  <span class="tag" style="margin-left:auto;color:#6b7280">Pick a phase · click any node</span>
+</div>
+<div id="workspace">
+  <div id="sidebar">
+    <div id="sidebar-inner">
+      <div class="s-section">
+        <h3>Refactor Phases</h3>
+        <div class="phase-grid" id="phase-btns"></div>
+      </div>
+      <div class="s-section">
+        <h3>Cherry-picked pattern</h3>
+        <div id="pattern-callout"></div>
+      </div>
+      <div class="s-section">
+        <h3>Agent capability gained</h3>
+        <div id="capability-callout"></div>
+      </div>
+      <div class="s-section">
+        <h3>Comments (<span id="comment-count">0</span>)</h3>
+        <div id="comment-list"></div>
+      </div>
+    </div>
+  </div>
+  <div id="main">
+    <div id="canvas-wrap">
+      <svg id="svg-el" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr-dep"    markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#4b5563"/></marker>
+          <marker id="arr-risk"   markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#f97316"/></marker>
+          <marker id="arr-bridge" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#ef4444"/></marker>
+          <marker id="arr-data"   markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#3b82f6"/></marker>
+          <marker id="arr-mcp"    markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#10b981"/></marker>
+          <marker id="arr-plugin" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#a855f7"/></marker>
+          <marker id="arr-tester" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#eab308"/></marker>
+        </defs>
+        <g id="diagram-g"></g>
+      </svg>
+      <div id="phase-banner">
+        <h2 id="banner-title"></h2>
+        <p id="banner-desc"></p>
+      </div>
+      <div id="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#6b7280"></span>Unchanged</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>NEW</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f97316"></span>Archived</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>Modified</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Bridge</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#eab308"></span>Tester</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#a855f7"></span>Plugin discovery</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#10b981"></span>MCP / agent</div>
+      </div>
+      <div id="zoom-btns">
+        <button onclick="doZoom(1.2)">+</button>
+        <button onclick="doZoom(0.83)">&minus;</button>
+        <button onclick="resetView()">&#8962;</button>
+      </div>
+    </div>
+    <div id="prompt-area">
+      <div id="prompt-text"></div>
+      <div id="prompt-actions">
+        <button id="copy-btn" onclick="copyPrompt()">Copy Prompt</button>
+        <div id="copy-feedback"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-overlay">
+  <div id="modal-box">
+    <h3 id="modal-title"></h3>
+    <div class="m-subtitle" id="modal-subtitle"></div>
+    <span class="m-status" id="modal-status"></span>
+    <div class="m-desc" id="modal-desc"></div>
+    <div class="m-cli" id="modal-cli"></div>
+    <textarea id="modal-textarea" placeholder="Add a comment, question, or refactor note about this module..."></textarea>
+    <div class="modal-btns">
+      <button id="modal-cancel" onclick="closeModal()">Cancel</button>
+      <button id="modal-save" onclick="saveComment()">Save Comment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ----- Rich-text token model (safe DOM, no innerHTML) ----------------------
+// Each token is one of: {t:'text', v:'...'} {t:'code', v:'...'} {t:'b', v:'...'} {t:'br'}
+function tk(v) { return {t:'text', v:v}; }
+function tc(v) { return {t:'code', v:v}; }
+function tb(v) { return {t:'b', v:v}; }
+function br()  { return {t:'br'}; }
+
+function renderTokens(container, tokens) {
+  while (container.firstChild) container.removeChild(container.firstChild);
+  tokens.forEach(function(tok){
+    var el;
+    if (tok.t === 'text') { el = document.createTextNode(tok.v); }
+    else if (tok.t === 'code') { el = document.createElement('code'); el.textContent = tok.v; }
+    else if (tok.t === 'b') { el = document.createElement('strong'); el.textContent = tok.v; }
+    else if (tok.t === 'br') { el = document.createElement('br'); }
+    container.appendChild(el);
+  });
+}
+
+function tokensToPlain(tokens) {
+  return tokens.map(function(tok){
+    if (tok.t === 'br') return '\n';
+    if (tok.t === 'code') return '`' + tok.v + '`';
+    if (tok.t === 'b') return '**' + tok.v + '**';
+    return tok.v;
+  }).join('');
+}
+
+// ----- Status palette ------------------------------------------------------
+var STATUS = {
+  unchanged: {color:'#6b7280', label:'Unchanged'},
+  new:       {color:'#22c55e', label:'NEW'},
+  moved:     {color:'#f97316', label:'Archived'},
+  modified:  {color:'#3b82f6', label:'Modified'},
+  bridge:    {color:'#ef4444', label:'Bridge (only file that imports MetaTrader5)'},
+  tester:    {color:'#eab308', label:'Strategy Tester driver'},
+  external:  {color:'#a3a3a3', label:'External'},
+  agent:     {color:'#a855f7', label:'Agent / plugin discovery'},
+  mcp:       {color:'#10b981', label:'MCP / agent surface'},
+};
+
+// ----- Node catalog --------------------------------------------------------
+var NODES = {
+  // External
+  mt5_pkg:        {label:'MetaTrader5 pkg',  sub:'python package',                       x:540, y:680, w:180, h:42},
+  mt5_terminal:   {label:'MT5 Terminal',     sub:'terminal64.exe + MetaEditor.exe',      x:540, y:760, w:240, h:42},
+  trading_com:    {label:'Trading.com',      sub:'default broker',                       x:300, y:760, w:160, h:42},
+  other_broker:   {label:'Generic MT5 Broker', sub:'profile fallback',                   x:820, y:760, w:200, h:42},
+  mt5_tester:     {label:'MT5 Strategy Tester', sub:'native test engine inside terminal', x:760, y:680, w:280, h:42},
+
+  // Bridge
+  bridge_old:     {label:'utils/mt5_backend', sub:'utils/mt5_backend.py',                x:540, y:580, w:200, h:48},
+  bridge_new:     {label:'mt5_universal.bridge', sub:'mt5_universal/bridge/mt5_backend.py', x:540, y:580, w:220, h:48},
+
+  // Phase 0 legacy
+  legacy_cli:     {label:'mt5_cli.py',       sub:'1869 LOC monolith',                    x:560, y:30, w:160, h:42},
+  legacy_ehukai:  {label:'core/ehukai',      sub:'core/ehukai.py · 944 LOC',             x:80,  y:170, w:160, h:42},
+  legacy_analyze: {label:'core/analyze',     sub:'core/analyze.py · 1098 LOC',           x:250, y:170, w:170, h:42},
+  legacy_tda:     {label:'core/tda_manifest', sub:'core/tda_manifest.py',                x:430, y:170, w:170, h:42},
+  legacy_mfe:     {label:'core/mfe',         sub:'core/mfe.py',                          x:610, y:170, w:140, h:42},
+  legacy_tester:  {label:'core/tester',      sub:'core/tester.py · hardcodes EhukaiTDA/AdaptiveTrail', x:760, y:170, w:330, h:42},
+  legacy_ea:      {label:'core/ea',          sub:'core/ea.py · vendor EA controls',      x:1100, y:170, w:170, h:42},
+  legacy_mql5:    {label:'mql5/Experts/*.mq5', sub:'AdaptiveTrailEA + EhukaiTDAEA + Advanced_Wavelet_Entry + Hybrid_WPVS', x:80,  y:230, w:600, h:42},
+  legacy_market:  {label:'core/market',      sub:'core/market.py',                       x:320, y:290, w:130, h:38},
+  legacy_rates:   {label:'core/rates',       sub:'core/rates.py',                        x:460, y:290, w:130, h:38},
+  legacy_ind:     {label:'core/indicator',   sub:'core/indicator.py',                    x:600, y:290, w:150, h:38},
+  legacy_order:   {label:'core/order',       sub:'core/order.py',                        x:760, y:290, w:130, h:38},
+  legacy_pos:     {label:'core/position',    sub:'core/position.py',                     x:900, y:290, w:140, h:38},
+  legacy_risk:    {label:'core/risk',        sub:'core/risk.py',                         x:1050, y:290, w:130, h:38},
+  legacy_acct:    {label:'core/account',    sub:'core/account.py',                       x:320, y:340, w:140, h:38},
+  legacy_hist:    {label:'core/history',     sub:'core/history.py',                      x:470, y:340, w:140, h:38},
+  legacy_chart:   {label:'core/chart',       sub:'core/chart.py',                        x:620, y:340, w:130, h:38},
+  legacy_shot:    {label:'core/screenshot',  sub:'core/screenshot.py',                   x:760, y:340, w:150, h:38},
+  legacy_proj:    {label:'core/project',     sub:'core/project.py · config',             x:920, y:340, w:170, h:38},
+  legacy_consumer:{label:'adaptive-forex-mt5/', sub:'downstream consumer',               x:1100, y:30, w:170, h:42},
+
+  // Phase 2: mt5_universal skeleton
+  univ_root:      {label:'mt5_universal/', sub:'pip-installable library',                x:560, y:90, w:200, h:44},
+  univ_bridge:    {label:'bridge.mt5_backend', sub:'ONLY file that imports MetaTrader5', x:540, y:580, w:220, h:48},
+  univ_broker_base:{label:'broker.base',    sub:'BrokerProfile ABC',                     x:280, y:500, w:160, h:40},
+  univ_broker_tc: {label:'broker.trading_com', sub:'default · FOK · no hedge · 22:00 UTC', x:460, y:500, w:240, h:40},
+  univ_broker_gm: {label:'broker.generic_mt5', sub:'permissive default for other brokers', x:720, y:500, w:260, h:40},
+  univ_market:    {label:'market', sub:'mt5_universal/market/',                          x:100, y:280, w:130, h:40},
+  univ_rates:     {label:'rates', sub:'mt5_universal/rates/',                            x:240, y:280, w:130, h:40},
+  univ_account:   {label:'account', sub:'mt5_universal/account/',                        x:380, y:280, w:140, h:40},
+  univ_history:   {label:'history', sub:'mt5_universal/history/',                        x:530, y:280, w:140, h:40},
+  univ_orders:    {label:'orders', sub:'mt5_universal/orders/',                          x:680, y:280, w:140, h:40},
+  univ_positions: {label:'positions', sub:'mt5_universal/positions/',                    x:830, y:280, w:160, h:40},
+  univ_risk:      {label:'risk', sub:'risk gate · every order passes through',           x:1000, y:280, w:200, h:40},
+  univ_indicators_py:{label:'indicators (python quicklook)', sub:'ema, atr, rsi, fvg, swing — ad-hoc agent queries', x:100, y:380, w:380, h:40},
+  univ_config:    {label:'config', sub:'4-layer resolution + portability',               x:500, y:380, w:170, h:40},
+  univ_reports:   {label:'reports', sub:'JSON envelopes',                                x:690, y:380, w:160, h:40},
+
+  // Phase 3: MQL5 plugin host
+  mql5_compiler:   {label:'mql5.compiler', sub:'metaeditor64.exe wrapper · .mq5 to .ex5', x:80, y:160, w:280, h:40},
+  mql5_deployer:   {label:'mql5.deployer', sub:'copy to terminal Experts/ + Indicators/', x:380, y:160, w:290, h:40},
+  mql5_discovery:  {label:'mql5.discovery', sub:'discover user .mq5 + .ex5 files',       x:690, y:160, w:260, h:40},
+  mql5_templates:  {label:'mql5.templates', sub:'EA + indicator scaffolding',            x:970, y:160, w:240, h:40},
+  user_ea_dir:     {label:'ea/', sub:'user MQL5 EAs (auto-discovered)',                  x:80,  y:90, w:280, h:40},
+  user_ind_dir:    {label:'indicators/', sub:'user MQL5 indicators (auto-discovered)',   x:380, y:90, w:280, h:40},
+  user_presets:    {label:'presets/', sub:'tester .set files per strategy',              x:680, y:90, w:260, h:40},
+
+  // Phase 4: Strategy Tester driver
+  tester_ea:        {label:'tester.ea', sub:'single · optimize · genetic · forward · scanner · stress', x:80, y:430, w:430, h:42},
+  tester_indicator: {label:'tester.indicator', sub:'visual indicator test',              x:530, y:430, w:240, h:42},
+  tester_ini:       {label:'tester.ini_builder', sub:'generate .ini + .set files',      x:790, y:430, w:240, h:42},
+  tester_launcher:  {label:'tester.launcher', sub:'terminal64.exe /config + portable mode', x:80, y:485, w:300, h:38},
+  tester_results:   {label:'tester.results', sub:'parse HTML report + journal CSV + opt XML to JSON', x:400, y:485, w:430, h:38},
+  tester_cache:     {label:'tester.cache', sub:'results/<run-id>/ snapshots',            x:850, y:485, w:230, h:38},
+
+  // Phase 5: agent surface
+  mt5_cli_new:    {label:'mt5 CLI', sub:'thin click wrappers over mt5_universal',        x:200, y:30, w:200, h:44},
+  mt5_mcp:        {label:'mt5-mcp server', sub:'FastMCP · publishes library as MCP tools', x:420, y:30, w:290, h:44},
+  skills_md:      {label:'skills/SKILL.md', sub:'agent-discoverable manifest',           x:740, y:30, w:200, h:44},
+  skill_generator:{label:'skill_generator.py', sub:'introspect Click tree -> regenerate SKILL.md', x:960, y:30, w:330, h:44},
+  repl_skin_new:  {label:'utils/repl_skin', sub:'banner prints SKILL.md path for agents', x:80, y:90, w:280, h:40},
+  ai_agent:       {label:'AI Agent', sub:'Claude Code · Cursor · Codex',                 x:580, y:-50, w:200, h:38},
+
+  // Phase 6
+  config_paths:   {label:'config.paths', sub:'XDG_CONFIG_HOME · APPDATA · HOME resolution', x:80, y:380, w:300, h:40},
+  ci_path_guard:  {label:'tests/test_no_hardcoded_paths', sub:'CI greps for C:\\\\Users\\\\, /home/, /Users/', x:400, y:380, w:360, h:40},
+  test_pyramid:   {label:'tests/ pyramid', sub:'unit (mocked) + tester smoke (gated)',   x:780, y:380, w:320, h:40},
+  harness_md:     {label:'MT5_HARNESS.md', sub:'methodology + 7-phase SOP',              x:80, y:160, w:280, h:40},
+};
+
+// ----- Per-node CLI examples (shown in modal) ------------------------------
+var NODE_CLI = {
+  legacy_cli: 'mt5 --json analyze sniper-poc USDJPY',
+  legacy_tester: 'tester.run_backtest(symbol="USDJPY", expert="EhukaiTDAEA", ...)',
+  univ_root: 'from mt5_universal import market, rates, orders, tester',
+  univ_bridge: '# only this module touches MetaTrader5\nfrom MetaTrader5 import initialize, order_send, ...',
+  univ_market: 'mt5 --json market info USDJPY',
+  univ_orders: 'mt5 --json order dryrun USDJPY buy --volume 0.01 --sl 159.500',
+  univ_risk: '# every order passes:\nrisk.check_order(symbol, side, volume, sl, ..., is_live_intent=False)',
+  univ_broker_tc: '# config.json:\n{ "broker_profile": "trading_com" }',
+  mql5_compiler: 'mt5 mql5 compile ea my_strategy\nmt5 mql5 compile indicator my_signal',
+  mql5_deployer: 'mt5 mql5 deploy ea my_strategy\nmt5 mql5 deploy indicator my_signal',
+  mql5_templates: 'mt5 ea new my_strategy --template scalper\nmt5 indicator new my_signal --template oscillator',
+  user_ea_dir: 'ea/\n  my_strategy.mq5\n  my_strategy.ex5  # after compile',
+  user_ind_dir: 'indicators/\n  my_signal.mq5\n  my_signal.ex5',
+  user_presets: 'presets/\n  my_strategy.AUDUSD.M5.set',
+  tester_ea: 'mt5 tester ea single \\\n  --expert my_strategy \\\n  --symbol AUDUSD --tf M5 \\\n  --from 2021-05-09 --to 2026-05-09 \\\n  --modelling real-ticks \\\n  --deposit 10000 --currency USD --leverage 1:50 \\\n  --json\n\nmt5 tester ea optimize --mode complete|genetic --forward 2024-09-07 ...\nmt5 tester ea scanner --symbols AUDUSD,EURUSD,GBPUSD,USDJPY ...\nmt5 tester ea stress --delays 50ms ...',
+  tester_indicator: 'mt5 tester indicator visual \\\n  --indicator my_signal \\\n  --symbol AUDUSD --tf M5 \\\n  --from 2021-05-09 --to 2026-05-09 \\\n  --modelling ohlc-1m \\\n  --json',
+  tester_ini: '# internal — builds the .ini and .set files MT5 expects',
+  tester_launcher: '# internal — runs terminal64.exe /config + portable',
+  tester_results: 'mt5 tester results <run-id> --json\n# returns: deals, equity curve, win_rate, profit_factor, max_dd, journal events',
+  tester_cache: 'mt5 tester list           # recent runs\nmt5 tester show <run-id>  # quick summary',
+  mt5_cli_new: 'mt5 --help\nmt5 --json <any-command>',
+  mt5_mcp: 'mt5-mcp                    # stdio MCP server\n# tools: mt5_market_info, mt5_rates_fetch, mt5_tester_ea_single, ...',
+  skills_md: '# YAML frontmatter + command tables + "For AI Agents" usage protocol',
+  skill_generator: 'mt5 skills regenerate     # introspect Click tree -> SKILL.md',
+  repl_skin_new: 'mt5    # with no args -> REPL with branded banner + SKILL.md path',
+  config_paths: 'paths.config_file()       # respects MT5_CONFIG, XDG, APPDATA, HOME\npaths.ea_dir()\npaths.cache_dir()',
+  ci_path_guard: 'pytest tests/test_no_hardcoded_paths.py',
+  test_pyramid: 'pytest                          # unit (fast, mocked bridge)\nMT5_DEMO_INTEGRATION=1 pytest   # e2e + tester smoke',
+  harness_md: '# MT5_HARNESS.md — 7-phase SOP for adding new commands',
+};
+
+// ----- Per-phase visibility (id -> status) and connections -----------------
+var PHASE_NODES = {
+  0: {
+    legacy_cli:'unchanged', legacy_consumer:'unchanged',
+    legacy_ehukai:'unchanged', legacy_analyze:'unchanged', legacy_tda:'unchanged',
+    legacy_mfe:'unchanged', legacy_tester:'unchanged', legacy_ea:'unchanged', legacy_mql5:'unchanged',
+    legacy_market:'unchanged', legacy_rates:'unchanged', legacy_ind:'unchanged',
+    legacy_order:'unchanged', legacy_pos:'unchanged', legacy_risk:'unchanged',
+    legacy_acct:'unchanged', legacy_hist:'unchanged', legacy_chart:'unchanged',
+    legacy_shot:'unchanged', legacy_proj:'unchanged',
+    bridge_old:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external', trading_com:'external',
+  },
+  1: {
+    legacy_cli:'moved', legacy_ehukai:'moved', legacy_analyze:'moved', legacy_tda:'moved',
+    legacy_mfe:'moved', legacy_tester:'moved', legacy_ea:'moved', legacy_mql5:'moved',
+    legacy_chart:'moved', legacy_shot:'moved', legacy_proj:'moved',
+    legacy_market:'unchanged', legacy_rates:'unchanged', legacy_ind:'unchanged',
+    legacy_order:'unchanged', legacy_pos:'unchanged', legacy_risk:'unchanged',
+    legacy_acct:'unchanged', legacy_hist:'unchanged',
+    bridge_old:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external', trading_com:'external',
+  },
+  2: {
+    univ_root:'new',
+    univ_market:'new', univ_rates:'new', univ_account:'new', univ_history:'new',
+    univ_orders:'new', univ_positions:'new', univ_risk:'new',
+    univ_indicators_py:'new', univ_config:'new', univ_reports:'new',
+    univ_broker_base:'new', univ_broker_tc:'new', univ_broker_gm:'new',
+    univ_bridge:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external', trading_com:'external', other_broker:'external',
+  },
+  3: {
+    univ_root:'unchanged',
+    user_ea_dir:'new', user_ind_dir:'new', user_presets:'new',
+    mql5_compiler:'new', mql5_deployer:'new', mql5_discovery:'new', mql5_templates:'new',
+    univ_market:'unchanged', univ_rates:'unchanged',
+    univ_bridge:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external',
+  },
+  4: {
+    univ_root:'unchanged',
+    user_ea_dir:'unchanged', user_ind_dir:'unchanged', user_presets:'unchanged',
+    mql5_compiler:'unchanged', mql5_deployer:'unchanged',
+    tester_ea:'tester', tester_indicator:'tester',
+    tester_ini:'new', tester_launcher:'new', tester_results:'new', tester_cache:'new',
+    univ_rates:'unchanged', univ_reports:'unchanged',
+    univ_bridge:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external', mt5_tester:'external',
+  },
+  5: {
+    ai_agent:'agent',
+    mt5_cli_new:'new', mt5_mcp:'mcp', skills_md:'new', skill_generator:'new', repl_skin_new:'modified',
+    univ_root:'unchanged',
+    tester_ea:'tester', tester_indicator:'tester',
+    mql5_compiler:'unchanged', mql5_deployer:'unchanged',
+    univ_market:'unchanged', univ_orders:'unchanged', univ_risk:'unchanged',
+    univ_bridge:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external', mt5_tester:'external',
+  },
+  6: {
+    harness_md:'new', config_paths:'new', ci_path_guard:'new', test_pyramid:'new',
+    mt5_cli_new:'unchanged', mt5_mcp:'mcp', skills_md:'unchanged',
+    univ_root:'unchanged',
+    univ_bridge:'bridge',
+    mt5_pkg:'external', mt5_terminal:'external',
+  },
+};
+
+var PHASE_CONNECTIONS = {
+  0: [
+    {f:'legacy_cli', to:'legacy_ehukai', type:'dep'},
+    {f:'legacy_cli', to:'legacy_analyze', type:'dep'},
+    {f:'legacy_cli', to:'legacy_tester', type:'dep'},
+    {f:'legacy_cli', to:'legacy_order', type:'dep'},
+    {f:'legacy_cli', to:'legacy_market', type:'dep'},
+    {f:'legacy_cli', to:'legacy_rates', type:'dep'},
+    {f:'legacy_analyze', to:'legacy_ehukai', type:'dep', label:'sniper_poc context'},
+    {f:'legacy_analyze', to:'legacy_tda', type:'dep'},
+    {f:'legacy_tester', to:'legacy_mql5', type:'dep', label:'compile + run'},
+    {f:'legacy_order', to:'legacy_risk', type:'risk', label:'check_order'},
+    {f:'legacy_acct', to:'legacy_risk', type:'risk'},
+    {f:'legacy_order', to:'bridge_old', type:'bridge'},
+    {f:'legacy_market', to:'bridge_old', type:'bridge'},
+    {f:'legacy_rates', to:'bridge_old', type:'bridge'},
+    {f:'bridge_old', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+    {f:'mt5_terminal', to:'trading_com', type:'data'},
+    {f:'legacy_consumer', to:'legacy_cli', type:'dep', label:'subprocess'},
+  ],
+  1: [
+    {f:'bridge_old', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+    {f:'mt5_terminal', to:'trading_com', type:'data'},
+  ],
+  2: [
+    {f:'univ_root', to:'univ_market', type:'dep'},
+    {f:'univ_root', to:'univ_rates', type:'dep'},
+    {f:'univ_root', to:'univ_orders', type:'dep'},
+    {f:'univ_root', to:'univ_positions', type:'dep'},
+    {f:'univ_root', to:'univ_account', type:'dep'},
+    {f:'univ_root', to:'univ_history', type:'dep'},
+    {f:'univ_root', to:'univ_risk', type:'dep'},
+    {f:'univ_orders', to:'univ_risk', type:'risk', label:'every order'},
+    {f:'univ_account', to:'univ_risk', type:'risk', label:'daily P&L'},
+    {f:'univ_orders', to:'univ_broker_base', type:'dep', label:'fill mode + retcodes'},
+    {f:'univ_broker_tc', to:'univ_broker_base', type:'dep', label:'implements'},
+    {f:'univ_broker_gm', to:'univ_broker_base', type:'dep', label:'implements'},
+    {f:'univ_market', to:'univ_bridge', type:'bridge'},
+    {f:'univ_rates', to:'univ_bridge', type:'bridge'},
+    {f:'univ_orders', to:'univ_bridge', type:'bridge'},
+    {f:'univ_positions', to:'univ_bridge', type:'bridge'},
+    {f:'univ_account', to:'univ_bridge', type:'bridge'},
+    {f:'univ_history', to:'univ_bridge', type:'bridge'},
+    {f:'univ_indicators_py', to:'univ_rates', type:'dep'},
+    {f:'univ_bridge', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+    {f:'mt5_terminal', to:'trading_com', type:'data'},
+    {f:'mt5_terminal', to:'other_broker', type:'data'},
+  ],
+  3: [
+    {f:'user_ea_dir', to:'mql5_discovery', type:'plugin', label:'auto-discover'},
+    {f:'user_ind_dir', to:'mql5_discovery', type:'plugin', label:'auto-discover'},
+    {f:'mql5_templates', to:'user_ea_dir', type:'plugin', label:'mt5 ea new'},
+    {f:'mql5_templates', to:'user_ind_dir', type:'plugin', label:'mt5 indicator new'},
+    {f:'user_ea_dir', to:'mql5_compiler', type:'dep', label:'.mq5 -> .ex5'},
+    {f:'user_ind_dir', to:'mql5_compiler', type:'dep'},
+    {f:'mql5_compiler', to:'mql5_deployer', type:'dep'},
+    {f:'mql5_deployer', to:'mt5_terminal', type:'data', label:'copy to Experts/ + Indicators/'},
+    {f:'univ_root', to:'mql5_discovery', type:'dep'},
+    {f:'univ_root', to:'univ_bridge', type:'dep'},
+    {f:'univ_bridge', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+  ],
+  4: [
+    {f:'user_ea_dir', to:'tester_ea', type:'plugin'},
+    {f:'user_ind_dir', to:'tester_indicator', type:'plugin'},
+    {f:'user_presets', to:'tester_ini', type:'plugin'},
+    {f:'mql5_compiler', to:'tester_ea', type:'dep', label:'compiled .ex5'},
+    {f:'mql5_compiler', to:'tester_indicator', type:'dep'},
+    {f:'mql5_deployer', to:'tester_ea', type:'dep'},
+    {f:'tester_ea', to:'tester_ini', type:'dep'},
+    {f:'tester_indicator', to:'tester_ini', type:'dep'},
+    {f:'tester_ini', to:'tester_launcher', type:'dep'},
+    {f:'tester_launcher', to:'mt5_tester', type:'data', label:'terminal64 /config'},
+    {f:'mt5_tester', to:'mt5_terminal', type:'data'},
+    {f:'mt5_tester', to:'tester_results', type:'data', label:'HTML + journal CSV + opt XML'},
+    {f:'tester_results', to:'tester_cache', type:'dep'},
+    {f:'tester_results', to:'univ_reports', type:'dep'},
+    {f:'tester_ea', to:'univ_rates', type:'dep', label:'pre-flight bars check'},
+    {f:'univ_root', to:'univ_bridge', type:'dep'},
+    {f:'univ_bridge', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+  ],
+  5: [
+    {f:'ai_agent', to:'mt5_mcp', type:'mcp', label:'tool calls'},
+    {f:'ai_agent', to:'mt5_cli_new', type:'mcp', label:'shell + --json'},
+    {f:'ai_agent', to:'skills_md', type:'mcp', label:'reads manifest'},
+    {f:'mt5_cli_new', to:'univ_root', type:'dep'},
+    {f:'mt5_mcp', to:'univ_root', type:'dep', label:'1:1 tool mapping'},
+    {f:'mt5_cli_new', to:'repl_skin_new', type:'dep'},
+    {f:'repl_skin_new', to:'skills_md', type:'dep', label:'prints path'},
+    {f:'skill_generator', to:'skills_md', type:'plugin', label:'regenerates'},
+    {f:'skill_generator', to:'mt5_cli_new', type:'dep', label:'introspect Click tree'},
+    {f:'univ_root', to:'tester_ea', type:'dep'},
+    {f:'univ_root', to:'tester_indicator', type:'dep'},
+    {f:'univ_root', to:'mql5_compiler', type:'dep'},
+    {f:'univ_root', to:'mql5_deployer', type:'dep'},
+    {f:'univ_root', to:'univ_orders', type:'dep'},
+    {f:'univ_orders', to:'univ_risk', type:'risk'},
+    {f:'univ_market', to:'univ_bridge', type:'bridge'},
+    {f:'univ_orders', to:'univ_bridge', type:'bridge'},
+    {f:'univ_bridge', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+    {f:'mt5_terminal', to:'mt5_tester', type:'data'},
+  ],
+  6: [
+    {f:'harness_md', to:'mt5_cli_new', type:'dep', label:'documents'},
+    {f:'config_paths', to:'univ_root', type:'dep', label:'used by every module'},
+    {f:'ci_path_guard', to:'univ_root', type:'plugin', label:'CI grep'},
+    {f:'test_pyramid', to:'univ_root', type:'plugin', label:'unit + tester smoke'},
+    {f:'mt5_cli_new', to:'univ_root', type:'dep'},
+    {f:'mt5_mcp', to:'univ_root', type:'dep'},
+    {f:'univ_root', to:'univ_bridge', type:'dep'},
+    {f:'univ_bridge', to:'mt5_pkg', type:'data'},
+    {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
+  ],
+};
+
+var CONN_TYPES = {
+  dep:    {color:'#4b5563', dash:'',    marker:'arr-dep'},
+  risk:   {color:'#f97316', dash:'',    marker:'arr-risk'},
+  bridge: {color:'#ef4444', dash:'3,3', marker:'arr-bridge'},
+  data:   {color:'#3b82f6', dash:'',    marker:'arr-data'},
+  mcp:    {color:'#10b981', dash:'5,3', marker:'arr-mcp'},
+  plugin: {color:'#a855f7', dash:'5,3', marker:'arr-plugin'},
+};
+
+// ----- Phases (data) -------------------------------------------------------
+var PHASES = [
+  {
+    id:0, title:'Current state', sub:'where we are today',
+    bannerTitle:'Phase 0 — Current state (the starting point)',
+    bannerDesc:'Monolithic mt5_cli.py (1869 LOC) wired to a domain-coupled core/. Ehukai / TDA / sniper / wavelet semantics baked into "agnostic" modules. core/tester.py only knows EhukaiTDAEA + AdaptiveTrailEA. mql5/Experts/ ships your Advanced_Wavelet_Entry and Hybrid_WPVS source. One downstream consumer (adaptive-forex-mt5/) shells out via subprocess.',
+    pattern:[ tk('No CLI-Anything pattern applied yet — this is the starting state. The Ehukai/TDA semantics are tangled into '), tc('core/'), tk(': '), tc('analyze.py'), tk(' is 1098 LOC, '), tc('ehukai.py'), tk(' is 944 LOC, '), tc('tda_manifest.py'), tk(' exists, '), tc('tester.py'), tk(' only knows two specific EAs. An agent cannot "use MT5 generally" without inheriting all of this domain code.') ],
+    capability:[ tb('Agent capability today: '), tk('Agent can shell out '), tc('mt5 --json ...'), tk(' but is locked into the Ehukai/TDA workflow. Cannot author a new EA without editing '), tc('core/tester.py'), tk('. No '), tc('SKILL.md'), tk(' manifest, no MCP server, no scaffolding.') ],
+  },
+  {
+    id:1, title:'Archive legacy', sub:'hard fork — move out',
+    bannerTitle:'Phase 1 — Archive the domain-coupled layer',
+    bannerDesc:'Move every Ehukai/TDA-flavored module under archive/legacy-core/. Move mql5/Experts/* (AdaptiveTrailEA, EhukaiTDAEA, Advanced_Wavelet_Entry, Hybrid_WPVS) under archive/legacy-mql5/. Stop importing them from mt5_cli.py. The bridge, market, rates, orders, positions, account, history, risk primitives stay in place but get re-homed in Phase 2.',
+    pattern:[ tb('CLI-Anything pattern: clean agent-harness/ root. '), tk('In CLI-Anything every CLI lives under '), tc('agent-harness/cli_anything/<app>/'), tk(' with one clear root. We mirror that: '), tb('everything domain-specific moves to archive/'), tk(' so the new '), tc('mt5_universal/'), tk(' root has nothing competing with it. Your in-flight Advanced_Wavelet_Entry / Hybrid_WPVS sources are preserved as archived reference — you re-author them in Phase 3 as user-dir plugins.') ],
+    capability:[ tb('Capability gained: '), tk('None yet — this is the empty-the-room step. The agent surface temporarily shrinks; it is restored in Phase 2.') ],
+  },
+  {
+    id:2, title:'Universal core', sub:'mt5_universal/ skeleton',
+    bannerTitle:'Phase 2 — Build the agnostic universal core',
+    bannerDesc:'Create mt5_universal/ as a pip-installable Python library. Submodules: bridge, broker, market, rates, indicators (python quicklook only), orders, positions, account, history, risk, config, reports. Broker layer abstracts Trading.com (canonical default) and generic_mt5 (permissive). Every module is domain-neutral.',
+    pattern:[ tb('CLI-Anything pattern: single utils/<app>_backend.py. '), tk('CLI-Anything mandates exactly one backend module per CLI. We already had '), tc('utils/mt5_backend.py'), tk(' as the only file importing MetaTrader5 — reinforced as the '), tb('only'), tk(' module in '), tc('mt5_universal/bridge/'), tk(' allowed to touch the MT5 package. Broker quirks (FOK, hedging, retcodes, rollover) move out of bridge into '), tc('broker/trading_com.py'), tk(' + '), tc('broker/generic_mt5.py'), tk(' behind a '), tc('BrokerProfile'), tk(' ABC.') ],
+    capability:[ tb('Capability gained: '), tk('Agents now have a clean neutral surface — '), tc('mt5_universal.market.info()'), tk(', '), tc('.rates.fetch()'), tk(', '), tc('.orders.market()'), tk('. Risk gate still enforced on every order call. Trading.com still works exactly as before; it is now the '), tb('default BrokerProfile'), tk(', not hardcoded.') ],
+  },
+  {
+    id:3, title:'MQL5 plugin host', sub:'ea/ + indicators/ user dirs',
+    bannerTitle:'Phase 3 — MQL5 plugin host (you author EAs and indicators)',
+    bannerDesc:'Add ea/ and indicators/ user dirs for MQL5 source. CLI scaffolds with mt5 ea new <name> / mt5 indicator new <name>. CLI compiles with mt5 mql5 compile (wraps metaeditor64.exe). CLI deploys with mt5 mql5 deploy (copies .mq5 + .ex5 into terminal Experts/Indicators folders). Auto-discovery scans the dirs + ~/.config/mt5-universal/.',
+    pattern:[ tb('CLI-Anything patterns: CLI-Hub registry + templates/ scaffolding + skill_generator. '), tk('CLI-Hub uses '), tc('pip install cli-anything-<app>'), tk(' with per-app entry points. We adapt this for in-repo plugins: '), tb('EAs and indicators auto-register from on-disk discovery'), tk('. '), tc('mt5 ea list / new / compile / deploy'), tk(' mirrors '), tc('cli-hub list / install'), tk('. Templates ship the boilerplate so an agent can author a working EA in one CLI command and one source-file edit.') ],
+    capability:[ tb('Capability gained: '), tk('Agents author MQL5 source. '), tc('mt5 ea new my_strategy --template scalper'), tk(' creates '), tc('ea/my_strategy.mq5'), tk(' from a template. '), tc('mt5 mql5 compile ea my_strategy'), tk(' runs MetaEditor. '), tc('mt5 mql5 deploy ea my_strategy'), tk(' copies into the terminal. Same flow for indicators.') ],
+  },
+  {
+    id:4, title:'Strategy Tester driver', sub:'EA + indicator backtests',
+    bannerTitle:'Phase 4 — Drive the MT5 Strategy Tester from the CLI',
+    bannerDesc:'Add tester/ submodule. tester.ea: single / optimize / genetic / forward / market-scanner / stress. tester.indicator: visual test. tester.ini_builder generates the .ini + .set files MT5 expects. tester.launcher runs terminal64.exe /config in portable mode. tester.results parses HTML report + journal CSV + optimization XML into a JSON envelope. tester.cache snapshots every run under results/<run-id>/.',
+    pattern:[ tb('CLI-Anything pattern: dual JSON+human output + "For AI Agents" usage protocol. '), tk('CLI-Anything\'s SKILL.md template prescribes that every command supports '), tc('--json'), tk(' for parseable output and that agents "verify outputs after operations." We apply that here: every tester command returns a structured envelope with '), tc('deals'), tk(', '), tc('equity_curve'), tk(', '), tc('win_rate'), tk(', '), tc('profit_factor'), tk(', '), tc('max_drawdown'), tk(', '), tc('journal_events'), tk('. No HTML scraping by the agent — the CLI does it once and serves JSON.') ],
+    capability:[ tb('Capability gained: '), tk('Agents run '), tc('mt5 tester ea single --expert my_strategy --symbol AUDUSD --tf M5 --from 2021-05-09 --to 2026-05-09 --modelling real-ticks --json'), tk(' and get back structured JSON. Iterate: edit '), tc('ea/my_strategy.mq5'), tk(', recompile, rerun, '), tc('mt5 tester show <run-id>'), tk(' to compare. Optimization, forward, genetic, multi-symbol scanner, stress/delay tests all from the CLI.') ],
+  },
+  {
+    id:5, title:'Agent surface', sub:'SKILL.md + MCP + ReplSkin',
+    bannerTitle:'Phase 5 — Agent surface: SKILL.md, MCP server, ReplSkin',
+    bannerDesc:'Add mt5_universal/skills/SKILL.md (agent-discoverable manifest with For AI Agents usage protocol). Add mt5_mcp/server.py (FastMCP exposing the library as MCP tools). Upgrade ReplSkin to the CLI-Anything pattern so the banner prints the absolute SKILL.md path. Add skill_generator.py that introspects the Click tree and regenerates SKILL.md so it never drifts.',
+    pattern:[ tb('Four CLI-Anything cherry-picks here: '), tk('(1) '), tc('skills/SKILL.md'), tk(' template with YAML frontmatter, command-group tables, examples, "For AI Agents" usage protocol. (2) '), tc('ReplSkin'), tk(' with banner that auto-prints the SKILL.md absolute path so agents can read it. (3) '), tc('skill_generator.py'), tk(' introspects Click groups and regenerates SKILL.md — single source of truth. (4) '), tc('mcp-backend.md'), tk(' guide, inverted: instead of consuming an MCP backend, we publish the universal core as an MCP server.') ],
+    capability:[ tb('Agents have hands. '), tk('Claude Code / Cursor / Claude Desktop discover MT5 tools via MCP with typed schemas — no subprocess overhead. Shell-based agents still get '), tc('mt5 --json ...'), tk(' with SKILL.md describing every command group. '), tc('mt5 ea new'), tk(' and '), tc('mt5 indicator new'), tk(' let an agent author and register MQL5 in one turn, then test it via '), tc('mt5 tester ea single ...'), tk('.') ],
+  },
+  {
+    id:6, title:'Portability + tests', sub:'XDG paths · CI guard · MT5_HARNESS.md',
+    bannerTitle:'Phase 6 — Portability rails + test pyramid + harness doc',
+    bannerDesc:'Add mt5_universal/config/paths.py resolving XDG_CONFIG_HOME / APPDATA / HOME for config, EA dir, indicator dir, cache, logs. Add a CI test that greps the source tree for hardcoded user paths. Full pytest pyramid: unit with mocked bridge, tester smoke gated on MT5_DEMO_INTEGRATION=1. Write MT5_HARNESS.md documenting the methodology so the next contributor or agent has a written SOP.',
+    pattern:[ tb('CLI-Anything pattern: HARNESS.md SOP + TEST.md planning. '), tk('CLI-Anything\'s HARNESS.md prescribes a 7-phase methodology with explicit test planning before any test code. We adopt this verbatim as '), tc('MT5_HARNESS.md'), tk('. Portability rails — no hardcoded '), tc('C:\\\\Users\\\\'), tk(', '), tc('/home/'), tk(', '), tc('/Users/'), tk(' anywhere — are the user\'s portability constraint baked in and CI-enforced.') ],
+    capability:[ tb('Capability gained: '), tk('The CLI is '), tb('portable'), tk(' — clone anywhere, '), tc('pip install -e .'), tk(' works. '), tb('Testable end-to-end'), tk(' — agents can run the full test suite in CI to verify their new EA does not break the system. '), tb('Self-documenting'), tk(' — MT5_HARNESS.md tells the next agent how to extend the system without breaking the contract.') ],
+  },
+];
+
+// ----- State ---------------------------------------------------------------
+var state = { phase:0, comments:[], zoom:0.78, panX:40, panY:60 };
+
+// ----- SVG helpers ---------------------------------------------------------
+var SVG_NS = 'http://www.w3.org/2000/svg';
+function makeSVG(tag, attrs) {
+  var el = document.createElementNS(SVG_NS, tag);
+  for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, attrs[k]);
+  return el;
+}
+function textSVG(x, y, txt, attrs) {
+  var a = {x:x, y:y};
+  for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) a[k] = attrs[k];
+  var el = makeSVG('text', a);
+  el.textContent = txt;
+  return el;
+}
+function ncx(n) { return n.x + n.w / 2; }
+function ncy(n) { return n.y + n.h / 2; }
+function edgePoints(fn, tn) {
+  var fdx = ncx(fn), fdy = ncy(fn), tdx = ncx(tn), tdy = ncy(tn);
+  var dx = tdx - fdx, dy = tdy - fdy;
+  var x1, y1, x2, y2;
+  if (Math.abs(dy) > Math.abs(dx) * 0.65) {
+    x1 = fdx; y1 = dy > 0 ? fn.y + fn.h : fn.y;
+    x2 = tdx; y2 = dy > 0 ? tn.y : tn.y + tn.h;
+  } else {
+    x1 = dx > 0 ? fn.x + fn.w : fn.x; y1 = fdy;
+    x2 = dx > 0 ? tn.x : tn.x + tn.w; y2 = tdy;
+  }
+  return {x1:x1, y1:y1, x2:x2, y2:y2};
+}
+function bezier(x1, y1, x2, y2) {
+  var ddx = Math.abs(x2-x1), ddy = Math.abs(y2-y1);
+  var cx1, cy1, cx2, cy2;
+  if (ddy > ddx * 0.65) {
+    var off = Math.max(40, ddy * 0.4);
+    cx1 = x1; cy1 = y1 + (y2>y1?off:-off);
+    cx2 = x2; cy2 = y2 + (y2>y1?-off:off);
+  } else {
+    var offh = Math.max(30, ddx * 0.4);
+    cx1 = x1 + (x2>x1?offh:-offh); cy1 = y1;
+    cx2 = x2 + (x2>x1?-offh:offh); cy2 = y2;
+  }
+  return 'M '+x1+' '+y1+' C '+cx1+' '+cy1+' '+cx2+' '+cy2+' '+x2+' '+y2;
+}
+
+// ----- Render --------------------------------------------------------------
+function render() {
+  var g = document.getElementById('diagram-g');
+  while (g.firstChild) g.removeChild(g.firstChild);
+  g.setAttribute('transform', 'translate('+state.panX+','+state.panY+') scale('+state.zoom+')');
+
+  var visible = PHASE_NODES[state.phase] || {};
+  var connections = PHASE_CONNECTIONS[state.phase] || [];
+  var commentedIds = {};
+  state.comments.forEach(function(c){ if (c.phase === state.phase) commentedIds[c.target] = true; });
+
+  // Connections first
+  connections.forEach(function(c){
+    var fn = NODES[c.f], tn = NODES[c.to];
+    if (!fn || !tn || !visible[c.f] || !visible[c.to]) return;
+    var ct = CONN_TYPES[c.type] || CONN_TYPES.dep;
+    var pts = edgePoints(fn, tn);
+    var attrs = {d:bezier(pts.x1,pts.y1,pts.x2,pts.y2), fill:'none', stroke:ct.color, 'stroke-width':'1.7', 'stroke-opacity':'0.55', 'marker-end':'url(#'+ct.marker+')'};
+    if (ct.dash) attrs['stroke-dasharray'] = ct.dash;
+    g.appendChild(makeSVG('path', attrs));
+    if (c.label) {
+      var mx = (pts.x1+pts.x2)/2, my = (pts.y1+pts.y2)/2;
+      g.appendChild(textSVG(mx, my-5, c.label, {'text-anchor':'middle', fill:ct.color, 'font-size':'9.5', 'font-family':'monospace', opacity:'0.9'}));
+    }
+  });
+
+  // Nodes
+  for (var id in visible) {
+    if (!Object.prototype.hasOwnProperty.call(visible, id)) continue;
+    var statusKey = visible[id];
+    var n = NODES[id];
+    if (!n) continue;
+    var st = STATUS[statusKey] || STATUS.unchanged;
+    var commented = !!commentedIds[id];
+    var grp = makeSVG('g', {'data-id':id});
+    grp.style.cursor = 'pointer';
+
+    if (statusKey === 'bridge') {
+      grp.appendChild(makeSVG('rect', {x:n.x-4, y:n.y-4, width:n.w+8, height:n.h+8, rx:10, fill:'#ef444415'}));
+    }
+    if (statusKey === 'new') {
+      grp.appendChild(makeSVG('rect', {x:n.x-3, y:n.y-3, width:n.w+6, height:n.h+6, rx:9, fill:'#22c55e10'}));
+    }
+    if (statusKey === 'tester') {
+      grp.appendChild(makeSVG('rect', {x:n.x-3, y:n.y-3, width:n.w+6, height:n.h+6, rx:9, fill:'#eab30815'}));
+    }
+    if (statusKey === 'mcp') {
+      grp.appendChild(makeSVG('rect', {x:n.x-3, y:n.y-3, width:n.w+6, height:n.h+6, rx:9, fill:'#10b98115'}));
+    }
+    var fillColor = statusKey === 'moved' ? '#161b2670' : '#161b26';
+
+    grp.appendChild(makeSVG('rect', {x:n.x, y:n.y, width:n.w, height:n.h, rx:7, fill:fillColor, stroke:st.color, 'stroke-width': commented?'2.5':'1.5', 'stroke-opacity':'0.9'}));
+
+    if (statusKey === 'new' || statusKey === 'moved' || statusKey === 'modified' || statusKey === 'tester' || statusKey === 'mcp') {
+      grp.appendChild(makeSVG('circle', {cx:n.x+n.w-7, cy:n.y+7, r:5, fill:st.color}));
+    }
+    if (commented) {
+      grp.appendChild(makeSVG('circle', {cx:n.x+7, cy:n.y+7, r:5, fill:'#fbbf24'}));
+    }
+
+    grp.appendChild(textSVG(ncx(n), n.y+n.h*0.42, n.label, {'text-anchor':'middle', 'dominant-baseline':'middle', fill:st.color, 'font-size':'12.5', 'font-weight':'600', 'font-family':'monospace', 'pointer-events':'none'}));
+    grp.appendChild(textSVG(ncx(n), n.y+n.h*0.73, n.sub, {'text-anchor':'middle', 'dominant-baseline':'middle', fill:'#7c8190', 'font-size':'9.5', 'font-family':'monospace', 'pointer-events':'none'}));
+
+    (function(theId, theStatus){
+      grp.addEventListener('click', function(){ openModal(theId, theStatus); });
+    })(id, statusKey);
+    g.appendChild(grp);
+  }
+}
+
+// ----- Modal ---------------------------------------------------------------
+var activeNodeId = null;
+
+function openModal(id, statusKey) {
+  var n = NODES[id];
+  var st = STATUS[statusKey] || STATUS.unchanged;
+  activeNodeId = id;
+  document.getElementById('modal-title').textContent = n.label;
+  document.getElementById('modal-subtitle').textContent = n.sub;
+  var sb = document.getElementById('modal-status');
+  sb.textContent = st.label;
+  sb.style.background = st.color + '20';
+  sb.style.color = st.color;
+  sb.style.border = '1px solid ' + st.color + '50';
+  document.getElementById('modal-desc').textContent = describe(id, statusKey);
+  var cli = NODE_CLI[id] || '';
+  var cliEl = document.getElementById('modal-cli');
+  cliEl.textContent = cli;
+  cliEl.style.display = cli ? 'block' : 'none';
+  var existing = null;
+  state.comments.forEach(function(c){ if (c.target === id && c.phase === state.phase) existing = c; });
+  document.getElementById('modal-textarea').value = existing ? existing.text : '';
+  document.getElementById('modal-overlay').classList.add('visible');
+  setTimeout(function(){ document.getElementById('modal-textarea').focus(); }, 50);
+}
+
+function describe(id, statusKey) {
+  var ph = PHASES[state.phase];
+  var verbs = {
+    new: 'NEW in ' + ph.title + '. ',
+    moved: 'Moved to archive in ' + ph.title + '. ',
+    modified: 'Modified in ' + ph.title + '. ',
+    unchanged: 'Carried over unchanged. ',
+    bridge: 'The bridge — only module allowed to import the MetaTrader5 Python package. ',
+    tester: 'Strategy Tester driver — wraps MT5\'s native tester. ',
+    external: 'External system (outside the refactor scope). ',
+    agent: 'External actor — the agent that consumes the CLI/MCP surface. ',
+    mcp: 'MCP server surface — exposes mt5_universal as MCP tools. ',
+  };
+  return (verbs[statusKey] || '') + 'Add a refactor note, question, or concern.';
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('visible');
+  activeNodeId = null;
+}
+
+function saveComment() {
+  var text = document.getElementById('modal-textarea').value.trim();
+  if (!text) { closeModal(); return; }
+  var n = NODES[activeNodeId];
+  state.comments = state.comments.filter(function(c){ return !(c.target === activeNodeId && c.phase === state.phase); });
+  state.comments.push({id:Date.now(), target:activeNodeId, label:n.label, sub:n.sub, text:text, phase:state.phase});
+  closeModal();
+  renderComments();
+  render();
+  updatePrompt();
+}
+
+document.getElementById('modal-overlay').addEventListener('click', function(e){
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+// ----- Sidebar render ------------------------------------------------------
+function renderPhaseButtons() {
+  var pb = document.getElementById('phase-btns');
+  while (pb.firstChild) pb.removeChild(pb.firstChild);
+  PHASES.forEach(function(ph){
+    var btn = document.createElement('button');
+    btn.className = 'phase-btn' + (state.phase === ph.id ? ' active' : '');
+    var num = document.createElement('span');
+    num.className = 'phase-num';
+    num.textContent = String(ph.id);
+    btn.appendChild(num);
+    var body = document.createElement('div');
+    body.className = 'phase-body';
+    var title = document.createElement('div');
+    title.className = 'phase-title';
+    title.textContent = ph.title;
+    var sub = document.createElement('div');
+    sub.className = 'phase-sub';
+    sub.textContent = ph.sub;
+    body.appendChild(title);
+    body.appendChild(sub);
+    btn.appendChild(body);
+    (function(pid){ btn.addEventListener('click', function(){ switchPhase(pid); }); })(ph.id);
+    pb.appendChild(btn);
+  });
+}
+
+function renderCallouts() {
+  var ph = PHASES[state.phase];
+
+  var pc = document.getElementById('pattern-callout');
+  while (pc.firstChild) pc.removeChild(pc.firstChild);
+  var pBox = document.createElement('div');
+  pBox.className = 'callout';
+  var pH = document.createElement('div');
+  pH.className = 'callout-h';
+  pH.textContent = 'How CLI-Anything informed this phase';
+  pBox.appendChild(pH);
+  var pBody = document.createElement('div');
+  pBody.className = 'callout-body';
+  renderTokens(pBody, ph.pattern);
+  pBox.appendChild(pBody);
+  pc.appendChild(pBox);
+
+  var cc = document.getElementById('capability-callout');
+  while (cc.firstChild) cc.removeChild(cc.firstChild);
+  var cBox = document.createElement('div');
+  cBox.className = 'callout green';
+  var cH = document.createElement('div');
+  cH.className = 'callout-h';
+  cH.textContent = 'What agents can do after this phase';
+  cBox.appendChild(cH);
+  var cBody = document.createElement('div');
+  cBody.className = 'callout-body';
+  renderTokens(cBody, ph.capability);
+  cBox.appendChild(cBody);
+  cc.appendChild(cBox);
+
+  document.getElementById('banner-title').textContent = ph.bannerTitle;
+  document.getElementById('banner-desc').textContent = ph.bannerDesc;
+}
+
+function deleteComment(id) {
+  state.comments = state.comments.filter(function(c){ return c.id !== id; });
+  renderComments(); render(); updatePrompt();
+}
+
+function renderComments() {
+  var list = document.getElementById('comment-list');
+  document.getElementById('comment-count').textContent = String(state.comments.length);
+  while (list.firstChild) list.removeChild(list.firstChild);
+  if (!state.comments.length) {
+    var p = document.createElement('p');
+    p.className = 'no-comments';
+    p.textContent = 'Click nodes to leave refactor notes';
+    list.appendChild(p);
+    return;
+  }
+  state.comments.forEach(function(c){
+    var item = document.createElement('div');
+    item.className = 'comment-item';
+    var tgt = document.createElement('div');
+    tgt.className = 'c-target';
+    tgt.textContent = c.label;
+    item.appendChild(tgt);
+    var txt = document.createElement('div');
+    txt.className = 'c-text';
+    txt.textContent = c.text;
+    item.appendChild(txt);
+    var ph = document.createElement('div');
+    ph.className = 'c-phase';
+    ph.textContent = 'Phase ' + c.phase + ' · ' + PHASES[c.phase].title;
+    item.appendChild(ph);
+    var del = document.createElement('button');
+    del.className = 'comment-del';
+    del.textContent = '×';
+    del.setAttribute('aria-label', 'Delete comment');
+    (function(cid){ del.addEventListener('click', function(){ deleteComment(cid); }); })(c.id);
+    item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+
+// ----- Prompt output -------------------------------------------------------
+function updatePrompt() {
+  var ph = PHASES[state.phase];
+  var parts = [];
+  parts.push('# MT5 CLI · Agent-Native Refactor — Phase ' + ph.id + ' (' + ph.title + ')');
+  parts.push('');
+  parts.push('## Goal of this phase');
+  parts.push(ph.bannerDesc);
+  parts.push('');
+  parts.push('## Cherry-picked pattern from CLI-Anything');
+  parts.push(tokensToPlain(ph.pattern));
+  parts.push('');
+  parts.push('## Agent capability gained after this phase');
+  parts.push(tokensToPlain(ph.capability));
+  if (state.comments.length) {
+    parts.push('');
+    parts.push('## My refactor notes');
+    var byPhase = {};
+    state.comments.forEach(function(c){
+      if (!byPhase[c.phase]) byPhase[c.phase] = [];
+      byPhase[c.phase].push(c);
+    });
+    Object.keys(byPhase).sort(function(a,b){return a-b;}).forEach(function(pid){
+      parts.push('');
+      parts.push('### Phase ' + pid + ' — ' + PHASES[pid].title);
+      byPhase[pid].forEach(function(c){
+        parts.push('');
+        parts.push('**' + c.label + '** (' + c.sub + '):');
+        parts.push(c.text);
+      });
+    });
+  } else {
+    parts.push('');
+    parts.push('_Click any node to leave a refactor note. Notes are grouped by phase in this prompt._');
+  }
+  document.getElementById('prompt-text').textContent = parts.join('\n');
+}
+
+function copyPrompt() {
+  navigator.clipboard.writeText(document.getElementById('prompt-text').textContent).then(function(){
+    var fb = document.getElementById('copy-feedback');
+    fb.textContent = 'Copied!';
+    setTimeout(function(){ fb.textContent = ''; }, 1500);
+  });
+}
+
+// ----- Phase switch --------------------------------------------------------
+function switchPhase(id) {
+  state.phase = id;
+  renderPhaseButtons();
+  renderCallouts();
+  render();
+  updatePrompt();
+}
+
+// ----- Zoom / Pan ----------------------------------------------------------
+function doZoom(f) {
+  state.zoom = Math.min(3, Math.max(0.25, state.zoom * f));
+  render();
+}
+function resetView() { state.zoom = 0.78; state.panX = 40; state.panY = 60; render(); }
+var wrap = document.getElementById('canvas-wrap');
+var drag = false, dsx, dsy, psx, psy;
+wrap.addEventListener('mousedown', function(e){
+  if (e.target.closest('[data-id]')) return;
+  drag = true; dsx = e.clientX; dsy = e.clientY; psx = state.panX; psy = state.panY;
+  wrap.classList.add('grabbing');
+});
+window.addEventListener('mousemove', function(e){
+  if (!drag) return;
+  state.panX = psx + (e.clientX - dsx); state.panY = psy + (e.clientY - dsy);
+  document.getElementById('diagram-g').setAttribute('transform', 'translate('+state.panX+','+state.panY+') scale('+state.zoom+')');
+});
+window.addEventListener('mouseup', function(){ drag = false; wrap.classList.remove('grabbing'); });
+wrap.addEventListener('wheel', function(e){ e.preventDefault(); doZoom(e.deltaY < 0 ? 1.1 : 0.91); }, {passive:false});
+
+// ----- Init ----------------------------------------------------------------
+renderPhaseButtons();
+renderCallouts();
+render();
+renderComments();
+updatePrompt();
+</script>
+</body>
+</html>
