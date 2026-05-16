@@ -10,7 +10,6 @@ build/
 .claude/
 .claire/
 .ehukaiconnect/
-archive/
 
 # Build artifacts (compiled MQL5 binaries — sources are tracked, builds aren't)
 *.ex5
