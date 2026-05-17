@@ -35,6 +35,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0a0c10;color:#d1
 .callout-body code{background:#1f2937;padding:1px 5px;border-radius:3px;font-size:11px;color:#fbbf24;font-family:'SFMono-Regular',Consolas,monospace}
 .callout-body strong{color:#f9fafb}
 .callout-body br{display:block;content:'';margin-top:4px}
+#intent{background:#0f1620;border-bottom:1px solid #1f2937;padding:8px 16px;color:#cbd5e1;font-size:11.5px;line-height:1.45}
+#intent strong{color:#f9fafb}
 #comment-list{display:flex;flex-direction:column;gap:6px}
 .comment-item{background:#1a1f2a;border:1px solid #1f2937;border-radius:6px;padding:8px 10px;position:relative}
 .c-target{font-size:11px;color:#60a5fa;font-weight:600;margin-bottom:3px}
@@ -104,6 +106,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0a0c10;color:#d1
 </style>
 </head>
 <body>
+<!-- INTENT: Show the phase-by-phase dependency map for the MT5 universal refactor so agents preserve the tool-only, Strategy-Tester-native architecture and avoid reintroducing Python backtesters, strategy content, or MT5 SDK bridge leaks into tester modules. Use this playground to decide whether a change belongs in library, CLI, MQL5 discovery/deploy, tester driver, MCP/skills, or future path-resolution work. -->
+<section id="intent"><strong>Intent:</strong> This playground maps the MT5 universal refactor by phase so implementation agents keep the tool-only, Strategy-Tester-native architecture intact. It prevents drift toward Python backtesters, bundled strategies, or MT5 SDK bridge access inside tester modules.</section>
 <div id="topbar">
   <h1>MT5 CLI · Agent-Native Refactor (Strategy Tester driven)</h1>
   <span class="tag">7 phases</span>
@@ -299,7 +303,7 @@ var NODES = {
   // Phase 4: Strategy Tester driver
   tester_ea:        {label:'tester.ea', sub:'single · optimize · genetic · forward · scanner · stress', x:80, y:430, w:430, h:42},
   tester_indicator: {label:'tester.indicator', sub:'visual indicator test',              x:530, y:430, w:240, h:42},
-  tester_ini:       {label:'tester.ini_builder', sub:'generate .ini + .set files',      x:790, y:430, w:240, h:42},
+  tester_ini:       {label:'tester.ini_builder', sub:'generate .ini; reference .set files', x:790, y:430, w:260, h:42},
   tester_launcher:  {label:'tester.launcher', sub:'terminal64.exe /config + portable mode', x:80, y:485, w:300, h:38},
   tester_results:   {label:'tester.results', sub:'parse HTML report + journal CSV + opt XML to JSON', x:400, y:485, w:430, h:38},
   tester_cache:     {label:'tester.cache', sub:'user results/<run-id>/ snapshots',       x:850, y:485, w:260, h:38},
@@ -337,11 +341,11 @@ var NODE_CLI = {
   user_ea_dir: 'ea/\n  my_strategy.mq5\n  my_strategy.ex5  # after compile',
   user_ind_dir: 'indicators/\n  my_signal.mq5\n  my_signal.ex5',
   user_presets: 'presets/\n  my_strategy.AUDUSD.M5.set',
-  tester_ea: 'mt5 tester ea single \\\n  --expert my_strategy \\\n  --symbol AUDUSD --tf M5 \\\n  --from 2021-05-09 --to 2026-05-09 \\\n  --modelling real-ticks \\\n  --deposit 10000 --currency USD --leverage 1:50 \\\n  --json\n\nmt5 tester ea optimize --mode complete|genetic --forward 2024-09-07 ...\nmt5 tester ea scanner --symbols AUDUSD,EURUSD,GBPUSD,USDJPY ...\nmt5 tester ea stress --delays 50ms ...',
+  tester_ea: 'mt5 tester ea single \\\n  --expert my_strategy \\\n  --symbol AUDUSD --tf M5 \\\n  --from 2021-05-09 --to 2026-05-09 \\\n  --modelling real-ticks \\\n  --deposit 10000 --currency USD --leverage 50 \\\n  --json\n\nmt5 tester ea optimize --mode complete|genetic --forward 2024-09-07 ...\nmt5 tester ea scanner --symbols AUDUSD,EURUSD,GBPUSD,USDJPY ...\nmt5 tester ea stress --delays-ms 50 ...',
   tester_indicator: 'mt5 tester indicator visual \\\n  --indicator my_signal \\\n  --symbol AUDUSD --tf M5 \\\n  --from 2021-05-09 --to 2026-05-09 \\\n  --modelling ohlc-1m \\\n  --json',
-  tester_ini: '# internal — builds the .ini and .set files MT5 expects',
+  tester_ini: '# internal — writes tester.ini and references supplied .set basenames',
   tester_launcher: '# internal — runs terminal64.exe /config + portable',
-  tester_results: 'mt5 tester results <run-id> --json\n# returns: deals, equity curve, win_rate, profit_factor, max_dd, journal events',
+  tester_results: 'mt5 tester show <run-id> --json\n# returns: deals, win_rate, profit_factor, max_dd, journal events, optimization passes',
   tester_cache: 'mt5 tester list           # recent runs\nmt5 tester show <run-id>  # quick summary',
   mt5_cli_new: 'mt5 --help\nmt5 --json <any-command>',
   mt5_mcp: 'mt5-mcp                    # stdio MCP server\n# tools: mt5_market_info, mt5_rates_fetch, mt5_tester_ea_single, ...',
@@ -502,7 +506,6 @@ var PHASE_CONNECTIONS = {
     {f:'mt5_tester', to:'tester_results', type:'data', label:'HTML + journal CSV + opt XML'},
     {f:'tester_results', to:'tester_cache', type:'dep'},
     {f:'tester_results', to:'univ_reports', type:'dep'},
-    {f:'tester_ea', to:'univ_rates', type:'dep', label:'pre-flight bars check'},
     {f:'univ_root', to:'univ_bridge', type:'dep'},
     {f:'univ_bridge', to:'mt5_pkg', type:'data'},
     {f:'mt5_pkg', to:'mt5_terminal', type:'data'},
@@ -584,7 +587,7 @@ var PHASES = [
   {
     id:4, title:'Strategy Tester driver', sub:'EA + indicator backtests',
     bannerTitle:'Phase 4 — Drive the MT5 Strategy Tester from the CLI',
-    bannerDesc:'Add tester/ submodule. tester.ea: single / optimize / genetic / forward / market-scanner / stress. tester.indicator: visual test. tester.ini_builder generates the .ini + .set files MT5 expects. tester.launcher runs terminal64.exe /config in portable mode. tester.results parses HTML report + journal CSV + optimization XML into a JSON envelope. tester.cache snapshots every run under the user workspace results/<run-id>/ or configured results dir.',
+    bannerDesc:'Add tester/ submodule. tester.ea: single / optimize / genetic / forward / market-scanner / stress. tester.indicator: visual test. tester.ini_builder writes the tester.ini MT5 expects and references supplied .set basenames. tester.launcher runs terminal64.exe /config in portable mode. tester.results parses HTML report + journal CSV + optimization XML into a JSON envelope. tester.cache snapshots every run under the user workspace results/<run-id>/ or configured results dir. Tester modules stay bridge-free: no MetaTrader5 SDK imports and no rates pre-flight inside mt5_cli/tester/.',
     pattern:[ tb('Convention: dual JSON+human output. '), tk('Every command supports '), tc('--json'), tk(' for parseable output and agents verify results after operations. Tester commands return a structured envelope with '), tc('deals'), tk(', '), tc('equity_curve'), tk(', '), tc('win_rate'), tk(', '), tc('profit_factor'), tk(', '), tc('max_drawdown'), tk(', '), tc('journal_events'), tk('. No HTML scraping by the agent — the CLI does it once and serves JSON.') ],
     capability:[ tb('Capability gained: '), tk('Agents run '), tc('mt5 tester ea single --expert my_strategy --symbol AUDUSD --tf M5 --from 2021-05-09 --to 2026-05-09 --modelling real-ticks --json'), tk(' and get back structured JSON. Iterate: edit '), tc('ea/my_strategy.mq5'), tk(', recompile, rerun, '), tc('mt5 tester show <run-id>'), tk(' to compare. Optimization, forward, genetic, multi-symbol scanner, stress/delay tests all from the CLI.') ],
   },

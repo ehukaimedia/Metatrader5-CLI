@@ -66,6 +66,12 @@ from mt5_cli.screenshot import (
     list_screenshots as _screenshot_list,
     take as _screenshot_take,
 )
+from mt5_cli.tester import (
+    cache as _tester_cache,
+    ea as _tester_ea,
+    indicator as _tester_indicator,
+    results as _tester_results,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1176,149 @@ def indicator_deploy(ctx: click.Context, name: str) -> None:
     emit(_mql5_deployer.deploy_indicator(Path(found["source"]),
                                          data_path=data_path),
          ctx.obj["json"])
+
+
+# ---------------------------------------------------------------------------
+# tester (MT5 native Strategy Tester)
+# ---------------------------------------------------------------------------
+
+
+@main.group("tester")
+def tester_group() -> None:
+    """Drive the MT5 Strategy Tester."""
+
+
+@tester_group.group("ea")
+def tester_ea_group() -> None:
+    """Backtest an Expert Advisor."""
+
+
+@tester_ea_group.command("single")
+@click.option("--expert", required=True)
+@click.option("--symbol", required=True)
+@click.option("--tf", "timeframe", required=True)
+@click.option("--from", "from_date", required=True)
+@click.option("--to", "to_date", required=True)
+@click.option(
+    "--modelling",
+    default="real-ticks",
+    type=click.Choice(["real-ticks", "every-tick", "ohlc-1m", "open-only", "math"]),
+)
+@click.option("--deposit", default=10000.0, type=float)
+@click.option("--currency", default="USD")
+@click.option("--leverage", default=50, type=int)
+@click.option("--visual/--no-visual", default=False)
+@click.pass_context
+def tester_ea_single(ctx: click.Context, **kwargs) -> None:
+    """Run a single EA backtest."""
+    emit(_tester_ea.single(**kwargs), ctx.obj["json"])
+
+
+@tester_ea_group.command("optimize")
+@click.option("--expert", required=True)
+@click.option("--symbol", required=True)
+@click.option("--tf", "timeframe", required=True)
+@click.option("--from", "from_date", required=True)
+@click.option("--to", "to_date", required=True)
+@click.option("--mode", default="complete", type=click.Choice(["complete", "genetic", "math"]))
+@click.option("--forward", default=None)
+@click.pass_context
+def tester_ea_optimize(ctx: click.Context, **kwargs) -> None:
+    """Run EA optimization."""
+    emit(_tester_ea.optimize(**kwargs), ctx.obj["json"])
+
+
+@tester_ea_group.command("scanner")
+@click.option("--expert", required=True)
+@click.option("--symbols", required=True, help="Comma-separated symbols, e.g. AUDUSD,EURUSD")
+@click.option("--tf", "timeframe", required=True)
+@click.option("--from", "from_date", required=True)
+@click.option("--to", "to_date", required=True)
+@click.pass_context
+def tester_ea_scanner(
+    ctx: click.Context,
+    expert: str,
+    symbols: str,
+    timeframe: str,
+    from_date: str,
+    to_date: str,
+) -> None:
+    """Run an EA across multiple symbols."""
+    parsed_symbols = [item.strip() for item in symbols.split(",") if item.strip()]
+    emit(
+        _tester_ea.scanner(
+            expert=expert,
+            symbols=parsed_symbols,
+            timeframe=timeframe,
+            from_date=from_date,
+            to_date=to_date,
+        ),
+        ctx.obj["json"],
+    )
+
+
+@tester_ea_group.command("stress")
+@click.option("--expert", required=True)
+@click.option("--symbol", required=True)
+@click.option("--tf", "timeframe", required=True)
+@click.option("--from", "from_date", required=True)
+@click.option("--to", "to_date", required=True)
+@click.option("--delays-ms", default=50, type=int)
+@click.pass_context
+def tester_ea_stress(ctx: click.Context, **kwargs) -> None:
+    """Run an EA stress backtest."""
+    emit(_tester_ea.stress(**kwargs), ctx.obj["json"])
+
+
+@tester_group.group("indicator")
+def tester_indicator_group() -> None:
+    """Visual-test an indicator."""
+
+
+@tester_indicator_group.command("visual")
+@click.option("--indicator", "indicator_name", required=True)
+@click.option("--symbol", required=True)
+@click.option("--tf", "timeframe", required=True)
+@click.option("--from", "from_date", required=True)
+@click.option("--to", "to_date", required=True)
+@click.option(
+    "--modelling",
+    default="ohlc-1m",
+    type=click.Choice(["real-ticks", "every-tick", "ohlc-1m", "open-only", "math"]),
+)
+@click.pass_context
+def tester_indicator_visual(ctx: click.Context, **kwargs) -> None:
+    """Run a visual indicator test."""
+    emit(_tester_indicator.visual(**kwargs), ctx.obj["json"])
+
+
+@tester_group.command("list")
+@click.option("--limit", default=20, type=int)
+@click.pass_context
+def tester_list(ctx: click.Context, limit: int) -> None:
+    """List recent Strategy Tester runs."""
+    emit(ok(_tester_cache.list_recent(limit=limit)), ctx.obj["json"])
+
+
+@tester_group.command("show")
+@click.argument("run_id")
+@click.pass_context
+def tester_show(ctx: click.Context, run_id: str) -> None:
+    """Show a parsed Strategy Tester run."""
+    run = _tester_cache.get_run(run_id)
+    if not run:
+        emit(fail("RUN_NOT_FOUND", f"No run {run_id!r}"), ctx.obj["json"])
+        return
+    run_path = Path(run["path"])
+    emit(
+        _tester_results.assemble(
+            run_id=run_id,
+            html_path=run_path / "report.html",
+            journal_path=run_path / "journal.csv",
+            optimization_path=run_path / "optimization.xml",
+        ),
+        ctx.obj["json"],
+    )
 
 
 # ---------------------------------------------------------------------------
