@@ -1222,9 +1222,22 @@ def tester_ea_single(ctx: click.Context, **kwargs) -> None:
 @click.option("--to", "to_date", required=True)
 @click.option("--mode", default="complete", type=click.Choice(["complete", "genetic", "math"]))
 @click.option("--forward", default=None)
+@click.option("--set-file", default=None, type=click.Path(dir_okay=False))
+@click.option(
+    "--param",
+    "params",
+    multiple=True,
+    help="EA input as Name=value or optimization range Name=value,start,step,stop.",
+)
 @click.pass_context
 def tester_ea_optimize(ctx: click.Context, **kwargs) -> None:
     """Run EA optimization."""
+    if kwargs.get("params") and kwargs.get("set_file"):
+        emit(
+            fail("MT5_INVALID_PARAMS", "Pass either --param or --set-file, not both."),
+            ctx.obj["json"],
+        )
+        return
     emit(_tester_ea.optimize(**kwargs), ctx.obj["json"])
 
 
@@ -1310,15 +1323,16 @@ def tester_show(ctx: click.Context, run_id: str) -> None:
         emit(fail("RUN_NOT_FOUND", f"No run {run_id!r}"), ctx.obj["json"])
         return
     run_path = Path(run["path"])
-    emit(
-        _tester_results.assemble(
+    try:
+        env = _tester_results.assemble(
             run_id=run_id,
             html_path=run_path / "report.html",
             journal_path=run_path / "journal.csv",
             optimization_path=run_path / "optimization.xml",
-        ),
-        ctx.obj["json"],
-    )
+        )
+    except Exception as exc:  # noqa: BLE001
+        env = fail("TESTER_PARSE_ERROR", f"Could not parse run {run_id!r}: {exc}")
+    emit(env, ctx.obj["json"])
 
 
 # ---------------------------------------------------------------------------

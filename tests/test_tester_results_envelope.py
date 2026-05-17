@@ -25,6 +25,7 @@ def test_assemble_envelope_combines_html_journal_xml():
     assert data["run_id"] == "run-id-123"
     assert data["stats"]["total_trades"] == 412
     assert len(data["deals"]) == 2
+    assert len(data["equity_curve"]) >= 1
     assert len(data["journal_events"]) == 4
     assert data["optimization"] == []
 
@@ -49,5 +50,6 @@ def test_assemble_tolerates_missing_artifacts(tmp_path):
     assert env["ok"] is True
     assert env["data"]["stats"] == {}
     assert env["data"]["deals"] == []
+    assert env["data"]["equity_curve"] == []
     assert env["data"]["journal_events"] == []
     assert env["data"]["optimization"] == []

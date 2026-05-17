@@ -32,6 +32,10 @@ def _modelling_code(modelling: str) -> int:
     return _MODELLING[modelling]
 
 
+def is_known_modelling(modelling: str) -> bool:
+    return modelling in _MODELLING
+
+
 def _fmt_date(d: str) -> str:
     """`'2024-01-01'` -> `'2024.01.01'` (MT5 ini convention)."""
     return d.replace("-", ".")
@@ -120,4 +124,54 @@ def write_ini(path: Path | str, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     bom = b"\xff\xfe"
     path.write_bytes(bom + content.encode("utf-16-le"))
+    return path
+
+
+def _set_line(name: str, spec: str) -> str:
+    if not name or "=" in name:
+        raise ValueError(f"Invalid parameter name {name!r}")
+    parts = [part.strip() for part in spec.split(",")]
+    if len(parts) == 1:
+        if not parts[0]:
+            raise ValueError(f"Parameter {name!r} is missing a value")
+        return f"{name}={parts[0]}"
+    if len(parts) == 4:
+        value, start, step, stop = parts
+        if not all((value, start, step, stop)):
+            raise ValueError(f"Parameter {name!r} range must be value,start,step,stop")
+        return f"{name}={value}||{start}||{step}||{stop}||Y"
+    raise ValueError(
+        f"Parameter {name!r} must be VALUE or VALUE,START,STEP,STOP"
+    )
+
+
+def render_set(params: list[str] | dict[str, str]) -> str:
+    """Render EA input parameters as a tester .set file.
+
+    Accepted specs:
+    - ``Name=value`` for fixed inputs
+    - ``Name=value,start,step,stop`` for optimization ranges
+    """
+    lines: list[str] = []
+    seen: set[str] = set()
+    raw_items = params.items() if isinstance(params, dict) else params
+    for raw in raw_items:
+        if isinstance(params, dict):
+            name, spec = raw
+        else:
+            if "=" not in raw:
+                raise ValueError(f"Parameter {raw!r} must be Name=value")
+            name, spec = raw.split("=", 1)
+        name = name.strip()
+        if name in seen:
+            raise ValueError(f"Duplicate parameter {name!r}")
+        seen.add(name)
+        lines.append(_set_line(name, str(spec).strip()))
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def write_set(path: Path | str, params: list[str] | dict[str, str]) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_set(params), encoding="utf-8")
     return path

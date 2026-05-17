@@ -106,3 +106,23 @@ def test_write_ini_creates_parent_dir(tmp_path):
     nested = tmp_path / "fresh" / "run" / "tester.ini"
     ini_builder.write_ini(nested, "[Tester]\n")
     assert nested.exists()
+
+
+def test_render_set_supports_fixed_and_optimization_params():
+    text = ini_builder.render_set([
+        "Risk=1.0",
+        "FastPeriod=9,5,1,21",
+    ])
+    assert "Risk=1.0" in text
+    assert "FastPeriod=9||5||1||21||Y" in text
+
+
+def test_write_set_creates_parent_dir(tmp_path):
+    target = tmp_path / "run" / "alpha.set"
+    ini_builder.write_set(target, {"Risk": "1.0"})
+    assert target.read_text(encoding="utf-8") == "Risk=1.0\n"
+
+
+def test_render_set_rejects_malformed_param():
+    with pytest.raises(ValueError):
+        ini_builder.render_set(["Risk"])

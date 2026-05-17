@@ -17,6 +17,15 @@ from . import cache, ini_builder, launcher, results
 _OPT_MODES = {"complete": 1, "genetic": 2, "math": 4}
 
 
+def _unknown_modelling_fail(modelling: str) -> dict | None:
+    if ini_builder.is_known_modelling(modelling):
+        return None
+    return fail(
+        "UNKNOWN_MODELLING",
+        f"Unknown modelling {modelling!r}. Known: {sorted(ini_builder._MODELLING)}",
+    )
+
+
 def _compiled_ea_or_fail(expert: str) -> tuple[dict | None, dict | None]:
     found = discovery.get_ea(expert)
     if not found:
@@ -46,6 +55,10 @@ def single(
     timeout: int = 600,
 ) -> dict:
     """Run one EA backtest and return a standard result envelope."""
+    modelling_err = _unknown_modelling_fail(modelling)
+    if modelling_err:
+        return modelling_err
+
     _, err = _compiled_ea_or_fail(expert)
     if err:
         return err
@@ -112,16 +125,27 @@ def optimize(
     mode: str = "complete",
     forward: str | None = None,
     set_file: Path | str | None = None,
+    params: list[str] | dict[str, str] | None = None,
     modelling: str = "ohlc-1m",
     results_root: Path | str = "results",
     timeout: int = 1800,
 ) -> dict:
     """Run an EA optimization pass and parse optional optimization XML."""
+    modelling_err = _unknown_modelling_fail(modelling)
+    if modelling_err:
+        return modelling_err
     if mode not in _OPT_MODES:
         return fail(
             "UNKNOWN_OPT_MODE",
             f"Unknown optimization mode {mode!r}. Known: {sorted(_OPT_MODES)}",
         )
+    if params and set_file:
+        return fail(
+            "MT5_INVALID_PARAMS",
+            "Pass either params or set_file, not both.",
+        )
+    if set_file and not Path(set_file).exists():
+        return fail("SET_FILE_NOT_FOUND", f"Set file not found: {set_file}")
     _, err = _compiled_ea_or_fail(expert)
     if err:
         return err
@@ -132,6 +156,15 @@ def optimize(
     report_path = run_path / "report.html"
     journal_path = run_path / "journal.csv"
     optimization_path = run_path / "optimization.xml"
+    generated_set_path: Path | None = None
+    effective_set_file = set_file
+    if params:
+        generated_set_path = run_path / f"{expert}.{symbol}.{timeframe}.set"
+        try:
+            ini_builder.write_set(generated_set_path, params)
+        except ValueError as exc:
+            return fail("MT5_INVALID_PARAMS", str(exc))
+        effective_set_file = generated_set_path
 
     ini_text = ini_builder.build_ea_ini(
         expert=expert,
@@ -143,7 +176,7 @@ def optimize(
         optimization=_OPT_MODES[mode],
         forward=forward,
         report_path=report_path,
-        set_file=set_file,
+        set_file=effective_set_file,
     )
     ini_builder.write_ini(ini_path, ini_text)
 
@@ -172,6 +205,8 @@ def optimize(
             "modelling": modelling,
             "mode": mode,
             "forward": forward,
+            "set_file": str(effective_set_file) if effective_set_file else None,
+            "generated_set_file": str(generated_set_path) if generated_set_path else None,
             "run_dir": str(run_path),
         },
     )

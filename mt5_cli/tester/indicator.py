@@ -21,6 +21,12 @@ def visual(
     timeout: int = 600,
 ) -> dict:
     """Run a visual Strategy Tester pass for a compiled custom indicator."""
+    if not ini_builder.is_known_modelling(modelling):
+        return fail(
+            "UNKNOWN_MODELLING",
+            f"Unknown modelling {modelling!r}. Known: {sorted(ini_builder._MODELLING)}",
+        )
+
     found = discovery.get_indicator(indicator_name)
     if not found:
         return fail(

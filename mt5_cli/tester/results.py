@@ -6,6 +6,7 @@ MT5 Python bridge.
 """
 from __future__ import annotations
 
+import csv
 import re
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
@@ -78,9 +79,16 @@ def _cast_scalar(value: str) -> Any:
     return number
 
 
-def _to_iso(stamp: str) -> str:
+def _to_iso(stamp: str) -> str | None:
     """Convert '2024.01.05 10:15:00' to '2024-01-05T10:15:00'."""
-    date, time = stamp.strip().split(" ", 1)
+    try:
+        date, time = stamp.strip().split(" ", 1)
+    except ValueError:
+        return None
+    if not re.match(r"^\d{4}\.\d{2}\.\d{2}$", date):
+        return None
+    if not re.match(r"^\d{2}:\d{2}:\d{2}$", time):
+        return None
     return f"{date.replace('.', '-')}T{time}"
 
 
@@ -105,12 +113,80 @@ def _parse_period(period: str) -> tuple[str | None, str | None, str | None]:
     return timeframe, start.replace(".", "-"), end.replace(".", "-")
 
 
+def _equity_curve_from_deals(
+    deals: list[dict[str, Any]],
+    initial_deposit: float | None,
+) -> list[dict[str, Any]]:
+    """Build a basic balance/equity series from closed-deal profits.
+
+    MT5 HTML report variants do not all expose a dedicated balance/equity
+    table. The deals table is common, so use cumulative profit as the
+    stable minimum curve contract.
+    """
+    curve: list[dict[str, Any]] = []
+    balance = initial_deposit or 0.0
+    if initial_deposit is not None:
+        curve.append({
+            "time": None,
+            "balance": round(balance, 2),
+            "equity": round(balance, 2),
+            "profit": 0.0,
+        })
+    for deal in deals:
+        profit = deal.get("profit")
+        if profit is None:
+            continue
+        balance += float(profit)
+        curve.append({
+            "time": deal.get("time"),
+            "balance": round(balance, 2),
+            "equity": round(balance, 2),
+            "profit": profit,
+        })
+    return curve
+
+
+def _equity_curve_from_tables(tables: list[list[list[str]]]) -> list[dict[str, Any]]:
+    """Extract an explicit balance/equity curve table when the report has one."""
+    for rows in tables:
+        if len(rows) < 2:
+            continue
+        headers = [header.lower().strip() for header in rows[0]]
+        time_idx = next(
+            (i for i, h in enumerate(headers) if h in {"time", "date", "datetime"}),
+            None,
+        )
+        balance_idx = next((i for i, h in enumerate(headers) if h == "balance"), None)
+        equity_idx = next((i for i, h in enumerate(headers) if h == "equity"), None)
+        profit_idx = next((i for i, h in enumerate(headers) if h == "profit"), None)
+        if time_idx is None or (balance_idx is None and equity_idx is None):
+            continue
+
+        curve: list[dict[str, Any]] = []
+        for row in rows[1:]:
+            if len(row) <= time_idx:
+                continue
+            point: dict[str, Any] = {"time": row[time_idx]}
+            if balance_idx is not None and len(row) > balance_idx:
+                point["balance"] = _to_float(row[balance_idx])
+            if equity_idx is not None and len(row) > equity_idx:
+                point["equity"] = _to_float(row[equity_idx])
+            if profit_idx is not None and len(row) > profit_idx:
+                point["profit"] = _to_float(row[profit_idx])
+            if point.get("balance") is None and point.get("equity") is None:
+                continue
+            curve.append(point)
+        if curve:
+            return curve
+    return []
+
+
 def parse_html_report(path: Path | str) -> dict[str, Any]:
     text = Path(path).read_text(encoding="utf-8", errors="replace")
     parser = _RowExtractor()
     parser.feed(text)
     if not parser.tables:
-        return {"metadata": {}, "stats": {}, "deals": []}
+        return {"metadata": {}, "stats": {}, "deals": [], "equity_curve": []}
 
     kv = _kv_from_metadata_table(parser.tables[0])
     metadata: dict[str, Any] = {}
@@ -166,24 +242,39 @@ def parse_html_report(path: Path | str) -> dict[str, Any]:
                 }
             )
 
-    return {"metadata": metadata, "stats": stats, "deals": deals}
+    explicit_curve = _equity_curve_from_tables(parser.tables[1:])
+    equity_curve = explicit_curve or _equity_curve_from_deals(
+        deals,
+        metadata.get("initial_deposit"),
+    )
+
+    return {
+        "metadata": metadata,
+        "stats": stats,
+        "deals": deals,
+        "equity_curve": equity_curve,
+    }
 
 
 def parse_journal(path: Path | str) -> list[dict[str, Any]]:
     """Parse a line-per-event tester journal CSV."""
     events: list[dict[str, Any]] = []
-    text = Path(path).read_text(encoding="utf-8", errors="replace")
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
+    rows = csv.reader(Path(path).read_text(encoding="utf-8", errors="replace").splitlines())
+    for row in rows:
+        if not row:
             continue
-        parts = line.split(",", 2)
-        if len(parts) != 3:
+        if len(row) < 3:
             continue
-        stamp, level, message = parts
+        stamp, level = row[0], row[1]
+        message = ",".join(row[2:])
+        if stamp.strip().lower() in {"time", "timestamp", "date"}:
+            continue
+        iso_stamp = _to_iso(stamp)
+        if iso_stamp is None:
+            continue
         events.append(
             {
-                "time": _to_iso(stamp),
+                "time": iso_stamp,
                 "level": level.strip(),
                 "msg": message.strip(),
             }
@@ -219,10 +310,12 @@ def assemble(
         data.setdefault("metadata", {}).update(report["metadata"])
         data["stats"] = report["stats"]
         data["deals"] = report["deals"]
+        data["equity_curve"] = report["equity_curve"]
     else:
         data.setdefault("metadata", {})
         data["stats"] = {}
         data["deals"] = []
+        data["equity_curve"] = []
 
     if journal_path and Path(journal_path).exists():
         data["journal_events"] = parse_journal(journal_path)
