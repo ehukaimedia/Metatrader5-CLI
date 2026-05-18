@@ -168,7 +168,7 @@ Other forms:
 | `mt5 tester indicator visual --indicator my_signal --symbol AUDUSD --tf M5 --from … --to … --modelling ohlc-1m` | Indicator visual test (matches the right-pane "Indicator visual test:" rows in the tester history) |
 | `mt5 tester list` | Recent runs from `results/` |
 | `mt5 tester show <run-id>` | Compact summary |
-| `mt5 tester results <run-id> --json` | Full structured envelope |
+| `mt5 --json tester show <run-id>` | Full structured envelope |
 
 **Result envelope shape** (returned by `tester.results.parse()`):
 
@@ -290,10 +290,28 @@ Phase 3 ships in two sub-phases:
   strategies.)
 
 ### Phase 4 — Strategy Tester driver
-- Add `mt5_cli/tester/{ea,indicator,ini_builder,launcher,results,cache}.py`.
-- Wire CLI commands per §7.
-- Implement results parser for HTML report + journal CSV + optimization XML.
-- **Acceptance:** `mt5 tester ea single --expert demo --symbol AUDUSD --tf M5 --from 2024-01-01 --to 2024-06-30 --modelling ohlc-1m --json` returns a populated envelope; `mt5 tester indicator visual` produces a captured run.
+- **Implementation status:** reviewed GO on branch `mt5-universal` at
+  `aaf08dc` after Spock re-review. The shipped code includes
+  `mt5_cli/tester/{ea,indicator,ini_builder,launcher,results,cache}.py`,
+  CLI wiring for `mt5 tester ea/indicator/list/show`, HTML report + journal
+  CSV + optimization XML parsing, emitted `equity_curve`, safe malformed
+  journal handling, direct-library invalid-modelling envelopes, and optimize
+  `.set` / `--param` support.
+- **Live close-out status:** not yet tagged `phase-4-complete`. Trading.com
+  DEMO is a live broker execution environment and must be handled with live
+  operational caution. The final smoke currently has partial live evidence:
+  `mt5 tester indicator visual` produced a captured run, but
+  `mt5 tester ea single --expert demo --symbol AUDUSD --tf M5 --from
+  2024-01-01 --to 2024-06-30 --modelling ohlc-1m --json` returns a structured
+  `TESTER_REPORT_MISSING` envelope because MT5 does not write `report.html`
+  in the smoke run. Live trade-placement smoke is also gated by broker market
+  hours; the latest attempted AUDUSD market order returned MT5 retcode
+  `10018` (`Market closed`) after `order dryrun` passed.
+- **Acceptance before tag:** `mt5 tester ea single --expert demo --symbol
+  AUDUSD --tf M5 --from 2024-01-01 --to 2024-06-30 --modelling ohlc-1m
+  --json` returns a populated envelope; `mt5 tester indicator visual` produces
+  a captured run; live-style order smoke is run only with tiny volume and
+  explicit operator intent, with open position/pending order cleanup verified.
 
 ### Phase 5 — Agent surface
 - Migrate `archive/legacy-mt5/skills/SKILL.md` → `mt5_cli/skills/SKILL.md`. Add YAML frontmatter (`name`, `description`).

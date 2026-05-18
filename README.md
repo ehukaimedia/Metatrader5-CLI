@@ -11,9 +11,18 @@ A pip-installable tool that gives AI agents and humans hands to MetaTrader 5.
   shipped with 11 command groups wrapping the library. Three Codex review
   cycles closed (11 findings resolved). 367 pytest passing.
   Verified end-to-end against live Trading.com demo (24/24 commands).
-- **Phase 3b in progress** — MQL5 plugin host (compiler, deployer,
-  discovery, scaffold templates for user EAs/indicators).
-- **Phase 4 TODO** — Strategy Tester driver.
+- **Phase 3 complete** (tag `phase-3-complete` at `78399d9`) — MQL5 plugin
+  host shipped: compiler, deployer, discovery, and minimal scaffold templates
+  for user EAs/indicators. 433 pytest passing.
+- **Phase 4 reviewed GO** (HEAD `aaf08dc` on `mt5-universal`) — Strategy
+  Tester driver shipped and reviewed: cache, ini/.set builder, launcher,
+  HTML/journal/XML results parser, EA single/optimize/scanner/stress, indicator
+  visual, and `mt5 tester ...` CLI. Full suite reached 499 pytest passing.
+  Final tag is intentionally held until the live execution smoke is green:
+  Trading.com demo is a live broker environment, `order dryrun` is green, but
+  live trade placement currently returns broker retcode `10018 Market closed`
+  and the EA tester smoke returns `TESTER_REPORT_MISSING` when MT5 does not
+  write `report.html`.
 - **Phase 5 TODO** — `mt5-mcp` MCP server (FastMCP).
 - **Phase 6 TODO** — full XDG/APPDATA path resolution + portability tests.
 
@@ -32,7 +41,7 @@ The `mt5` console script is registered automatically.
 Run with a Trading.com MT5 terminal already open and logged in:
 
 ```bash
-mt5 --help                                  # list all 13 command groups
+mt5 --help                                  # list all 14 command groups
 mt5 status                                  # account + connection summary
 mt5 --json market info EURUSD               # symbol info (JSON for agents)
 mt5 rates fetch USDJPY H1 --bars 10         # recent OHLCV bars
@@ -51,9 +60,12 @@ Config lives at `~/.config/metatrader5-cli.json` (override via `MT5_CONFIG`
 env var). Trading.com is the current single-broker scope (FOK filling,
 no hedging, 22:00 UTC rollover). Multi-broker support is a future task.
 
-Live trading requires all three: `cfg["live"]: true` + `MT5_LIVE=1` env
-+ `--live` CLI flag. DEMO and CONTEST accounts bypass the triple lock
-by design.
+Live trading on REAL accounts requires all three: `cfg["live"]: true` +
+`MT5_LIVE=1` env + `--live` CLI flag. DEMO and CONTEST accounts bypass the
+REAL-account triple lock by design, but they are still live broker execution
+environments. Treat demo testing with the same operational discipline: tiny
+volume, explicit `--live` on mutation smoke tests, and clean-up checks for
+open positions and pending orders.
 
 ## User workspace layout
 
@@ -101,6 +113,7 @@ for the full resolution chain.
 | `config` | `show`, `retcode` |
 | `ea` | `new`, `list`, `compile`, `deploy` (MQL5 Expert Advisor authoring — Phase 3b) |
 | `indicator` | `new`, `list`, `compile`, `deploy` (MQL5 custom indicator authoring — Phase 3b) |
+| `tester` | `ea single`, `ea optimize`, `ea scanner`, `ea stress`, `indicator visual`, `list`, `show` (MT5 native Strategy Tester driver — Phase 4) |
 
 ## Documentation
 
