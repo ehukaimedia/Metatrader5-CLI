@@ -14,17 +14,30 @@ A pip-installable tool that gives AI agents and humans hands to MetaTrader 5.
 - **Phase 3 complete** (tag `phase-3-complete` at `78399d9`) — MQL5 plugin
   host shipped: compiler, deployer, discovery, and minimal scaffold templates
   for user EAs/indicators. 433 pytest passing.
-- **Phase 4 reviewed GO** (HEAD `aaf08dc` on `mt5-universal`) — Strategy
-  Tester driver shipped and reviewed: cache, ini/.set builder, launcher,
-  HTML/journal/XML results parser, EA single/optimize/scanner/stress, indicator
-  visual, and `mt5 tester ...` CLI. Full suite reached 499 pytest passing.
-  Final tag is intentionally held until the live execution smoke is green:
-  Trading.com demo is a live broker environment, `order dryrun` is green, but
-  live trade placement currently returns broker retcode `10018 Market closed`.
-  Screenshot-backed closeout showed MT5 does not apply tester `/config` to an
-  already-running terminal, so `mt5 tester ea single` now returns
-  `TERMINAL_ALREADY_RUNNING` in that state; full EA smoke still requires an
-  operator-approved fresh-terminal run.
+- **Phase 4 merged** (HEAD `dd3012e` on `master`) — Strategy Tester driver
+  shipped, independently reviewed GO by Scotty (Specialist, Sonnet 4.6),
+  and merged to `master`: cache, ini/.set builder, launcher, HTML/journal/XML
+  results parser, EA `single`/`optimize`/`scanner`/`stress`, indicator
+  `visual`, and `mt5 tester ...` CLI. Full suite: **505 pytest passing**,
+  zero regressions. Launcher/INI contract corrected after screenshot-backed
+  closeout: report path `reports/metatrader5-cli/<run-id>` with copy-back to
+  the run snapshot, `.set` staging into `MQL5/Profiles/Tester`, no `/portable`
+  default, `ShutdownTerminal=1` for non-visual EA/optimize, and a
+  `TERMINAL_ALREADY_RUNNING` fail-fast guard (MT5's `terminal64 /config` does
+  not apply `[Tester]` settings to an already-running terminal, so the CLI
+  refuses to launch over an open terminal rather than silently producing a
+  stale-config run).
+
+  The `phase-4-complete` tag is intentionally held until two operator-gated
+  proofs are green:
+  1. **Fresh-terminal Strategy Tester smoke** — `mt5 tester ea single` against
+     a freshly-launched MT5 terminal, validating end-to-end `report.html`
+     production and copy-back.
+  2. **Tiny-volume live-order smoke** — Trading.com demo (still a live broker
+     execution environment) with the market open. `order dryrun` is green;
+     the latest mutation attempt returned broker retcode `10018 Market closed`.
+
+  Review report: [docs/code-reviews/scotty-mt5-universal-phase-4-launcher-fix-2026-05-17.md](docs/code-reviews/scotty-mt5-universal-phase-4-launcher-fix-2026-05-17.md).
 - **Phase 5 TODO** — `mt5-mcp` MCP server (FastMCP).
 - **Phase 6 TODO** — full XDG/APPDATA path resolution + portability tests.
 
