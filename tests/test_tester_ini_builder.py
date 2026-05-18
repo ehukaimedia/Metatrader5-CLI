@@ -23,11 +23,16 @@ def test_build_single_ea_ini_includes_required_fields(tmp_path):
     assert "Period=M5" in text
     assert "FromDate=2024.01.01" in text
     assert "ToDate=2024.06.30" in text
-    assert "Model=0" in text  # real-ticks
+    assert "Model=4" in text  # real-ticks
     assert "Deposit=10000" in text
-    assert "Leverage=50" in text
+    assert "Leverage=1:50" in text
     assert "Optimization=0" in text  # default single run
     assert "Visual=0" in text
+    assert "UseLocal=1" in text
+    assert "UseRemote=0" in text
+    assert "UseCloud=0" in text
+    assert "ReplaceReport=1" in text
+    assert "ShutdownTerminal=1" in text
 
 
 def test_build_ea_ini_with_visual_flag():
@@ -76,11 +81,11 @@ def test_build_indicator_visual_ini():
 
 
 def test_modelling_maps_to_mt5_codes():
-    assert ini_builder._modelling_code("real-ticks") == 0
-    assert ini_builder._modelling_code("every-tick") == 1
-    assert ini_builder._modelling_code("ohlc-1m") == 2
+    assert ini_builder._modelling_code("every-tick") == 0
+    assert ini_builder._modelling_code("ohlc-1m") == 1
     assert ini_builder._modelling_code("open-only") == 2
-    assert ini_builder._modelling_code("math") == 4
+    assert ini_builder._modelling_code("math") == 3
+    assert ini_builder._modelling_code("real-ticks") == 4
 
 
 def test_unknown_modelling_raises():

@@ -1,6 +1,15 @@
 from pathlib import Path
 
+import pytest
+
 from mt5_cli.tester import ea
+
+
+@pytest.fixture(autouse=True)
+def _no_real_terminal_artifact_paths(monkeypatch):
+    """Keep unit tests independent of a developer's installed MT5 terminal."""
+    monkeypatch.setattr(ea.launcher, "prepare_report_target", lambda **kwargs: None)
+    monkeypatch.setattr(ea.launcher, "stage_expert_parameters", lambda *args, **kwargs: None)
 
 
 def test_single_returns_envelope_with_run_id(monkeypatch, tmp_path):
@@ -109,6 +118,50 @@ def test_single_fails_when_launch_succeeds_without_report(monkeypatch, tmp_path)
 
     assert out["ok"] is False
     assert out["error"]["code"] == "TESTER_REPORT_MISSING"
+
+
+def test_single_copies_mt5_platform_report_back_to_run_dir(monkeypatch, tmp_path):
+    terminal_report = tmp_path / "terminal-data" / "reports" / "run1" / "report.htm"
+
+    def fake_prepare_report_target(**kwargs):
+        terminal_report.parent.mkdir(parents=True)
+        return r"reports\run1\report.htm", terminal_report
+
+    def fake_launch(*, ini_path, run_dir, timeout):
+        terminal_report.write_text(
+            "<html><body><table>"
+            "<tr><td>Symbol</td><td>AUDUSD</td><td>Period</td>"
+            "<td>M5 (2024.01.01-2024.06.30)</td></tr>"
+            "<tr><td>Total Trades</td><td>3</td></tr>"
+            "</table></body></html>",
+            encoding="utf-8",
+        )
+        return {
+            "ok": True,
+            "data": {"exit_code": 0, "stdout": "", "stderr": "", "run_dir": str(run_dir)},
+        }
+
+    monkeypatch.setattr(ea.launcher, "prepare_report_target", fake_prepare_report_target)
+    monkeypatch.setattr(ea.launcher, "wait_for_artifact", lambda path, timeout: True)
+    monkeypatch.setattr(ea.launcher, "run", fake_launch)
+    monkeypatch.setattr(
+        ea.discovery,
+        "get_ea",
+        lambda name: {"name": name, "source": "x.mq5", "compiled": True},
+    )
+
+    out = ea.single(
+        expert="alpha",
+        symbol="AUDUSD",
+        timeframe="M5",
+        from_date="2024-01-01",
+        to_date="2024-06-30",
+        modelling="ohlc-1m",
+        results_root=tmp_path / "results",
+    )
+
+    assert out["ok"] is True
+    assert out["data"]["stats"]["total_trades"] == 3
 
 
 def test_single_requires_compiled(monkeypatch, tmp_path):

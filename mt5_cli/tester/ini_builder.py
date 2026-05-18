@@ -10,17 +10,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# MT5 Strategy Tester Model codes (per MT5 docs / tester ini reference):
-#   0 = Every tick based on real ticks (slowest, most accurate)
-#   1 = 1 minute OHLC (fast, decent fidelity)
-#   2 = Open prices only (fastest, lowest fidelity)
-#   4 = Math calculations (no chart, for pure-math EAs)
+# MT5 Strategy Tester Model codes (per MT5 startup configuration docs):
+#   0 = Every tick
+#   1 = 1 minute OHLC
+#   2 = Open prices only
+#   3 = Math calculations
+#   4 = Every tick based on real ticks
 _MODELLING = {
-    "real-ticks": 0,
-    "every-tick": 1,
-    "ohlc-1m": 2,
+    "every-tick": 0,
+    "ohlc-1m": 1,
     "open-only": 2,
-    "math": 4,
+    "math": 3,
+    "real-ticks": 4,
 }
 
 
@@ -57,6 +58,8 @@ def build_ea_ini(
     visual: bool = False,
     report_path: Path | str | None = None,
     set_file: Path | str | None = None,
+    replace_report: bool = True,
+    shutdown_terminal: bool = True,
 ) -> str:
     """Render an [Tester] block driving terminal64.exe to backtest an EA.
 
@@ -74,17 +77,22 @@ def build_ea_ini(
         f"Model={_modelling_code(modelling)}",
         f"Deposit={int(deposit)}",
         f"Currency={currency}",
-        f"Leverage={leverage}",
+        f"Leverage=1:{leverage}",
         f"Optimization={optimization}",
         f"Visual={1 if visual else 0}",
+        "UseLocal=1",
+        "UseRemote=0",
+        "UseCloud=0",
     ]
     if forward:
         lines.append("ForwardMode=1")
         lines.append(f"ForwardDate={_fmt_date(forward)}")
     if report_path:
         lines.append(f"Report={Path(report_path)}")
+        lines.append(f"ReplaceReport={1 if replace_report else 0}")
     if set_file:
         lines.append(f"ExpertParameters={Path(set_file).name}")
+    lines.append(f"ShutdownTerminal={1 if shutdown_terminal else 0}")
     return "\n".join(lines) + "\n"
 
 
@@ -96,6 +104,7 @@ def build_indicator_ini(
     from_date: str,
     to_date: str,
     modelling: str = "ohlc-1m",
+    shutdown_terminal: bool = False,
 ) -> str:
     """Render an [Tester] block driving an indicator visual test.
 
@@ -111,6 +120,10 @@ def build_indicator_ini(
         f"ToDate={_fmt_date(to_date)}",
         f"Model={_modelling_code(modelling)}",
         "Visual=1",
+        "UseLocal=1",
+        "UseRemote=0",
+        "UseCloud=0",
+        f"ShutdownTerminal={1 if shutdown_terminal else 0}",
     ]) + "\n"
 
 

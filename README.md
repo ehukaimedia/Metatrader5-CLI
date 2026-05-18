@@ -20,9 +20,11 @@ A pip-installable tool that gives AI agents and humans hands to MetaTrader 5.
   visual, and `mt5 tester ...` CLI. Full suite reached 499 pytest passing.
   Final tag is intentionally held until the live execution smoke is green:
   Trading.com demo is a live broker environment, `order dryrun` is green, but
-  live trade placement currently returns broker retcode `10018 Market closed`
-  and the EA tester smoke returns `TESTER_REPORT_MISSING` when MT5 does not
-  write `report.html`.
+  live trade placement currently returns broker retcode `10018 Market closed`.
+  Screenshot-backed closeout showed MT5 does not apply tester `/config` to an
+  already-running terminal, so `mt5 tester ea single` now returns
+  `TERMINAL_ALREADY_RUNNING` in that state; full EA smoke still requires an
+  operator-approved fresh-terminal run.
 - **Phase 5 TODO** — `mt5-mcp` MCP server (FastMCP).
 - **Phase 6 TODO** — full XDG/APPDATA path resolution + portability tests.
 

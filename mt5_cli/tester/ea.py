@@ -68,6 +68,16 @@ def single(
     ini_path = run_path / "tester.ini"
     report_path = run_path / "report.html"
     journal_path = run_path / "journal.csv"
+    terminal_report_path: Path | None = None
+    report_ref: Path | str = report_path
+    prepared_report = launcher.prepare_report_target(
+        run_id=run_id,
+        filename="report.htm",
+    )
+    if prepared_report is not None:
+        report_ref, terminal_report_path = prepared_report
+    if set_file:
+        launcher.stage_expert_parameters(set_file)
 
     ini_text = ini_builder.build_ea_ini(
         expert=expert,
@@ -80,19 +90,29 @@ def single(
         currency=currency,
         leverage=leverage,
         visual=visual,
-        report_path=report_path,
+        report_path=report_ref,
         set_file=set_file,
+        shutdown_terminal=not visual,
     )
     ini_builder.write_ini(ini_path, ini_text)
 
     launched = launcher.run(ini_path=ini_path, run_dir=run_path, timeout=timeout)
     if not launched["ok"]:
         return launched
+    if terminal_report_path is not None and not report_path.exists():
+        launcher.wait_for_artifact(terminal_report_path, timeout=min(timeout, 60))
+        launcher.copy_back_artifact(terminal_report_path, report_path)
     if not report_path.exists():
         return fail(
             "TESTER_REPORT_MISSING",
             f"Strategy Tester completed but did not write report.html in {run_path}",
-            data={"run_id": run_id, "run_dir": str(run_path)},
+            data={
+                "run_id": run_id,
+                "run_dir": str(run_path),
+                "mt5_report_path": (
+                    str(terminal_report_path) if terminal_report_path else None
+                ),
+            },
         )
 
     return results.assemble(
@@ -156,6 +176,14 @@ def optimize(
     report_path = run_path / "report.html"
     journal_path = run_path / "journal.csv"
     optimization_path = run_path / "optimization.xml"
+    terminal_report_path: Path | None = None
+    report_ref: Path | str = optimization_path
+    prepared_report = launcher.prepare_report_target(
+        run_id=run_id,
+        filename="optimization.xml",
+    )
+    if prepared_report is not None:
+        report_ref, terminal_report_path = prepared_report
     generated_set_path: Path | None = None
     effective_set_file = set_file
     if params:
@@ -165,6 +193,8 @@ def optimize(
         except ValueError as exc:
             return fail("MT5_INVALID_PARAMS", str(exc))
         effective_set_file = generated_set_path
+    if effective_set_file:
+        launcher.stage_expert_parameters(effective_set_file)
 
     ini_text = ini_builder.build_ea_ini(
         expert=expert,
@@ -175,20 +205,34 @@ def optimize(
         modelling=modelling,
         optimization=_OPT_MODES[mode],
         forward=forward,
-        report_path=report_path,
+        report_path=report_ref,
         set_file=effective_set_file,
+        shutdown_terminal=True,
     )
     ini_builder.write_ini(ini_path, ini_text)
 
     launched = launcher.run(ini_path=ini_path, run_dir=run_path, timeout=timeout)
     if not launched["ok"]:
         return launched
+    if (
+        terminal_report_path is not None
+        and not report_path.exists()
+        and not optimization_path.exists()
+    ):
+        launcher.wait_for_artifact(terminal_report_path, timeout=min(timeout, 60))
+        launcher.copy_back_artifact(terminal_report_path, optimization_path)
     if not report_path.exists() and not optimization_path.exists():
         return fail(
             "TESTER_REPORT_MISSING",
             "Strategy Tester completed but wrote neither report.html nor optimization.xml "
             f"in {run_path}",
-            data={"run_id": run_id, "run_dir": str(run_path)},
+            data={
+                "run_id": run_id,
+                "run_dir": str(run_path),
+                "mt5_report_path": (
+                    str(terminal_report_path) if terminal_report_path else None
+                ),
+            },
         )
 
     return results.assemble(

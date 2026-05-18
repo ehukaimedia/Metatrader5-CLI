@@ -94,7 +94,7 @@ Metatrader5-CLI/
 │   │   ├── ea.py                 # single / optimize / genetic / forward / scanner / stress
 │   │   ├── indicator.py          # visual indicator test
 │   │   ├── ini_builder.py        # generate tester .ini + .set files
-│   │   ├── launcher.py           # terminal64.exe /config + portable mode
+│   │   ├── launcher.py           # fresh terminal64.exe /config batch mode
 │   │   ├── results.py            # parse HTML + journal CSV + opt XML → JSON
 │   │   └── cache.py              # results/<run-id>/ snapshots
 │   ├── config/
@@ -299,14 +299,16 @@ Phase 3 ships in two sub-phases:
   `.set` / `--param` support.
 - **Live close-out status:** not yet tagged `phase-4-complete`. Trading.com
   DEMO is a live broker execution environment and must be handled with live
-  operational caution. The final smoke currently has partial live evidence:
-  `mt5 tester indicator visual` produced a captured run, but
-  `mt5 tester ea single --expert demo --symbol AUDUSD --tf M5 --from
-  2024-01-01 --to 2024-06-30 --modelling ohlc-1m --json` returns a structured
-  `TESTER_REPORT_MISSING` envelope because MT5 does not write `report.html`
-  in the smoke run. Live trade-placement smoke is also gated by broker market
-  hours; the latest attempted AUDUSD market order returned MT5 retcode
-  `10018` (`Market closed`) after `order dryrun` passed.
+  operational caution. Screenshot-backed diagnosis on 2026-05-17 HST showed
+  MT5 does not apply a Strategy Tester `[Tester]` block to an already-running
+  `terminal64.exe`; the UI remained on the prior indicator configuration.
+  The CLI now treats Strategy Tester batch mode as a fresh-terminal `/config`
+  startup contract and returns `TERMINAL_ALREADY_RUNNING` instead of a
+  misleading `TESTER_REPORT_MISSING` envelope when MT5 is open. Full EA smoke
+  still requires an operator-approved close/relaunch proof. Live
+  trade-placement smoke is also gated by broker market hours; the latest
+  attempted AUDUSD market order returned MT5 retcode `10018` (`Market closed`)
+  after `order dryrun` passed.
 - **Acceptance before tag:** `mt5 tester ea single --expert demo --symbol
   AUDUSD --tf M5 --from 2024-01-01 --to 2024-06-30 --modelling ohlc-1m
   --json` returns a populated envelope; `mt5 tester indicator visual` produces
