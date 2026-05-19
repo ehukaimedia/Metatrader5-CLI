@@ -75,6 +75,13 @@ _POPUP_POLL_INTERVAL_SECONDS = 0.01
 # the field, we add a locale table.
 _EXPERTS_FOLDER_TEXT = "expert advisors"
 
+# Safe X-coordinate fallback for the right-click WM_RBUTTONDOWN lParam
+# when reader.item_rect returns a degenerate (right <= left) rect.
+# Value is half the 292px Navigator tree client width Claude measured
+# during the 2026-05-18 probe; any X inside the item's row triggers
+# the same row-level right-click context menu.
+_ITEM_CENTER_X_FALLBACK = 146
+
 
 def _win32():
     """Lazy pywin32 import, mirroring mt5_cli.chart.chart._win32 pattern."""
@@ -547,7 +554,7 @@ def attach_via_navigator(
 
     # Click at center of item's rect (client-area coords per probe).
     left, top, right, bottom = reader.item_rect(target_item)
-    cx = (left + right) // 2 if right > left else 146
+    cx = (left + right) // 2 if right > left else _ITEM_CENTER_X_FALLBACK
     cy = (top + bottom) // 2
     lparam = ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)
 
@@ -567,8 +574,10 @@ def attach_via_navigator(
         )
 
     # G1 — popup ownership: PID + TID both must match MT5. Belt-and-suspenders.
-    # GW_OWNER is captured below as diagnostic-only; never a gate (per Claude
-    # probe, MT5 internal-spawn popups may have GW_OWNER == 0).
+    # GW_OWNER deliberately NOT used as a gate: per Claude's 2026-05-18 probe
+    # on Trading.com's MT5 build, popups spawned internally by MT5 return
+    # GW_OWNER == 0 even though they're legitimate. PID/TID match is the
+    # reliable signal.
     try:
         popup_tid, popup_pid = win32process.GetWindowThreadProcessId(popup_hwnd)
     except Exception as exc:  # noqa: BLE001
