@@ -29,6 +29,12 @@ from mt5_cli.chart._menu import (
     find_submenu,
     normalize_menu_text,
 )
+from mt5_cli.chart._navigator_walk import (
+    Win32NavigatorTreeReader,
+    attach_via_navigator,
+    find_navigator_panel,
+    find_navigator_tree,
+)
 from mt5_cli.chart.chart import (
     _format_detected_charts,
     activate_chart,
@@ -150,7 +156,108 @@ def attach_ea(
                 "list_charts() and retry.",
             )
 
-    menu = win32gui.GetMenu(match.hwnd)
+    # Wave A.1 path: try the Navigator tree first. The Navigator panel
+    # is filesystem-aware (reflects MQL5/Experts/ in real time), unlike
+    # the Insert > Experts menu which MT5 populates at startup and
+    # never refreshes. Newly deployed EAs only show up in Navigator,
+    # not the menu — which is why menu-walk-only attach broke for
+    # any deploy → attach cycle without an MT5 restart.
+    nav_result = _try_navigator_attach(match.hwnd, expert_name)
+
+    if nav_result["ok"]:
+        result = nav_result
+    elif nav_result["error"]["code"] == "NAV_TREE_NOT_FOUND":
+        # Navigator plumbing genuinely unusable — fall back to legacy
+        # menu walk so the surface still functions on builds where the
+        # Navigator panel structure differs.
+        result = _attach_via_menu_legacy(match.hwnd, expert_name)
+    else:
+        # Any other Navigator error code is AUTHORITATIVE: NAV_EA_NOT_FOUND,
+        # NAV_TREE_SELECTION_DRIFT, NAV_POPUP_NOT_FOUND, and
+        # NAV_POPUP_OWNERSHIP_MISMATCH each represent a real Navigator-path
+        # verdict and must NOT be silently overruled by menu_legacy.
+        return nav_result
+
+    # On success, surface the chart_id and run auto-confirm against
+    # whatever parameter dialog MT5 raises (both Navigator and menu_legacy
+    # paths land us at the EA's inputs dialog with defaults highlighted).
+    if result["ok"]:
+        result["data"]["chart_id"] = chart_id
+        result["data"]["parent_hwnd"] = match.hwnd
+        result["data"]["auto_confirmed"] = bool(auto_confirm)
+        if auto_confirm:
+            _post_enter_to_param_dialog(match.hwnd, settle_seconds)
+        if settle_seconds > 0:
+            time.sleep(settle_seconds)
+
+    return result
+
+
+def _try_navigator_attach(main_hwnd: int, expert_name: str) -> dict:
+    """Locate Navigator panel + tree, build cross-process reader, attach.
+
+    Returns one of:
+      ok({...})                       Navigator path succeeded
+      fail(NAV_TREE_NOT_FOUND)        Plumbing absent — caller should
+                                      fall back to menu_legacy
+      fail(NAV_EA_NOT_FOUND, ...)     Authoritative — do NOT fall back
+      fail(NAV_TREE_SELECTION_DRIFT, NAV_POPUP_*, ...) — authoritative
+    """
+    import win32process  # noqa: PLC0415 (lazy; mocked in tests)
+
+    panel_hwnd = find_navigator_panel(main_hwnd)
+    if panel_hwnd is None:
+        return fail(
+            "NAV_TREE_NOT_FOUND",
+            "Navigator panel not found inside MT5 main window. The panel "
+            "may be hidden — open View > Navigator (or Ctrl+N).",
+        )
+
+    tree_hwnd = find_navigator_tree(panel_hwnd)
+    if tree_hwnd is None:
+        return fail(
+            "NAV_TREE_NOT_FOUND",
+            "SysTreeView32 child not found in Navigator panel.",
+        )
+
+    try:
+        mt5_tid, mt5_pid = win32process.GetWindowThreadProcessId(main_hwnd)
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            "NAV_TREE_NOT_FOUND",
+            f"Could not read MT5 PID/TID from main hwnd: {exc!r}",
+        )
+
+    try:
+        reader = Win32NavigatorTreeReader(tree_hwnd, mt5_pid)
+    except OSError as exc:
+        return fail(
+            "NAV_TREE_NOT_FOUND",
+            f"Could not open MT5 process for cross-process tree reads: {exc!r}",
+        )
+
+    try:
+        return attach_via_navigator(
+            reader=reader,
+            tree_hwnd=tree_hwnd,
+            ea_name=expert_name,
+            mt5_pid=mt5_pid,
+            mt5_tid=mt5_tid,
+        )
+    finally:
+        reader.close()
+
+
+def _attach_via_menu_legacy(main_hwnd: int, expert_name: str) -> dict:
+    """Legacy Insert > Experts menu walk (Wave A and before).
+
+    Kept as a fallback for builds where the Navigator panel structure
+    differs. Subject to the menu's startup-only refresh limitation —
+    won't find EAs deployed since MT5 was launched.
+    """
+    import win32gui  # noqa: PLC0415
+
+    menu = win32gui.GetMenu(main_hwnd)
     if not menu:
         return fail(
             "CHART_MENU_NOT_FOUND",
@@ -171,8 +278,6 @@ def attach_ea(
         walked.append(segment.title())
         cursor = submenu
 
-    # Recursive search under "Experts" because EAs may be top-level or
-    # nested under Examples / Advisors / other category submenus.
     leaf_lower = normalize_menu_text(expert_name)
     command_id = find_leaf_command_id_recursive(cursor, leaf_lower)
     if command_id is None:
@@ -181,35 +286,39 @@ def attach_ea(
             f"Expert Advisor {expert_name!r} not found anywhere under "
             "Insert > Experts. Verify it is deployed "
             "(Phase 3: `mt5 ea deploy <name>`) and the name matches the "
-            ".ex5 filename without extension.",
+            ".ex5 filename without extension. Note: the Insert > Experts "
+            "menu is populated at MT5 startup and does NOT refresh from "
+            "disk — restart MT5 if the EA was deployed since launch.",
         )
 
-    # Post the menu activation; MT5 will show the EA parameter dialog.
-    win32gui.PostMessage(match.hwnd, WM_COMMAND, command_id, 0)
+    win32gui.PostMessage(main_hwnd, WM_COMMAND, command_id, 0)
 
-    if auto_confirm:
-        if settle_seconds > 0:
-            time.sleep(settle_seconds)
-        # Post Enter to the foreground window (the parameter dialog
-        # should be topmost at this point). Fall back to the MT5 main
-        # window if foreground lookup fails.
-        try:
-            fg = win32gui.GetForegroundWindow()
-        except Exception:  # noqa: BLE001
-            fg = 0
-        target_hwnd = fg or match.hwnd
-        win32gui.PostMessage(target_hwnd, WM_KEYDOWN, VK_RETURN, 0)
-        time.sleep(0.05)
-        win32gui.PostMessage(target_hwnd, WM_KEYUP, VK_RETURN, 0)
+    return ok({
+        "method": "menu_legacy",
+        "expert_name": expert_name,
+        "command_id": command_id,
+        "menu_path": f"Insert > Experts > {expert_name}",
+    })
+
+
+def _post_enter_to_param_dialog(mt5_main_hwnd: int,
+                                settle_seconds: float) -> None:
+    """Post Enter to whatever dialog MT5 raised after EA activation.
+
+    Both attach paths (Navigator-tree right-click→Enter, menu_legacy
+    WM_COMMAND) land us at the EA's parameter dialog. We post Enter to
+    the foreground window to accept defaults; fall back to MT5 main if
+    foreground lookup fails.
+    """
+    import win32gui  # noqa: PLC0415
 
     if settle_seconds > 0:
         time.sleep(settle_seconds)
-
-    return ok({
-        "expert_name": expert_name,
-        "command_id": command_id,
-        "chart_id": chart_id,
-        "parent_hwnd": match.hwnd,
-        "menu_path": f"Insert > Experts > {expert_name}",
-        "auto_confirmed": bool(auto_confirm),
-    })
+    try:
+        fg = win32gui.GetForegroundWindow()
+    except Exception:  # noqa: BLE001
+        fg = 0
+    target_hwnd = fg or mt5_main_hwnd
+    win32gui.PostMessage(target_hwnd, WM_KEYDOWN, VK_RETURN, 0)
+    time.sleep(0.05)
+    win32gui.PostMessage(target_hwnd, WM_KEYUP, VK_RETURN, 0)

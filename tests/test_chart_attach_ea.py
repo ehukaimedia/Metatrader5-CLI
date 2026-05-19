@@ -379,3 +379,143 @@ def test_attach_ea_module_does_not_import_metatrader5():
     src = open(mod.__file__, encoding="utf-8").read()
     assert "import MetaTrader5" not in src
     assert "from MetaTrader5" not in src
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 Wave A.1: Navigator-path integration
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_prefers_navigator_path_when_panel_present(monkeypatch):
+    """When the Navigator panel + SysTreeView32 are present AND the EA
+    is in the tree, attach_ea must use the Navigator path (method=
+    'nav_tree_rclick_enter') instead of falling back to menu_legacy.
+
+    This is the entire point of Wave A.1: deploy → attach works
+    without an MT5 restart because Navigator is filesystem-live while
+    Insert>Experts is startup-frozen."""
+    _purge_chart_cache()
+
+    fake_gui = MagicMock(name="win32gui")
+    fake_gui.IsWindowVisible.return_value = True
+    fake_gui.GetWindowText.return_value = "MetaTrader 5"
+    fake_gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+    fake_gui.EnumWindows.side_effect = lambda cb, _: cb(1000, None)
+    fake_gui.PostMessage.return_value = 1
+    fake_gui.GetForegroundWindow.return_value = 0
+    monkeypatch.setitem(sys.modules, "win32gui", fake_gui)
+    monkeypatch.setitem(sys.modules, "win32con",
+                        types.SimpleNamespace(MF_BYPOSITION=0x0400))
+    fake_process = MagicMock(name="win32process")
+    fake_process.GetWindowThreadProcessId.return_value = (6000, 5000)
+    monkeypatch.setitem(sys.modules, "win32process", fake_process)
+
+    # Stub the Navigator-walk helpers so we don't need the ctypes reader
+    from mt5_cli.chart import _navigator_walk
+    monkeypatch.setattr(_navigator_walk, "find_navigator_panel",
+                        lambda main_hwnd: 5555)
+    monkeypatch.setattr(_navigator_walk, "find_navigator_tree",
+                        lambda panel_hwnd: 7777)
+
+    class _StubReader:
+        def __init__(self, *a, **k): pass
+        def close(self): pass
+
+    monkeypatch.setattr(_navigator_walk, "Win32NavigatorTreeReader",
+                        _StubReader)
+    # Re-route the imported names in attach_ea (resolved at import time)
+    attach_ea_mod = sys.modules["mt5_cli.chart.attach_ea"]
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_panel",
+                        lambda main_hwnd: 5555)
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_tree",
+                        lambda panel_hwnd: 7777)
+    monkeypatch.setattr(attach_ea_mod, "Win32NavigatorTreeReader",
+                        _StubReader)
+
+    captured = {}
+
+    def fake_attach_via_navigator(*, reader, tree_hwnd, ea_name,
+                                  mt5_pid, mt5_tid):
+        captured["tree_hwnd"] = tree_hwnd
+        captured["ea_name"] = ea_name
+        captured["mt5_pid"] = mt5_pid
+        captured["mt5_tid"] = mt5_tid
+        return {
+            "ok": True,
+            "data": {
+                "method": "nav_tree_rclick_enter",
+                "ea": ea_name,
+                "popup_hwnd": 9999,
+                "tree_item_rect": (0, 500, 292, 520),
+            },
+        }
+
+    monkeypatch.setattr(attach_ea_mod, "attach_via_navigator",
+                        fake_attach_via_navigator)
+
+    env = attach_ea_mod.attach_ea("SmartFibChandelierManager", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["method"] == "nav_tree_rclick_enter"
+    assert captured["ea_name"] == "SmartFibChandelierManager"
+    assert captured["tree_hwnd"] == 7777
+    assert captured["mt5_pid"] == 5000
+    assert captured["mt5_tid"] == 6000
+
+
+def test_attach_ea_falls_back_to_menu_legacy_when_navigator_panel_missing(
+    fake_pywin32,
+):
+    """When Navigator panel cannot be located (NAV_TREE_NOT_FOUND), the
+    menu_legacy fallback must fire and the envelope must indicate
+    method='menu_legacy' so reviewers/operators see which path was used.
+
+    fake_pywin32 fixture provides no Navigator panel (EnumChildWindows
+    returns nothing), so the Navigator helpers naturally return None,
+    triggering the fallback."""
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["method"] == "menu_legacy"
+    assert env["data"]["command_id"] == 8001
+
+
+def test_attach_ea_returns_authoritative_nav_ea_not_found_no_fallback(
+    monkeypatch, fake_pywin32,
+):
+    """When the Navigator path returns NAV_EA_NOT_FOUND (EA genuinely
+    absent from the tree), attach_ea MUST surface that verdict — NOT
+    silently fall back to menu_legacy where a stale startup-cached entry
+    might give a false success.
+
+    This guards the locked contract: only NAV_TREE_NOT_FOUND triggers
+    fallback; every other Navigator error is authoritative."""
+    attach_ea_mod = sys.modules["mt5_cli.chart.attach_ea"]
+
+    class _StubReader:
+        def __init__(self, *a, **k): pass
+        def close(self): pass
+
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_panel",
+                        lambda main_hwnd: 5555)
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_tree",
+                        lambda panel_hwnd: 7777)
+    monkeypatch.setattr(attach_ea_mod, "Win32NavigatorTreeReader",
+                        _StubReader)
+    fake_process = MagicMock(name="win32process")
+    fake_process.GetWindowThreadProcessId.return_value = (6000, 5000)
+    monkeypatch.setitem(sys.modules, "win32process", fake_process)
+
+    def fake_attach_via_navigator(**_kwargs):
+        return {
+            "ok": False,
+            "error": {
+                "code": "NAV_EA_NOT_FOUND",
+                "message": "EA 'GhostEA' not found in Navigator tree.",
+            },
+        }
+    monkeypatch.setattr(attach_ea_mod, "attach_via_navigator",
+                        fake_attach_via_navigator)
+
+    env = attach_ea_mod.attach_ea("GhostEA", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "NAV_EA_NOT_FOUND"

@@ -118,6 +118,257 @@ class NavigatorTreeReader(Protocol):
         ...
 
 
+# Additional TreeView messages for the ctypes-backed real reader
+TVM_GETITEMW = 0x113E  # Unicode variant
+TVIF_TEXT = 0x0001
+
+# Process access rights for OpenProcess (kernel32)
+PROCESS_VM_OPERATION = 0x0008
+PROCESS_VM_READ = 0x0010
+PROCESS_VM_WRITE = 0x0020
+
+# VirtualAllocEx / VirtualFreeEx flags
+MEM_COMMIT = 0x1000
+MEM_RELEASE = 0x8000
+PAGE_READWRITE = 0x04
+
+
+def _build_tvitemw_struct(item: int, pszText_remote: int,
+                          cch_text_max_chars: int) -> bytes:
+    """Pack a TVITEMW struct for 64-bit Windows.
+
+    Layout (natural alignment, 64-bit):
+      offset  size  field
+      0       4     UINT mask
+      4       4     pad
+      8       8     HTREEITEM hItem
+      16      4     UINT state
+      20      4     UINT stateMask
+      24      8     LPWSTR pszText (remote pointer)
+      32      4     int cchTextMax (in WCHARs)
+      36      4     int iImage
+      40      4     int iSelectedImage
+      44      4     int cChildren
+      48      8     LPARAM lParam
+    Total: 56 bytes.
+
+    Asks for TEXT only via mask=TVIF_TEXT (0x0001).
+    """
+    import struct  # noqa: PLC0415
+    return struct.pack(
+        "<I4xQII8xQI4xIIIQ",
+        TVIF_TEXT,          # mask
+        item,                # hItem (8 bytes)
+        0,                   # state
+        0,                   # stateMask
+        pszText_remote,      # pszText (remote 8-byte pointer)
+        cch_text_max_chars,  # cchTextMax (in WCHARs, NOT bytes)
+        0,                   # iImage
+        0,                   # iSelectedImage
+        0,                   # cChildren
+        0,                   # lParam
+    )
+
+
+class Win32NavigatorTreeReader:
+    """ctypes-backed cross-process reader for MT5's Navigator SysTreeView32.
+
+    Pattern: OpenProcess(MT5) → VirtualAllocEx remote buffers →
+    WriteProcessMemory the request → SendMessageW the tree → ReadProcessMemory
+    the response → VirtualFreeEx → CloseHandle on exit.
+
+    64-bit pitfalls codified per Claude's probe 2026-05-18:
+      - HTREEITEM is 8 bytes on 64-bit; pack as little-endian Q
+      - VirtualAllocEx.restype = c_size_t (avoid 32-bit address truncation)
+      - SendMessageW argtypes pin lParam to c_ssize_t for full 64-bit width
+      - TVITEMW struct has natural-alignment padding (see _build_tvitemw_struct)
+
+    This implementation has NO hermetic tests — the cross-process Win32
+    surface is verified live during operator confirmation. Wave A.1
+    contract acknowledges this gap explicitly. The orchestration that
+    uses this reader IS hermetically tested via FakeNavigatorTreeReader.
+    """
+
+    _TEXT_BUFFER_BYTES = 260 * 2   # MAX_PATH WCHARs
+    _RECT_BUFFER_BYTES = 16         # 4 LONGs
+    _TVITEMW_BYTES = 56
+
+    def __init__(self, tree_hwnd: int, mt5_pid: int):
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+
+        self._tree_hwnd = tree_hwnd
+        self._mt5_pid = mt5_pid
+        self._ctypes = ctypes
+
+        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        # CRITICAL pinning per Claude's probe:
+        # VirtualAllocEx returns a pointer — restype must be c_size_t,
+        # NOT the default c_int, to avoid 32-bit truncation of high addresses.
+        self._kernel32.VirtualAllocEx.argtypes = [
+            wintypes.HANDLE, ctypes.c_size_t, ctypes.c_size_t,
+            wintypes.DWORD, wintypes.DWORD,
+        ]
+        self._kernel32.VirtualAllocEx.restype = ctypes.c_size_t
+
+        self._kernel32.VirtualFreeEx.argtypes = [
+            wintypes.HANDLE, ctypes.c_size_t, ctypes.c_size_t, wintypes.DWORD,
+        ]
+        self._kernel32.VirtualFreeEx.restype = wintypes.BOOL
+
+        self._kernel32.WriteProcessMemory.argtypes = [
+            wintypes.HANDLE, ctypes.c_size_t, ctypes.c_void_p,
+            ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t),
+        ]
+        self._kernel32.WriteProcessMemory.restype = wintypes.BOOL
+
+        self._kernel32.ReadProcessMemory.argtypes = [
+            wintypes.HANDLE, ctypes.c_size_t, ctypes.c_void_p,
+            ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t),
+        ]
+        self._kernel32.ReadProcessMemory.restype = wintypes.BOOL
+
+        # SendMessageW: lParam pinned to c_ssize_t for full 64-bit width
+        # so we can pass remote pointers as lParam without truncation.
+        self._user32.SendMessageW.argtypes = [
+            ctypes.c_size_t, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t,
+        ]
+        self._user32.SendMessageW.restype = ctypes.c_ssize_t
+
+        self._h_process = self._kernel32.OpenProcess(
+            PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE,
+            False, mt5_pid,
+        )
+        if not self._h_process:
+            raise OSError(
+                f"OpenProcess(pid={mt5_pid}) failed: "
+                f"WinError {ctypes.get_last_error()}"
+            )
+
+    # Context-manager support so the caller can `with Win32NavigatorTreeReader(...)`
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+    def close(self) -> None:
+        if getattr(self, "_h_process", None):
+            self._kernel32.CloseHandle(self._h_process)
+            self._h_process = None
+
+    # ---- Reader interface ------------------------------------------------
+
+    def _send(self, msg: int, wparam: int = 0, lparam: int = 0) -> int:
+        return int(self._user32.SendMessageW(
+            self._tree_hwnd, msg, wparam, lparam,
+        ))
+
+    def root_item(self) -> int | None:
+        h = self._send(TVM_GETNEXTITEM, TVGN_ROOT, 0)
+        return h if h else None
+
+    def first_child(self, item: int) -> int | None:
+        h = self._send(TVM_GETNEXTITEM, TVGN_CHILD, item)
+        return h if h else None
+
+    def next_sibling(self, item: int) -> int | None:
+        h = self._send(TVM_GETNEXTITEM, TVGN_NEXT, item)
+        return h if h else None
+
+    def selected_item(self) -> int | None:
+        h = self._send(TVM_GETNEXTITEM, TVGN_CARET, 0)
+        return h if h else None
+
+    def item_text(self, item: int) -> str:
+        ctypes = self._ctypes
+        text_remote = self._kernel32.VirtualAllocEx(
+            self._h_process, 0, self._TEXT_BUFFER_BYTES,
+            MEM_COMMIT, PAGE_READWRITE,
+        )
+        if not text_remote:
+            return ""
+        tvitem_remote = self._kernel32.VirtualAllocEx(
+            self._h_process, 0, self._TVITEMW_BYTES,
+            MEM_COMMIT, PAGE_READWRITE,
+        )
+        if not tvitem_remote:
+            self._kernel32.VirtualFreeEx(
+                self._h_process, text_remote, 0, MEM_RELEASE,
+            )
+            return ""
+        try:
+            cch = self._TEXT_BUFFER_BYTES // 2
+            struct_bytes = _build_tvitemw_struct(item, text_remote, cch)
+            buf_local = (ctypes.c_ubyte * len(struct_bytes)).from_buffer_copy(
+                struct_bytes,
+            )
+            written = ctypes.c_size_t(0)
+            self._kernel32.WriteProcessMemory(
+                self._h_process, tvitem_remote, buf_local,
+                len(struct_bytes), ctypes.byref(written),
+            )
+            self._send(TVM_GETITEMW, 0, tvitem_remote)
+            text_local = (ctypes.c_uint16 * cch)()
+            self._kernel32.ReadProcessMemory(
+                self._h_process, text_remote, text_local,
+                self._TEXT_BUFFER_BYTES, ctypes.byref(written),
+            )
+            chars: list[str] = []
+            for ch in text_local:
+                if ch == 0:
+                    break
+                chars.append(chr(ch))
+            return "".join(chars)
+        finally:
+            self._kernel32.VirtualFreeEx(
+                self._h_process, tvitem_remote, 0, MEM_RELEASE,
+            )
+            self._kernel32.VirtualFreeEx(
+                self._h_process, text_remote, 0, MEM_RELEASE,
+            )
+
+    def item_rect(self, item: int) -> tuple[int, int, int, int]:
+        """TVM_GETITEMRECT with HTREEITEM packed at offset 0 of the
+        returned RECT buffer. Returns (left, top, right, bottom)
+        client-area coords per Claude probe.
+        """
+        ctypes = self._ctypes
+        rect_remote = self._kernel32.VirtualAllocEx(
+            self._h_process, 0, self._RECT_BUFFER_BYTES,
+            MEM_COMMIT, PAGE_READWRITE,
+        )
+        if not rect_remote:
+            return (0, 0, 0, 0)
+        try:
+            import struct  # noqa: PLC0415
+            hitem_packed = struct.pack("<Q", item)
+            buf_local = (ctypes.c_ubyte * 8).from_buffer_copy(hitem_packed)
+            written = ctypes.c_size_t(0)
+            self._kernel32.WriteProcessMemory(
+                self._h_process, rect_remote, buf_local, 8,
+                ctypes.byref(written),
+            )
+            # wParam=False (0) → full-row rect; pass True (1) for item-only.
+            # Full-row gives the click target we want.
+            self._send(TVM_GETITEMRECT, 0, rect_remote)
+            rect_local = (ctypes.c_long * 4)()
+            self._kernel32.ReadProcessMemory(
+                self._h_process, rect_remote, rect_local,
+                self._RECT_BUFFER_BYTES, ctypes.byref(written),
+            )
+            return (
+                int(rect_local[0]), int(rect_local[1]),
+                int(rect_local[2]), int(rect_local[3]),
+            )
+        finally:
+            self._kernel32.VirtualFreeEx(
+                self._h_process, rect_remote, 0, MEM_RELEASE,
+            )
+
+
 # ---------------------------------------------------------------------------
 # find_navigator_tree — Navigator panel → SysTreeView32 hwnd
 # ---------------------------------------------------------------------------
@@ -141,6 +392,28 @@ def find_navigator_tree(navigator_panel_hwnd: int) -> int | None:
             pass
 
     win32gui.EnumChildWindows(navigator_panel_hwnd, cb, None)
+    return found[0] if found else None
+
+
+def find_navigator_panel(mt5_main_hwnd: int) -> int | None:
+    """Walk MT5's child windows for the dockable Navigator panel.
+
+    The panel's title bar contains 'Navigator' (case-insensitive).
+    Locale-sensitive — non-English MT5 builds may use a localized
+    label here; out of scope for Wave A.1.
+    """
+    win32gui, _, _ = _win32()
+    found: list[int] = []
+
+    def cb(hwnd, _extra):
+        try:
+            title = win32gui.GetWindowText(hwnd) or ""
+        except Exception:  # noqa: BLE001
+            return
+        if "navigator" in title.lower():
+            found.append(hwnd)
+
+    win32gui.EnumChildWindows(mt5_main_hwnd, cb, None)
     return found[0] if found else None
 
 
