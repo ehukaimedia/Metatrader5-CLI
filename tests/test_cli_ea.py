@@ -126,10 +126,9 @@ def test_ea_deploy_routes_to_deployer_for_known_ea(cli, tmp_path, monkeypatch):
     )
     captured = {}
 
-    def fake_deploy(path, *, data_path=None, refresh_navigator=True):
+    def fake_deploy(path, *, data_path=None):
         captured["path"] = Path(path)
         captured["data_path"] = data_path
-        captured["refresh_navigator"] = refresh_navigator
         return {"ok": True, "data": {"copied": [str(path)]}}
 
     mp.setattr(deployer, "deploy_ea", fake_deploy)
@@ -164,9 +163,8 @@ def test_ea_deploy_threads_terminal_data_path_from_bridge(
     )
     captured = {}
 
-    def fake_deploy(path, *, data_path=None, refresh_navigator=True):
+    def fake_deploy(path, *, data_path=None):
         captured["data_path"] = data_path
-        captured["refresh_navigator"] = refresh_navigator
         return {"ok": True, "data": {"copied": []}}
 
     mp.setattr(deployer, "deploy_ea", fake_deploy)
@@ -194,9 +192,8 @@ def test_indicator_deploy_threads_data_path_from_bridge(
     )
     captured = {}
 
-    def fake_deploy(path, *, data_path=None, refresh_navigator=True):
+    def fake_deploy(path, *, data_path=None):
         captured["data_path"] = data_path
-        captured["refresh_navigator"] = refresh_navigator
         return {"ok": True, "data": {"copied": []}}
 
     mp.setattr(deployer, "deploy_indicator", fake_deploy)
@@ -254,77 +251,6 @@ def test_indicator_deploy_unknown_returns_fail_envelope(cli, monkeypatch):
     result = runner.invoke(main, ["--json", "indicator", "deploy", "missing"])
     env = json.loads(result.output)
     assert env["error"]["code"] == "INDICATOR_NOT_FOUND"
-
-
-def test_ea_deploy_defaults_refresh_navigator_on(cli, tmp_path):
-    """Default behavior: --refresh-navigator is true unless suppressed."""
-    runner, main, mp = cli
-    src = tmp_path / "alpha.mq5"
-    src.write_text("// stub")
-    from mt5_cli.mql5 import discovery, deployer
-    mp.setattr(discovery, "get_ea",
-               lambda name: {"name": name, "source": str(src), "compiled": True})
-    captured = {}
-
-    def fake_deploy(path, *, data_path=None, refresh_navigator=True):
-        captured["refresh_navigator"] = refresh_navigator
-        return {"ok": True, "data": {"copied": [str(path)]}}
-
-    mp.setattr(deployer, "deploy_ea", fake_deploy)
-    import mt5.cli as cli_mod
-    mp.setattr(cli_mod, "_mql5_deployer", deployer)
-    mp.setattr(cli_mod, "_terminal_data_path", lambda cfg: None)
-
-    runner.invoke(main, ["--json", "ea", "deploy", "alpha"])
-    assert captured["refresh_navigator"] is True
-
-
-def test_ea_deploy_no_refresh_navigator_flag_disables(cli, tmp_path):
-    """--no-refresh-navigator flag must thread False through to the deployer."""
-    runner, main, mp = cli
-    src = tmp_path / "alpha.mq5"
-    src.write_text("// stub")
-    from mt5_cli.mql5 import discovery, deployer
-    mp.setattr(discovery, "get_ea",
-               lambda name: {"name": name, "source": str(src), "compiled": True})
-    captured = {}
-
-    def fake_deploy(path, *, data_path=None, refresh_navigator=True):
-        captured["refresh_navigator"] = refresh_navigator
-        return {"ok": True, "data": {"copied": [str(path)]}}
-
-    mp.setattr(deployer, "deploy_ea", fake_deploy)
-    import mt5.cli as cli_mod
-    mp.setattr(cli_mod, "_mql5_deployer", deployer)
-    mp.setattr(cli_mod, "_terminal_data_path", lambda cfg: None)
-
-    runner.invoke(main, ["--json", "ea", "deploy", "alpha",
-                         "--no-refresh-navigator"])
-    assert captured["refresh_navigator"] is False
-
-
-def test_indicator_deploy_no_refresh_navigator_flag_disables(cli, tmp_path):
-    """Mirror of the EA flag on the indicator surface."""
-    runner, main, mp = cli
-    src = tmp_path / "rsi.mq5"
-    src.write_text("// stub")
-    from mt5_cli.mql5 import discovery, deployer
-    mp.setattr(discovery, "get_indicator",
-               lambda name: {"name": name, "source": str(src), "compiled": True})
-    captured = {}
-
-    def fake_deploy(path, *, data_path=None, refresh_navigator=True):
-        captured["refresh_navigator"] = refresh_navigator
-        return {"ok": True, "data": {"copied": [str(path)]}}
-
-    mp.setattr(deployer, "deploy_indicator", fake_deploy)
-    import mt5.cli as cli_mod
-    mp.setattr(cli_mod, "_mql5_deployer", deployer)
-    mp.setattr(cli_mod, "_terminal_data_path", lambda cfg: None)
-
-    runner.invoke(main, ["--json", "indicator", "deploy", "rsi",
-                         "--no-refresh-navigator"])
-    assert captured["refresh_navigator"] is False
 
 
 def test_help_lists_ea_and_indicator_groups(cli):

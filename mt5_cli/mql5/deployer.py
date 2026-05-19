@@ -15,17 +15,6 @@ from pathlib import Path
 
 from mt5_cli.reports import fail, ok
 
-
-def _refresh_navigator() -> dict:
-    """Thin wrapper so tests can monkeypatch without importing pywin32.
-
-    Imported lazily inside the wrapper so non-Windows test environments
-    (and the hermetic-fixture path) never touch Win32 unless the real
-    function is actually exercised.
-    """
-    from mt5_cli.chart.navigator import refresh_navigator as _real  # noqa: PLC0415
-    return _real()
-
 # Module-level so tests can monkeypatch via `deployer._CANDIDATE_DATA_DIRS`.
 _CANDIDATE_DATA_DIRS: list[Path] = [
     Path(os.path.expanduser(r"~\AppData\Roaming\MetaQuotes\Terminal")),
@@ -80,7 +69,6 @@ def _deploy(
     src: Path | str,
     subdir: str,
     data_path: Path | str | None = None,
-    refresh_navigator: bool = True,
 ) -> dict:
     """Copy `src` (.mq5) and its sibling `.ex5` (if any) to MQL5/<subdir>/.
 
@@ -151,53 +139,26 @@ def _deploy(
             "NOTHING_TO_DEPLOY",
             f"Found no .mq5 or .ex5 sibling of {src}",
         )
-    payload: dict = {
+    return ok({
         "copied": copied,
         "data_dir": str(data_dir),
         "resolved_via": resolved_via,
-    }
-    if refresh_navigator:
-        nav = _refresh_navigator()
-        if nav.get("ok"):
-            payload["navigator_refresh"] = nav["data"]
-        else:
-            # Deploy succeeded; surface refresh failure as a warning so the
-            # caller knows Navigator may need a manual F5 before attach-ea.
-            payload["navigator_refresh"] = {
-                "attempted": False,
-                "error": nav["error"],
-            }
-    return ok(payload)
+    })
 
 
 def deploy_ea(
     src: Path | str,
     *,
     data_path: Path | str | None = None,
-    refresh_navigator: bool = True,
 ) -> dict:
-    """Deploy `src` and its .ex5 sibling to <data_dir>/MQL5/Experts/.
-
-    When `refresh_navigator` is True (default) and the copy succeeds, a
-    Win32 F5 keystroke is posted to MT5's Navigator panel so it rescans
-    and the new EA becomes attachable without a manual UI refresh. The
-    result envelope's `navigator_refresh` key reports whether the
-    keystroke was attempted; MT5's actual rescan is NOT programmatically
-    verifiable from outside.
-    """
-    return _deploy(src, "Experts", data_path=data_path,
-                   refresh_navigator=refresh_navigator)
+    """Deploy `src` and its .ex5 sibling to <data_dir>/MQL5/Experts/."""
+    return _deploy(src, "Experts", data_path=data_path)
 
 
 def deploy_indicator(
     src: Path | str,
     *,
     data_path: Path | str | None = None,
-    refresh_navigator: bool = True,
 ) -> dict:
-    """Deploy `src` and its .ex5 sibling to <data_dir>/MQL5/Indicators/.
-
-    See `deploy_ea` for the `refresh_navigator` contract.
-    """
-    return _deploy(src, "Indicators", data_path=data_path,
-                   refresh_navigator=refresh_navigator)
+    """Deploy `src` and its .ex5 sibling to <data_dir>/MQL5/Indicators/."""
+    return _deploy(src, "Indicators", data_path=data_path)

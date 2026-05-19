@@ -1090,12 +1090,8 @@ def ea_compile(ctx: click.Context, name: str) -> None:
 
 @ea.command("deploy")
 @click.argument("name")
-@click.option("--refresh-navigator/--no-refresh-navigator", default=True,
-              help="Post F5 to MT5's Navigator panel after the copy so the "
-                   "new EA becomes attachable without a manual refresh "
-                   "(default: on). Rescan is not programmatically verifiable.")
 @click.pass_context
-def ea_deploy(ctx: click.Context, name: str, refresh_navigator: bool) -> None:
+def ea_deploy(ctx: click.Context, name: str) -> None:
     """Copy a discovered EA's .mq5 + .ex5 into the MT5 terminal's Experts/."""
     found = _mql5_discovery.get_ea(name)
     if not found:
@@ -1110,8 +1106,7 @@ def ea_deploy(ctx: click.Context, name: str, refresh_navigator: bool) -> None:
     # reachable.
     data_path = _terminal_data_path(ctx.obj["cfg"])
     emit(_mql5_deployer.deploy_ea(Path(found["source"]),
-                                  data_path=data_path,
-                                  refresh_navigator=refresh_navigator),
+                                  data_path=data_path),
          ctx.obj["json"])
 
 
@@ -1167,14 +1162,8 @@ def indicator_compile(ctx: click.Context, name: str) -> None:
 
 @indicator.command("deploy")
 @click.argument("name")
-@click.option("--refresh-navigator/--no-refresh-navigator", default=True,
-              help="Post F5 to MT5's Navigator panel after the copy so the "
-                   "new indicator becomes attachable without a manual "
-                   "refresh (default: on). Rescan is not programmatically "
-                   "verifiable.")
 @click.pass_context
-def indicator_deploy(ctx: click.Context, name: str,
-                     refresh_navigator: bool) -> None:
+def indicator_deploy(ctx: click.Context, name: str) -> None:
     """Copy a discovered indicator's .mq5 + .ex5 into MT5's Indicators/."""
     found = _mql5_discovery.get_indicator(name)
     if not found:
@@ -1185,8 +1174,7 @@ def indicator_deploy(ctx: click.Context, name: str,
         return
     data_path = _terminal_data_path(ctx.obj["cfg"])
     emit(_mql5_deployer.deploy_indicator(Path(found["source"]),
-                                         data_path=data_path,
-                                         refresh_navigator=refresh_navigator),
+                                         data_path=data_path),
          ctx.obj["json"])
 
 
