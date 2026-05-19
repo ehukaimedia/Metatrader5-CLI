@@ -238,3 +238,121 @@ def test_deploy_with_only_mq5_copies_just_the_source(monkeypatch, tmp_path):
     assert result["ok"] is True
     assert (data_dir / "MQL5" / "Experts" / "demo.mq5").exists()
     assert not (data_dir / "MQL5" / "Experts" / "demo.ex5").exists()
+
+
+# ---------------------------------------------------------------------------
+# Navigator refresh integration (Phase 5 Wave A)
+# ---------------------------------------------------------------------------
+
+
+def _stub_deploy_setup(monkeypatch, tmp_path):
+    """Common setup so deploy succeeds; tests only assert the refresh path."""
+    data_dir = tmp_path / "data"
+    src_dir = tmp_path / "ea"
+    src_dir.mkdir()
+    (src_dir / "demo.mq5").write_text("// stub")
+    (src_dir / "demo.ex5").write_bytes(b"compiled")
+    monkeypatch.setattr(deployer, "resolve_terminal_data_dir",
+                        lambda *a, **kw: (data_dir, "explicit_data_path"))
+    return data_dir, src_dir / "demo.mq5"
+
+
+def test_deploy_ea_calls_refresh_navigator_by_default(monkeypatch, tmp_path):
+    """refresh_navigator default-on: a successful deploy attempts the F5 poke."""
+    _, src = _stub_deploy_setup(monkeypatch, tmp_path)
+    captured = {"called": False}
+
+    def fake_refresh():
+        captured["called"] = True
+        return {"ok": True, "data": {"attempted": True, "navigator_hwnd": 42,
+                                      "message": "F5 posted; not verified."}}
+
+    monkeypatch.setattr(deployer, "_refresh_navigator", fake_refresh)
+    result = deployer.deploy_ea(src)
+    assert result["ok"] is True
+    assert captured["called"] is True
+
+
+def test_deploy_ea_skips_refresh_when_flag_false(monkeypatch, tmp_path):
+    """refresh_navigator=False suppresses the F5 poke entirely; no envelope key."""
+    _, src = _stub_deploy_setup(monkeypatch, tmp_path)
+    captured = {"called": False}
+
+    def fake_refresh():
+        captured["called"] = True
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(deployer, "_refresh_navigator", fake_refresh)
+    result = deployer.deploy_ea(src, refresh_navigator=False)
+    assert result["ok"] is True
+    assert captured["called"] is False
+    assert "navigator_refresh" not in result["data"]
+
+
+def test_deploy_ea_envelope_includes_navigator_refresh_on_success(
+    monkeypatch, tmp_path,
+):
+    """Successful F5 poke surfaces attempted/navigator_hwnd/message."""
+    _, src = _stub_deploy_setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(deployer, "_refresh_navigator", lambda: {
+        "ok": True,
+        "data": {
+            "attempted": True,
+            "navigator_hwnd": 2042,
+            "message": "F5 posted; rescan not verifiable.",
+        },
+    })
+    result = deployer.deploy_ea(src)
+    nav = result["data"]["navigator_refresh"]
+    assert nav["attempted"] is True
+    assert nav["navigator_hwnd"] == 2042
+    assert "message" in nav
+
+
+def test_deploy_ea_navigator_failure_does_not_fail_deploy(monkeypatch, tmp_path):
+    """If F5 cannot be posted, deploy still succeeds; envelope carries the
+    NAVIGATOR_NOT_FOUND warning so the caller knows to refresh manually."""
+    _, src = _stub_deploy_setup(monkeypatch, tmp_path)
+    monkeypatch.setattr(deployer, "_refresh_navigator", lambda: {
+        "ok": False,
+        "error": {
+            "code": "NAVIGATOR_NOT_FOUND",
+            "message": "Navigator panel not found.",
+        },
+    })
+    result = deployer.deploy_ea(src)
+    assert result["ok"] is True   # deploy itself succeeded
+    nav = result["data"]["navigator_refresh"]
+    assert nav["attempted"] is False
+    assert nav["error"]["code"] == "NAVIGATOR_NOT_FOUND"
+
+
+def test_deploy_indicator_calls_refresh_navigator_by_default(monkeypatch, tmp_path):
+    data_dir = tmp_path / "data"
+    src_dir = tmp_path / "ind"
+    src_dir.mkdir()
+    (src_dir / "rsi.mq5").write_text("// stub")
+    monkeypatch.setattr(deployer, "resolve_terminal_data_dir",
+                        lambda *a, **kw: (data_dir, "explicit_data_path"))
+    captured = {"called": False}
+    monkeypatch.setattr(deployer, "_refresh_navigator", lambda: (
+        captured.update(called=True),
+        {"ok": True, "data": {"attempted": True}},
+    )[1])
+    result = deployer.deploy_indicator(src_dir / "rsi.mq5")
+    assert result["ok"] is True
+    assert captured["called"] is True
+
+
+def test_deploy_refresh_skipped_when_underlying_copy_fails(monkeypatch, tmp_path):
+    """If deploy itself fails (e.g. SOURCE_NOT_FOUND), do NOT attempt the
+    F5 poke — there is nothing newly deployed to rescan, and we should
+    not waste an OS event."""
+    captured = {"called": False}
+    monkeypatch.setattr(deployer, "_refresh_navigator", lambda: (
+        captured.update(called=True), {"ok": True, "data": {}},
+    )[1])
+    result = deployer.deploy_ea(tmp_path / "missing.mq5")
+    assert result["ok"] is False
+    assert result["error"]["code"] == "SOURCE_NOT_FOUND"
+    assert captured["called"] is False
