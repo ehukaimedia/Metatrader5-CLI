@@ -203,6 +203,64 @@ def test_popup_appear_timeout_seconds_is_documented_constant():
     assert POPUP_APPEAR_TIMEOUT_SECONDS == 0.15
 
 
+def test_tvitemw_struct_is_56_bytes():
+    """TVITEMW on 64-bit Windows MUST be exactly 56 bytes for MT5's
+    TVM_GETITEMW to read the fields at the expected offsets.
+
+    Regression-locked after Wave A.1b shipped with a 68-byte format
+    string (extra '8x' after stateMask + extra '4x' after cchTextMax)
+    that put pszText at offset 32 instead of 24. The struct overran
+    the 56-byte VirtualAllocEx allocation AND MT5 read garbage for
+    pszText → wrote text to a bogus address → item_text() returned
+    empty → find_ea_node never matched anything → NAV_EA_NOT_FOUND
+    on every live attach. Caught by Claude during live verification
+    on Trading.com 2026-05-18."""
+    _purge_chart_cache()
+    import struct
+    from mt5_cli.chart import _navigator_walk
+    packed = _navigator_walk._build_tvitemw_struct(
+        item=0xDEADBEEF, pszText_remote=0xCAFEBABE,
+        cch_text_max_chars=260,
+    )
+    assert len(packed) == 56, (
+        f"TVITEMW struct must be 56 bytes for x64 Windows; got {len(packed)}. "
+        "Check _build_tvitemw_struct format string for spurious padding."
+    )
+
+
+def test_tvitemw_struct_field_offsets():
+    """Verify the fields land at the offsets MT5's TVM_GETITEMW reads
+    from, NOT just that the total size happens to match.
+
+    A struct could be 56 bytes total but with internal misalignment;
+    this test catches that by decoding individual fields back out and
+    comparing to the input sentinels."""
+    _purge_chart_cache()
+    import struct
+    from mt5_cli.chart import _navigator_walk
+    sentinel_item = 0x1122334455667788
+    sentinel_pszText = 0xAABBCCDDEEFF1100
+    sentinel_cch = 260
+    packed = _navigator_walk._build_tvitemw_struct(
+        item=sentinel_item, pszText_remote=sentinel_pszText,
+        cch_text_max_chars=sentinel_cch,
+    )
+    # mask @ 0 (UINT, should be TVIF_TEXT=1)
+    assert struct.unpack_from("<I", packed, 0)[0] == 1
+    # hItem @ 8 (HTREEITEM = uint64)
+    assert struct.unpack_from("<Q", packed, 8)[0] == sentinel_item
+    # pszText @ 24 (LPWSTR = uint64 pointer) — THIS is the bit Wave A.1b
+    # got wrong; the misaligned offset broke text reads silently.
+    assert struct.unpack_from("<Q", packed, 24)[0] == sentinel_pszText, (
+        "pszText must land at offset 24; misalignment causes MT5 to read "
+        "garbage and write the item text to a bogus address."
+    )
+    # cchTextMax @ 32 (int)
+    assert struct.unpack_from("<i", packed, 32)[0] == sentinel_cch
+    # lParam @ 48 (LPARAM = int64)
+    assert struct.unpack_from("<q", packed, 48)[0] == 0
+
+
 # ---------------------------------------------------------------------------
 # find_navigator_tree — locate the SysTreeView32 inside Navigator panel
 # ---------------------------------------------------------------------------
