@@ -48,6 +48,15 @@ class FakeNavigatorTreeReader:
         self._rects: dict[int, tuple[int, int, int, int]] = {}
         self._next_id = 1
         self._selected: int | None = None
+        # Tracks which items have been "made visible" via ensure_visible.
+        # item_rect returns (0,0,0,0) for items NOT in this list, which
+        # mirrors the live MT5 behavior where TVM_GETITEMRECT on items
+        # inside collapsed folders returns NONE. This mechanism (Scotty
+        # F1 from Wave A.1d review) turns the "ensure_visible-before-
+        # item_rect" ordering into a real invariant: if production code
+        # swaps the order, item_rect returns zero → NAV_TREE_RECT_ZERO
+        # fires, and any happy-path test that expects ok=True will fail.
+        self._ensured_visible: list[int] = []
 
     def add(self, text: str, parent: int | None = None,
             rect: tuple[int, int, int, int] | None = None) -> int:
@@ -83,6 +92,13 @@ class FakeNavigatorTreeReader:
         return self._nodes[item][0]
 
     def item_rect(self, item: int) -> tuple[int, int, int, int]:
+        # Mirror live MT5: items inside collapsed folders return zero
+        # rect. ensure_visible must be called first to "expand" them.
+        # Without this gate the ordering test would only check presence
+        # and miss a production code path that read the rect before
+        # expanding the parent chain.
+        if item not in self._ensured_visible:
+            return (0, 0, 0, 0)
         return self._rects.get(item, (0, 0, 0, 0))
 
     def selected_item(self) -> int | None:
@@ -92,9 +108,11 @@ class FakeNavigatorTreeReader:
         self._selected = item
 
     def ensure_visible(self, item: int) -> None:
-        """Track which items were ensure_visible'd. Tests inspect this."""
-        if not hasattr(self, "_ensured_visible"):
-            self._ensured_visible: list[int] = []
+        """Track which items were ensure_visible'd. Tests inspect this.
+
+        After this call, item_rect() will return the pre-set rect for
+        the item; before, it returns (0,0,0,0) per F1 ordering invariant.
+        """
         self._ensured_visible.append(item)
 
 
