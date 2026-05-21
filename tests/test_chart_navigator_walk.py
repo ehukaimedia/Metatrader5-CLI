@@ -216,7 +216,6 @@ def test_tvitemw_struct_is_56_bytes():
     on every live attach. Caught by Claude during live verification
     on Trading.com 2026-05-18."""
     _purge_chart_cache()
-    import struct
     from mt5_cli.chart import _navigator_walk
     packed = _navigator_walk._build_tvitemw_struct(
         item=0xDEADBEEF, pszText_remote=0xCAFEBABE,

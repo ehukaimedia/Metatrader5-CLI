@@ -166,9 +166,11 @@ def _build_tvitemw_struct(item: int, pszText_remote: int,
     # cchTextMax at offset 32 for MT5's TVM_GETITEMW to read them
     # correctly. Regression-locked by test_tvitemw_struct_is_56_bytes
     # and test_tvitemw_struct_field_offsets. Wave A.1b shipped with
-    # spurious 8x and 4x padding that pushed the 68-byte struct's
-    # fields out by 8 bytes, silently breaking item_text() on the
-    # live Trading.com MT5 (caught 2026-05-18 during operator confirm).
+    # spurious 8x and 4x padding that produced a 68-byte struct: pszText
+    # was displaced by +8 bytes (to offset 32), and the trailing fields
+    # iImage/iSelectedImage/cChildren/lParam were displaced by the full
+    # +12 bytes. Net effect: silently broke item_text() on the live
+    # Trading.com MT5 (caught 2026-05-18 during operator confirm).
     return struct.pack(
         "<I4xQIIQIIIIQ",
         TVIF_TEXT,           # mask              @ 0
