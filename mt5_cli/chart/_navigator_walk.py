@@ -35,6 +35,12 @@ from mt5_cli.reports import fail, ok
 # regression test test_tvm_getitemrect_constant_is_0x1104.
 TVM_GETITEMRECT = 0x1104
 
+# TVM_ENSUREVISIBLE = TV_FIRST + 20 = 0x1114. Expands parent chain +
+# scrolls into view so TVM_GETITEMRECT returns a non-zero rect for the
+# matched item. Without it, items under collapsed folders give zero rect
+# and the click misses (Wave A.1d, caught 2026-05-18 on ExpertMACD).
+TVM_ENSUREVISIBLE = 0x1114
+
 # TreeView traversal messages (TV_FIRST + N)
 TVM_GETNEXTITEM = 0x110A
 TVGN_ROOT = 0x0000
@@ -122,6 +128,16 @@ class NavigatorTreeReader(Protocol):
         ...
 
     def selected_item(self) -> int | None:
+        ...
+
+    def ensure_visible(self, item: int) -> None:
+        """Expand the item's parent chain and scroll if needed so
+        TVM_GETITEMRECT returns a meaningful rect. Without this,
+        items inside collapsed folders return (0,0,0,0) from
+        item_rect() and the click defaults to (cx_fallback, 0) —
+        landing on whatever item happens to occupy the top of the
+        tree instead of the matched target. Caught live 2026-05-18
+        on ExpertMACD under collapsed Advisors folder."""
         ...
 
 
@@ -297,6 +313,13 @@ class Win32NavigatorTreeReader:
     def selected_item(self) -> int | None:
         h = self._send(TVM_GETNEXTITEM, TVGN_CARET, 0)
         return h if h else None
+
+    def ensure_visible(self, item: int) -> None:
+        """TVM_ENSUREVISIBLE expands the item's parent chain and
+        scrolls so its rect is laid out. Side effect contained: only
+        the matched item's ancestors expand; siblings/unrelated
+        folders are unaffected."""
+        self._send(TVM_ENSUREVISIBLE, 0, item)
 
     def item_text(self, item: int) -> str:
         ctypes = self._ctypes
@@ -545,6 +568,9 @@ def attach_via_navigator(
     Failure codes (all authoritative for the Navigator path — caller
     must NOT silently fall back to menu_legacy on any of these):
       NAV_EA_NOT_FOUND               EA not in Navigator tree
+      NAV_TREE_RECT_ZERO             item_rect returned (0,0,0,0) even
+                                     after ensure_visible — geometry
+                                     unreadable; refusing to click blind
       NAV_POPUP_NOT_FOUND            #32768 popup never appeared in budget
       NAV_POPUP_OWNERSHIP_MISMATCH   popup PID/TID don't match MT5 — not ours
       NAV_TREE_SELECTION_DRIFT       caret post-click landed on a different
@@ -561,8 +587,22 @@ def attach_via_navigator(
         )
     expected_text = reader.item_text(target_item)
 
+    # Wave A.1d: ensure the matched item is laid out before reading geometry.
+    # Items inside collapsed folders return zero rect from TVM_GETITEMRECT;
+    # this expands the parent chain only (no sibling/unrelated effects).
+    reader.ensure_visible(target_item)
+
     # Click at center of item's rect (client-area coords per probe).
     left, top, right, bottom = reader.item_rect(target_item)
+    if (left, top, right, bottom) == (0, 0, 0, 0):
+        return fail(
+            "NAV_TREE_RECT_ZERO",
+            f"item_rect for EA {ea_name!r} still (0,0,0,0) after "
+            "ensure_visible — tree geometry unreadable. Refusing to "
+            "synthesize a click at a fallback coordinate that would "
+            "land on an unrelated item.",
+            data={"target_item": target_item, "expected": expected_text},
+        )
     cx = (left + right) // 2 if right > left else _ITEM_CENTER_X_FALLBACK
     cy = (top + bottom) // 2
     lparam = ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)

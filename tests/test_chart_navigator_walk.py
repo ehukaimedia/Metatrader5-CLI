@@ -91,6 +91,12 @@ class FakeNavigatorTreeReader:
     def set_selected(self, item: int | None) -> None:
         self._selected = item
 
+    def ensure_visible(self, item: int) -> None:
+        """Track which items were ensure_visible'd. Tests inspect this."""
+        if not hasattr(self, "_ensured_visible"):
+            self._ensured_visible: list[int] = []
+        self._ensured_visible.append(item)
+
 
 @pytest.fixture
 def navigator_tree():
@@ -477,6 +483,73 @@ def test_attach_via_navigator_fails_popup_never_appears(
     )
     assert result["ok"] is False
     assert result["error"]["code"] == "NAV_POPUP_NOT_FOUND"
+
+
+def test_attach_via_navigator_ensure_visible_before_item_rect(
+    monkeypatch, navigator_tree,
+):
+    """Per Wave A.1d (live-caught 2026-05-18): TVM_GETITEMRECT returns
+    NONE for items inside collapsed folders, so attach_via_navigator
+    MUST call ensure_visible(target_item) BEFORE item_rect() to expand
+    the matched item's parent chain. Otherwise the rect comes back
+    (0,0,0,0), the click defaults to (cx_fallback, 0), and the click
+    lands on whichever item happens to be at y=0 instead of the target."""
+    fake_gui, _, _ = _setup_attach_environment(
+        monkeypatch, navigator_tree,
+    )
+
+    from mt5_cli.chart._navigator_walk import attach_via_navigator, find_ea_node
+    target = find_ea_node(navigator_tree, "MyNestedEA")
+    attach_via_navigator(
+        reader=navigator_tree,
+        tree_hwnd=12345,
+        ea_name="MyNestedEA",
+        mt5_pid=5000,
+        mt5_tid=6000,
+    )
+    ensured = getattr(navigator_tree, "_ensured_visible", [])
+    assert target in ensured, (
+        f"attach_via_navigator must call ensure_visible({target}) for the "
+        "matched item before reading its rect; collapsed parents return "
+        "zero-rect from TVM_GETITEMRECT and the click misses."
+    )
+
+
+def test_attach_via_navigator_fails_zero_rect_after_ensure_visible(
+    monkeypatch, navigator_tree,
+):
+    """Defensive: if item_rect() still returns (0,0,0,0) even after
+    ensure_visible (e.g. tree itself is hidden, or some other layout
+    pathology), MUST fail with NAV_TREE_RECT_ZERO rather than send a
+    blind click at (cx_fallback, 0). Prevents the same wrong-item
+    attach the original bug demonstrated."""
+    # Inject a node whose item_rect returns all zeros even after ensure_visible
+    experts = [i for i, (t, _) in navigator_tree._nodes.items()
+               if t == "Expert Advisors"][0]
+    bad_item = navigator_tree.add("ZeroRectEA", parent=experts,
+                                  rect=(0, 0, 0, 0))
+
+    fake_gui, _, _ = _setup_attach_environment(
+        monkeypatch, navigator_tree, ea_name="ZeroRectEA",
+    )
+
+    from mt5_cli.chart._navigator_walk import attach_via_navigator
+    result = attach_via_navigator(
+        reader=navigator_tree,
+        tree_hwnd=12345,
+        ea_name="ZeroRectEA",
+        mt5_pid=5000,
+        mt5_tid=6000,
+    )
+    assert result["ok"] is False
+    assert result["error"]["code"] == "NAV_TREE_RECT_ZERO"
+
+    # And NO right-click should have fired against a zero rect
+    rbutton_calls = [
+        c for c in fake_gui.PostMessage.call_args_list
+        if c.args[1] in (0x0204, 0x0205)
+    ]
+    assert not rbutton_calls
 
 
 def test_attach_via_navigator_dismisses_popup_on_selection_drift(
