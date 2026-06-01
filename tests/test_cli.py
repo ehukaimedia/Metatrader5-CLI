@@ -61,7 +61,7 @@ def test_mt5_help_shows_all_groups(runner):
     cli_runner, main, _ = runner
     result = cli_runner.invoke(main, ["--help"])
     assert result.exit_code == 0
-    for group in ("account", "chart", "config", "connect", "history",
+    for group in ("account", "alert", "chart", "config", "connect", "history",
                   "market", "order", "position", "rates", "screenshot",
                   "status"):
         assert group in result.output

@@ -28,6 +28,7 @@ from mt5.emit import emit
 # Library imports — done at module level so test fixtures that mock
 # MetaTrader5 via sys.modules work cleanly.
 from mt5_cli import account as _account_mod
+from mt5_cli import alert as _alert_mod
 from mt5_cli import history as _history_mod
 from mt5_cli import market as _market_mod
 from mt5_cli import orders as _orders_mod
@@ -259,6 +260,31 @@ def status(ctx: click.Context) -> None:
     if env.get("ok"):
         env["data"]["connected"] = True
     emit(env, ctx.obj["json"])
+
+
+# ---------------------------------------------------------------------------
+# alert  (alerts.dat-backed terminal alerts)
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def alert() -> None:
+    """List MT5 terminal alerts.
+
+    Read-only. Writing alerts (set/delete) is deferred until the alerts.dat
+    record layout is validated against a live terminal.
+    """
+
+
+@alert.command("list")
+@click.option("--alerts-path", default=None,
+              help="Override alerts.dat path; default is the connected/workspace MT5 path.")
+@click.pass_context
+def alert_list_cmd(ctx: click.Context, alerts_path: str | None) -> None:
+    """List all defined MT5 alerts."""
+    emit(_alert_mod.list_alerts(alerts_path=alerts_path, cfg=ctx.obj["cfg"],
+                                data_path=_terminal_data_path(ctx.obj["cfg"])),
+         ctx.obj["json"])
 
 
 # ---------------------------------------------------------------------------
