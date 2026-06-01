@@ -3,7 +3,6 @@
 Strategy: monkeypatch _search_paths to point at tmp_path so tests are
 hermetic and don't read the user's real home dir.
 """
-from pathlib import Path
 
 from mt5_cli.mql5 import discovery
 

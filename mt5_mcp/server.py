@@ -28,9 +28,11 @@ from mt5_cli.reports import fail
 # Connection / helpers
 # ---------------------------------------------------------------------------
 
-def _prepare() -> tuple[dict | None, dict | None]:
-    """Return (cfg, None) once the bridge is up, or (None, fail_envelope).
+def _prepare() -> tuple[dict, dict | None]:
+    """Return (cfg, None) once the bridge is up, or (cfg, fail_envelope).
 
+    cfg (the loaded config) is always returned; the second element is a
+    fail envelope only when the connection could not be established.
     Zero-config: connects to the already-running terminal using config
     credentials when present. A connection failure becomes an MT5_CONNECTION_ERROR
     envelope so every tool returns a structured result, never a raw exception.
@@ -44,7 +46,7 @@ def _prepare() -> tuple[dict | None, dict | None]:
                 server=cfg.get("server"),
             )
         except Exception as exc:  # noqa: BLE001
-            return None, fail("MT5_CONNECTION_ERROR", f"Could not connect to MT5: {exc}")
+            return cfg, fail("MT5_CONNECTION_ERROR", f"Could not connect to MT5: {exc}")
     return cfg, None
 
 

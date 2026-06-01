@@ -7,6 +7,10 @@ build/
 *.egg
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 .claude/
 .claire/
 .ehukaiconnect/

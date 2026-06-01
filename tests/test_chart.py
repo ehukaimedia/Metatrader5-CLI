@@ -300,7 +300,6 @@ def test_ensure_chart_opens_new_when_symbol_has_no_existing_chart(
     # Stub new_chart so we don't drive the full File>New Chart menu walk;
     # only verify ensure_chart routed to it.
     called_with = {}
-    from mt5_cli.chart import chart as chart_mod
 
     def fake_new_chart(symbol, *, timeframe=None, **kw):
         called_with["symbol"] = symbol

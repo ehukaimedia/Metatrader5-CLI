@@ -1,5 +1,6 @@
 """Tests for mt5_cli/tester/cache.py - per-run snapshot dirs."""
 from datetime import datetime, timezone
+from pathlib import Path
 
 from mt5_cli.tester import cache
 
@@ -73,7 +74,3 @@ def test_get_run_returns_payload_when_present(tmp_path):
 
 def test_get_run_returns_none_when_missing(tmp_path):
     assert cache.get_run("nope", root=tmp_path) is None
-
-
-# Path import for assertion
-from pathlib import Path

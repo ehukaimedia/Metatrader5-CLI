@@ -108,7 +108,6 @@ def attach_ea(
         - Default-params only. For custom inputs, set MQL5 `input`
           defaults in the EA source, or attach manually via the dialog.
     """
-    import win32gui  # noqa: PLC0415 (lazy import)
 
     match = find_window(window_substring)
     if not match:

@@ -17,8 +17,7 @@ Deliberate divergences from legacy (per spec):
 - _finalize_order error wraps mt5_retcode in data={"mt5_retcode": ...}.
 """
 import sys
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

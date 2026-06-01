@@ -16,7 +16,7 @@ ships with operator hand-off as the verification step.
 """
 import sys
 import types
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -544,8 +544,7 @@ def test_attach_via_navigator_fails_zero_rect_after_ensure_visible(
     # Inject a node whose item_rect returns all zeros even after ensure_visible
     experts = [i for i, (t, _) in navigator_tree._nodes.items()
                if t == "Expert Advisors"][0]
-    bad_item = navigator_tree.add("ZeroRectEA", parent=experts,
-                                  rect=(0, 0, 0, 0))
+    navigator_tree.add("ZeroRectEA", parent=experts, rect=(0, 0, 0, 0))
 
     fake_gui, _, _ = _setup_attach_environment(
         monkeypatch, navigator_tree, ea_name="ZeroRectEA",

@@ -14,7 +14,7 @@ Deliberate divergences from legacy (per spec):
 """
 import sys
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -207,7 +207,7 @@ class TestResolveMagic:
         import hashlib
         from mt5_cli.risk.risk import resolve_magic
         cfg = _cfg(strategy_ids={})
-        expected = int(hashlib.sha256("alpha".encode("utf-8")).hexdigest()[:8], 16) % 80000 + 100000
+        expected = int(hashlib.sha256(b"alpha").hexdigest()[:8], 16) % 80000 + 100000
         assert resolve_magic("alpha", cfg) == expected
 
 

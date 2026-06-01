@@ -172,7 +172,6 @@ def test_compile_fails_when_stale_ex5_predates_source(
     agent would deploy the OLD binary believing it matched the source.
     Must fail closed when .ex5 predates the source even if errors=0."""
     import os as _os
-    import time as _time
     src = tmp_path / "demo.mq5"
     src.write_text("// stub\n")
     # Stale .ex5: explicitly set mtime BEFORE the source mtime so the

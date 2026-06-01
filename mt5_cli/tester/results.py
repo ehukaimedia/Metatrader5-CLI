@@ -229,7 +229,7 @@ def parse_html_report(path: Path | str) -> dict[str, Any]:
         for row in rows[1:]:
             if len(row) != len(headers):
                 continue
-            raw = dict(zip(headers, row))
+            raw = dict(zip(headers, row, strict=False))
             deals.append(
                 {
                     "time": raw.get("time"),
