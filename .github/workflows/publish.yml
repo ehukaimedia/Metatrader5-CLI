@@ -1,16 +1,19 @@
 name: Publish to PyPI
 
 # Publishes to PyPI on each GitHub Release via PyPI Trusted Publishing (OIDC) —
-# no API token is stored anywhere. One-time setup on PyPI (pypi.org → your
-# account → Publishing → Add a pending publisher):
-#   PyPI Project Name : metatrader5-cli
-#   Owner             : ehukaimedia
-#   Repository name   : Metatrader5-CLI
-#   Workflow name     : publish.yml
-#   Environment name  : (leave blank)
-# Trigger by publishing a Release, or manually via the "Run workflow" button.
-# Hardening (optional, later): add a protected GitHub Environment and set the
-# same name in both the PyPI publisher config and an `environment:` key below.
+# no API token is stored anywhere.
+#
+# One-time setup (do all three):
+#  1. PyPI (pypi.org -> your account -> Publishing -> Add a pending publisher):
+#       PyPI Project Name : metatrader5-cli
+#       Owner             : ehukaimedia
+#       Repository name   : Metatrader5-CLI
+#       Workflow name     : publish.yml
+#       Environment name  : pypi
+#  2. GitHub (Settings -> Environments -> New environment -> "pypi"):
+#       - Deployment branches and tags: restrict to `master` and tag `v*`
+#       - (recommended) Required reviewers: at least one maintainer
+#  3. Trigger by publishing a Release, or "Run workflow" from the master branch.
 
 on:
   release:
@@ -24,8 +27,11 @@ jobs:
   build-and-publish:
     name: Build and publish to PyPI
     runs-on: ubuntu-latest
-    # The package is pure-Python (py3-none-any), so it builds on Linux even
-    # though its MetaTrader5 runtime dependency is Windows-only.
+    # Only a published release (a tag) or a manual run from master may reach the
+    # OIDC publish step — a workflow_dispatch from any other branch is skipped,
+    # and the protected `pypi` environment further restricts deployable refs.
+    if: github.event_name == 'release' || github.ref == 'refs/heads/master'
+    environment: pypi
     permissions:
       id-token: write  # required for OIDC trusted publishing
     steps:
