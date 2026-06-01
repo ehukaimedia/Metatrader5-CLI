@@ -108,7 +108,7 @@ def attach_ea(
         - Default-params only. For custom inputs, set MQL5 `input`
           defaults in the EA source, or attach manually via the dialog.
     """
-    import win32gui  # noqa: PLC0415 (lazy; mocked in tests via sys.modules)
+    import win32gui  # noqa: PLC0415 (lazy import)
 
     match = find_window(window_substring)
     if not match:
@@ -156,7 +156,7 @@ def attach_ea(
                 "list_charts() and retry.",
             )
 
-    # Wave A.1 path: try the Navigator tree first. The Navigator panel
+    # Try the Navigator tree first. The Navigator panel
     # is filesystem-aware (reflects MQL5/Experts/ in real time), unlike
     # the Insert > Experts menu which MT5 populates at startup and
     # never refreshes. Newly deployed EAs only show up in Navigator,
@@ -203,7 +203,7 @@ def _try_navigator_attach(main_hwnd: int, expert_name: str) -> dict:
       fail(NAV_EA_NOT_FOUND, ...)     Authoritative — do NOT fall back
       fail(NAV_TREE_SELECTION_DRIFT, NAV_POPUP_*, ...) — authoritative
     """
-    import win32process  # noqa: PLC0415 (lazy; mocked in tests)
+    import win32process  # noqa: PLC0415 (lazy import)
 
     panel_hwnd = find_navigator_panel(main_hwnd)
     if panel_hwnd is None:
@@ -249,7 +249,7 @@ def _try_navigator_attach(main_hwnd: int, expert_name: str) -> dict:
 
 
 def _attach_via_menu_legacy(main_hwnd: int, expert_name: str) -> dict:
-    """Legacy Insert > Experts menu walk (Wave A and before).
+    """Legacy Insert > Experts menu walk.
 
     Kept as a fallback for builds where the Navigator panel structure
     differs. Subject to the menu's startup-only refresh limitation —
@@ -285,7 +285,7 @@ def _attach_via_menu_legacy(main_hwnd: int, expert_name: str) -> dict:
             "CHART_EA_NOT_FOUND",
             f"Expert Advisor {expert_name!r} not found anywhere under "
             "Insert > Experts. Verify it is deployed "
-            "(Phase 3: `mt5 ea deploy <name>`) and the name matches the "
+            "(`mt5 ea deploy <name>`) and the name matches the "
             ".ex5 filename without extension. Note: the Insert > Experts "
             "menu is populated at MT5 startup and does NOT refresh from "
             "disk — restart MT5 if the EA was deployed since launch.",

@@ -1,22 +1,20 @@
 """
 positions.py — Open position management for mt5_cli.
 
-Cherry-picked from archive/legacy-mt5/core/position.py (247 LOC).
 5 public functions: list, close, close_all, move_sl, breakeven.
-(Skip: show — not in plan scope.)
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_cli.bridge.mt5_call()``.
 
-Deliberate divergences from legacy:
+Notes:
 
-1. Uses ok()/fail() from mt5_cli.reports instead of local _fail helper.
-2. fail() error wraps mt5_retcode in data={"mt5_retcode": ...} (not a kwarg).
-3. No risk.check_order — only _live_gate_check (account_info-based live gate).
-   Positions do not go through risk gauntlet; they manage existing trades.
-4. _live_gate_check shape matches mt5_cli.orders.orders._live_gate_check
-   verbatim (account_info → ACCOUNT_TRADE_MODE_REAL check).
-5. Module renamed plural: legacy 'position' → 'positions' package.
+- Returns ok()/fail() envelopes from mt5_cli.reports; fail() wraps the
+  MT5 retcode in data={"mt5_retcode": ...}.
+- Positions do not go through the risk gauntlet (no risk.check_order). They
+  manage existing trades, so they only apply the account_info-based live gate
+  via _live_gate_check.
+- _live_gate_check mirrors mt5_cli.orders.orders._live_gate_check
+  (account_info → ACCOUNT_TRADE_MODE_REAL check).
 """
 from __future__ import annotations
 
@@ -112,7 +110,7 @@ def _pos_to_dict(pos) -> dict:
 def list(symbol: str | None = None) -> dict:  # noqa: A001
     """Return all open positions, optionally filtered by symbol.
 
-    Note: shadows the Python builtin ``list``; intentional per plan spec.
+    Note: shadows the Python builtin ``list``; this is intentional.
 
     Args:
         symbol: Filter to positions on this symbol only. None returns all.

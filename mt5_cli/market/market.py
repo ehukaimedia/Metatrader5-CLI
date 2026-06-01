@@ -1,25 +1,8 @@
 """
 market.py — Market data primitives for mt5_cli.
 
-Pattern-ported from archive/legacy-mt5/core/market.py with absolute imports
-from mt5_cli.bridge and ok()/fail() envelopes.
-
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` / ``ensure_symbol()`` via the bridge.
-
-Deliberate divergences from legacy:
-- ``"mid"`` renamed to ``"midpoint"`` in depth() envelope.
-- ``"volume_imbalance"`` renamed to ``"imbalance"`` in depth() envelope.
-- ``_entry_dict()`` drops the ``_asdict`` fast-path: MagicMock auto-creates
-  any attribute, so ``hasattr(entry, "_asdict")`` is always True under test,
-  causing ``dict(MagicMock())`` → ``{}`` and a downstream TypeError. The
-  ``getattr`` fallback is correct for both NamedTuple and MagicMock objects.
-- ``fail()`` wraps ``mt5_retcode`` in ``data={"mt5_retcode": ...}`` instead of
-  a top-level kwarg (the new envelope API has no ``mt5_retcode`` parameter).
-- Bridge NOT widened: ``BOOK_TYPE_NAMES`` is a hardcoded dict (no import of
-  ``mt5.BOOK_TYPE_*`` needed); ``trade_mode`` is returned as raw int (mapping
-  deferred).
-- ``sessions()`` data dict includes ``"symbol"`` key (test requirement).
 """
 from __future__ import annotations
 
@@ -66,18 +49,12 @@ def _last_error() -> tuple[int | None, str]:
 
 
 def _entry_dict(entry) -> dict:
-    """Coerce a book entry (NamedTuple or MagicMock) to a plain dict.
+    """Coerce a book entry (NamedTuple) to a plain dict.
 
-    The ``_asdict`` fast-path is intentionally omitted: MagicMock
-    auto-creates any attribute, so ``hasattr(entry, "_asdict")`` is always
-    True under tests, causing ``dict(MagicMock())`` to return ``{}`` and
-    a downstream TypeError.  The ``getattr`` fallback works correctly for
-    both real MT5 NamedTuple objects and MagicMock test doubles.
+    Fields are read individually via ``getattr`` rather than ``_asdict``.
 
     ``volume_dbl`` / ``volume_real`` are only pulled when they are
-    explicitly numeric (int or float); otherwise we fall back to ``volume``
-    so that MagicMock's auto-generated attribute values don't silently
-    shadow the real integer that the test fixture set on ``volume``.
+    explicitly numeric (int or float); otherwise we fall back to ``volume``.
     """
     raw_volume_dbl = getattr(entry, "volume_dbl", None)
     if not isinstance(raw_volume_dbl, (int, float)):
@@ -181,7 +158,7 @@ def info(symbol: str) -> dict:
         "swap_long": sym.swap_long,
         "swap_short": sym.swap_short,
         "filling_mode": sym.filling_mode,
-        "trade_mode": sym.trade_mode,  # raw int; mapping deferred
+        "trade_mode": sym.trade_mode,  # raw int
     })
 
 

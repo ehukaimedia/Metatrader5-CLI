@@ -7,8 +7,8 @@ It ships with the tool so AI agents can introspect it.
 
 - `./ea/<name>.mq5` and `./ea/<name>.ex5` — user-authored Expert Advisors
 - `./indicators/<name>.mq5` and `./indicators/<name>.ex5` — user-authored indicators
-- `./presets/<name>.<symbol>.<tf>.set` — tester parameter presets (Phase 4)
-- `./results/<run-id>/` — captured tester run artifacts (Phase 4)
+- `./presets/<name>.<symbol>.<tf>.set` — tester parameter presets
+- `./results/<run-id>/` — captured tester run artifacts
 - `./.metatrader5-cli.json` — optional per-project config override
 
 ## What lives in the user's data dir (XDG_DATA_HOME convention)
@@ -16,14 +16,14 @@ It ships with the tool so AI agents can introspect it.
 When no project-local `./ea` / `./indicators` exists, `mt5` falls back to
 the user's data dir. EAs/indicators/presets/results are user-authored
 DATA, so they belong under `XDG_DATA_HOME` (not `XDG_CONFIG_HOME`, which
-is for settings). Phase 3 placeholder resolution order:
+is for settings). Resolution order:
 
 1. `$CWD/ea/` and `$CWD/indicators/` (first preference)
 2. `~/.local/share/metatrader5-cli/{ea,indicators}/`
 
-Phase 6 `paths.py` will widen this to the full
+The full resolution chain also honors the
 `MT5_EA_DIR` / `MT5_INDICATORS_DIR` env override + `$XDG_DATA_HOME` +
-`%APPDATA%` / `~/Library/Application Support` chain.
+`%APPDATA%` / `~/Library/Application Support`.
 
 The config FILE itself follows a separate resolution and is a flat JSON
 file (XDG_CONFIG_HOME convention):

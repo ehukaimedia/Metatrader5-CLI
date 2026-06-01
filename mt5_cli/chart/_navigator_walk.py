@@ -10,13 +10,12 @@ right-click → Enter (Attach to Chart, the menu's default item) flow.
 Bridge isolation: pure Win32 (lazy-imported pywin32). Never touches the
 MT5 Python SDK.
 
-Constants are empirical from Claude's probe on Trading.com MT5 build,
-2026-05-18. See test_chart_navigator_walk.py for regression locks.
+Constants are empirical, measured against a Trading.com MT5 build.
 
 The ctypes-backed real NavigatorTreeReader (TVM_GETITEMRECT, 64-bit
 VirtualAllocEx + SendMessageW for cross-process tree reads) is exercised
-live during operator confirmation, not in pytest — that surface is the
-intentional gap acknowledged in the Wave A.1 contract.
+live against a running MT5, not in unit tests; that cross-process surface
+is the one part of this module without hermetic coverage.
 """
 from __future__ import annotations
 
@@ -31,14 +30,13 @@ from mt5_cli.reports import fail, ok
 
 # CRITICAL: TVM_GETITEMRECT = TV_FIRST + 4 = 0x1104. NOT 0x1004 — that's
 # ListView LVM_GETSUBITEMRECT and silently returns garbage when sent to
-# a TreeView. Claude burned probe cycles on this typo; locked via
-# regression test test_tvm_getitemrect_constant_is_0x1104.
+# a TreeView. This typo is easy to introduce and hard to spot.
 TVM_GETITEMRECT = 0x1104
 
 # TVM_ENSUREVISIBLE = TV_FIRST + 20 = 0x1114. Expands parent chain +
 # scrolls into view so TVM_GETITEMRECT returns a non-zero rect for the
 # matched item. Without it, items under collapsed folders give zero rect
-# and the click misses (Wave A.1d, caught 2026-05-18 on ExpertMACD).
+# and the click misses (observed on ExpertMACD under a collapsed folder).
 TVM_ENSUREVISIBLE = 0x1114
 
 # TreeView traversal messages (TV_FIRST + N)
@@ -57,7 +55,7 @@ VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
 
 # ---------------------------------------------------------------------------
-# Empirical timing constants (Trading.com MT5 build, probed 2026-05-18)
+# Empirical timing constants (measured against a Trading.com MT5 build)
 # ---------------------------------------------------------------------------
 
 # Tree's internal selection state lags PostMessage WM_RBUTTONDOWN by
@@ -65,9 +63,9 @@ VK_ESCAPE = 0x1B
 # can falsely flag NAV_TREE_SELECTION_DRIFT.
 TREE_SELECTION_SETTLE_SECONDS = 0.02
 
-# Hard budget for the #32768 right-click popup to appear. Claude's
-# 5-trial probe measured 8.9-12.9ms avg ~11ms; 150ms is ~14x the
-# observed avg so we cover MT5 under load and slower machines.
+# Hard budget for the #32768 right-click popup to appear. Measured at
+# 8.9-12.9ms (avg ~11ms); 150ms is ~14x the observed avg so we cover
+# MT5 under load and slower machines.
 POPUP_APPEAR_TIMEOUT_SECONDS = 0.15
 
 # Retry pattern inside the popup budget: initial sleep covers the
@@ -77,15 +75,15 @@ _POPUP_POLL_INTERVAL_SECONDS = 0.01
 
 # Folder text used by the tree walker; lowercase, matched
 # case-insensitively. Locale-sensitive: non-English MT5 builds may use
-# a localized label here. Out of scope for Wave A.1; if it surfaces in
-# the field, we add a locale table.
+# a localized label here. If a localized build surfaces in the field,
+# a locale table can be added.
 _EXPERTS_FOLDER_TEXT = "expert advisors"
 
 # Safe X-coordinate fallback for the right-click WM_RBUTTONDOWN lParam
 # when reader.item_rect returns a degenerate (right <= left) rect.
-# Value is half the 292px Navigator tree client width Claude measured
-# during the 2026-05-18 probe; any X inside the item's row triggers
-# the same row-level right-click context menu.
+# Value is half the 292px Navigator tree client width measured on the
+# Trading.com MT5 build; any X inside the item's row triggers the same
+# row-level right-click context menu.
 _ITEM_CENTER_X_FALLBACK = 146
 
 
@@ -136,8 +134,8 @@ class NavigatorTreeReader(Protocol):
         items inside collapsed folders return (0,0,0,0) from
         item_rect() and the click defaults to (cx_fallback, 0) —
         landing on whatever item happens to occupy the top of the
-        tree instead of the matched target. Caught live 2026-05-18
-        on ExpertMACD under collapsed Advisors folder."""
+        tree instead of the matched target. Observed live on
+        ExpertMACD under a collapsed Advisors folder."""
         ...
 
 
@@ -180,13 +178,11 @@ def _build_tvitemw_struct(item: int, pszText_remote: int,
     import struct  # noqa: PLC0415
     # 56-byte TVITEMW for x64 — pszText MUST land at offset 24 and
     # cchTextMax at offset 32 for MT5's TVM_GETITEMW to read them
-    # correctly. Regression-locked by test_tvitemw_struct_is_56_bytes
-    # and test_tvitemw_struct_field_offsets. Wave A.1b shipped with
-    # spurious 8x and 4x padding that produced a 68-byte struct: pszText
-    # was displaced by +8 bytes (to offset 32), and the trailing fields
-    # iImage/iSelectedImage/cChildren/lParam were displaced by the full
-    # +12 bytes. Net effect: silently broke item_text() on the live
-    # Trading.com MT5 (caught 2026-05-18 during operator confirm).
+    # correctly. Spurious 8x and 4x padding produces a 68-byte struct:
+    # pszText is displaced by +8 bytes (to offset 32), and the trailing
+    # fields iImage/iSelectedImage/cChildren/lParam by the full +12
+    # bytes. Net effect: silently broken item_text() on the live
+    # Trading.com MT5.
     return struct.pack(
         "<I4xQIIQIIIIQ",
         TVIF_TEXT,           # mask              @ 0
@@ -209,16 +205,16 @@ class Win32NavigatorTreeReader:
     WriteProcessMemory the request → SendMessageW the tree → ReadProcessMemory
     the response → VirtualFreeEx → CloseHandle on exit.
 
-    64-bit pitfalls codified per Claude's probe 2026-05-18:
+    64-bit pitfalls:
       - HTREEITEM is 8 bytes on 64-bit; pack as little-endian Q
       - VirtualAllocEx.restype = c_size_t (avoid 32-bit address truncation)
       - SendMessageW argtypes pin lParam to c_ssize_t for full 64-bit width
       - TVITEMW struct has natural-alignment padding (see _build_tvitemw_struct)
 
-    This implementation has NO hermetic tests — the cross-process Win32
-    surface is verified live during operator confirmation. Wave A.1
-    contract acknowledges this gap explicitly. The orchestration that
-    uses this reader IS hermetically tested via FakeNavigatorTreeReader.
+    This implementation has no hermetic tests — the cross-process Win32
+    surface is verified live against a running MT5. The orchestration
+    that uses this reader is hermetically tested via an in-memory fake
+    reader.
     """
 
     _TEXT_BUFFER_BYTES = 260 * 2   # MAX_PATH WCHARs
@@ -236,7 +232,7 @@ class Win32NavigatorTreeReader:
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self._user32 = ctypes.WinDLL("user32", use_last_error=True)
 
-        # CRITICAL pinning per Claude's probe:
+        # CRITICAL pinning:
         # VirtualAllocEx returns a pointer — restype must be c_size_t,
         # NOT the default c_int, to avoid 32-bit truncation of high addresses.
         self._kernel32.VirtualAllocEx.argtypes = [
@@ -372,7 +368,7 @@ class Win32NavigatorTreeReader:
     def item_rect(self, item: int) -> tuple[int, int, int, int]:
         """TVM_GETITEMRECT with HTREEITEM packed at offset 0 of the
         returned RECT buffer. Returns (left, top, right, bottom)
-        client-area coords per Claude probe.
+        client-area coords.
         """
         ctypes = self._ctypes
         rect_remote = self._kernel32.VirtualAllocEx(
@@ -439,7 +435,7 @@ def find_navigator_panel(mt5_main_hwnd: int) -> int | None:
 
     The panel's title bar contains 'Navigator' (case-insensitive).
     Locale-sensitive — non-English MT5 builds may use a localized
-    label here; out of scope for Wave A.1.
+    label here.
     """
     win32gui, _, _ = _win32()
     found: list[int] = []
@@ -464,7 +460,7 @@ def find_navigator_panel(mt5_main_hwnd: int) -> int | None:
 def find_ea_node(reader: NavigatorTreeReader, ea_name: str) -> int | None:
     """Walk Navigator tree to find the EA leaf node under Expert Advisors.
 
-    Tree shape (per Claude's empirical probe):
+    Tree shape (observed empirically):
       root = 'MetaTrader 5'
         children: Accounts, Indicators, Expert Advisors, Services, Scripts
           under Expert Advisors:
@@ -587,12 +583,12 @@ def attach_via_navigator(
         )
     expected_text = reader.item_text(target_item)
 
-    # Wave A.1d: ensure the matched item is laid out before reading geometry.
+    # Ensure the matched item is laid out before reading geometry.
     # Items inside collapsed folders return zero rect from TVM_GETITEMRECT;
     # this expands the parent chain only (no sibling/unrelated effects).
     reader.ensure_visible(target_item)
 
-    # Click at center of item's rect (client-area coords per probe).
+    # Click at center of item's rect (client-area coords).
     left, top, right, bottom = reader.item_rect(target_item)
     if (left, top, right, bottom) == (0, 0, 0, 0):
         return fail(
@@ -623,8 +619,8 @@ def attach_via_navigator(
         )
 
     # G1 — popup ownership: PID + TID both must match MT5. Belt-and-suspenders.
-    # GW_OWNER deliberately NOT used as a gate: per Claude's 2026-05-18 probe
-    # on Trading.com's MT5 build, popups spawned internally by MT5 return
+    # GW_OWNER deliberately NOT used as a gate: on Trading.com's MT5
+    # build, popups spawned internally by MT5 return
     # GW_OWNER == 0 even though they're legitimate. PID/TID match is the
     # reliable signal.
     try:

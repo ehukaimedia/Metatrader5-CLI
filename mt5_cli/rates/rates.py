@@ -4,18 +4,13 @@ rates.py — OHLCV bar and tick data primitives for mt5_cli.
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` / ``ensure_symbol()`` via the bridge.
 
-Pattern-ported from archive/legacy-mt5/core/rates.py with absolute imports
-from mt5_cli.bridge and ok()/fail() envelopes from mt5_cli.reports.
-
-Deliberate divergences from legacy:
+Implementation notes:
 - ``_bar_to_dict`` and ``_tick_to_dict`` use subscript access (``row["time"]``)
   because ``copy_rates_*`` and ``copy_ticks_*`` return numpy structured arrays
   whose rows are ``numpy.void`` objects — subscript access only. Attribute
   access (``row.time``) raises ``AttributeError`` on real MT5 data.
   Distinct from ``copy_deals_*`` / ``market_book_get`` which return NamedTuples
   and do support attribute access (see history.py, market.py).
-- Local ``_fail`` helper dropped; replaced with ``fail()`` from
-  mt5_cli.reports (the new envelope API).
 - ``_TIMEFRAME_MAP`` values come from bridge re-exports (TIMEFRAME_M1 …
   TIMEFRAME_MN1) rather than hardcoded MT5 wire values — single-source-of-truth.
 """

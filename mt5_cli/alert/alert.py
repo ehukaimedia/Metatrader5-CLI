@@ -6,8 +6,7 @@ narrow and fail-fast: if a future terminal build changes the layout,
 ``list_alerts`` returns a failure envelope instead of guessing.
 
 Read-only by design. The write path (``set``/``delete``) is deferred until the
-record layout is round-trip validated against a live terminal — it is preserved
-on the ``alert-write-path-deferred`` branch, not shipped here, so the CLI can
+record layout is round-trip validated against a live terminal, so the CLI can
 never write an unvalidated record into a user's live alerts.dat.
 """
 
@@ -19,9 +18,8 @@ from pathlib import Path
 
 from mt5_cli.reports import fail, ok
 
-# Phase 6 will centralize MT5 path discovery in config/paths.py. Until then,
 # alert reuses the deployer's pure-filesystem terminal-data-dir resolver so we
-# don't hand-roll a third hash-dir scanner. Migration = swap this one import.
+# don't hand-roll a third hash-dir scanner.
 from mt5_cli.mql5.deployer import resolve_terminal_data_dir
 
 HEADER_COUNT_OFFSET = 0x1AC

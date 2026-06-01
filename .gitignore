@@ -17,3 +17,19 @@ build/
 
 # MT5 + agent compile logs (transient build output)
 *.log
+
+# Binary MT5 tester caches (these bloated the pre-release history)
+*.tst
+tester-cache/
+
+# Internal working-tree artifacts — never part of the public repo
+.ehukai_remote/
+archive/
+shared/
+skills/
+docs/code-reviews/
+docs/handoffs/
+docs/plans/
+docs/specs/
+docs/playgrounds/
+OPEN_SOURCE_PLAN.md

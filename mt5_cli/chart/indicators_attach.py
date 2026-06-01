@@ -129,7 +129,7 @@ def attach(
             "CHART_INDICATOR_NOT_FOUND",
             f"Indicator {indicator_name!r} not found in "
             "Insert > Indicators > Custom. Verify it is deployed "
-            "(Phase 3: `mt5 indicator deploy <name>`) and the name "
+            "(`mt5 indicator deploy <name>`) and the name "
             "matches the .ex5 filename without extension.",
         )
 

@@ -3,9 +3,6 @@ account.py — Account snapshot primitives for mt5_cli.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` via the bridge.
-
-Pattern-ported from archive/legacy-mt5/core/account.py; imports and envelope
-construction rewritten for mt5_cli.
 """
 from __future__ import annotations
 
@@ -82,8 +79,6 @@ def risk(cfg: dict) -> dict:
     positions count, daily-loss cap, and free-margin percentage.  It does
     NOT run the full ``check_order`` (which requires a specific symbol and
     volume); it is an at-a-glance signal only.
-
-    Pattern-ported from archive/legacy-mt5/core/account.py::risk.
     """
     acc, err = _account_info_or_fail()
     if err:

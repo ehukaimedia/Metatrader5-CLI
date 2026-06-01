@@ -139,7 +139,6 @@ Discovery order for EAs and indicators:
 
 1. `./ea` or `./indicators` in the current working directory.
 2. `~/.local/share/metatrader5-cli/ea` or `~/.local/share/metatrader5-cli/indicators`.
-3. `%APPDATA%/metatrader5-cli/ea` or `%APPDATA%/metatrader5-cli/indicators` on Windows.
 
 First match wins.
 
@@ -209,6 +208,7 @@ produces them.
 | `order` | Market, limit, stop, dry-run, modify, cancel, poll fills |
 | `position` | List, close, move stop loss, break-even |
 | `history` | Orders, deals, stats |
+| `alert` | List MT5 terminal alerts |
 | `chart` | MT5 chart/window control |
 | `screenshot` | Capture and annotate MT5 screenshots |
 | `config` | Show effective config and retcode help |

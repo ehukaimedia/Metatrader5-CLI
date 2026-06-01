@@ -26,9 +26,9 @@ def normalize_menu_text(text: str) -> str:
     Used to compare menu labels against caller-supplied target names. The
     tab split MUST come first: str.split() (no args) treats tab as
     whitespace and would collapse it into a space, leaving the shortcut
-    text glued to the label (Codex post-fix P2 #2: "&New Chart\\tCtrl+N"
-    previously normalized to "new chart ctrl+n", breaking exact-match
-    walks of File > New Chart).
+    text glued to the label (e.g. "&New Chart\\tCtrl+N" would otherwise
+    normalize to "new chart ctrl+n", breaking exact-match walks of
+    File > New Chart).
     """
     # 1. Drop the shortcut suffix (everything after the first tab).
     label_only = text.split("\t", 1)[0]
@@ -53,7 +53,7 @@ def menu_string(hmenu: int, index: int) -> str:
 def find_submenu(parent_hmenu: int, name_lower: str):
     """Return the submenu hmenu under `parent_hmenu` whose normalized
     label exactly matches `name_lower`, or None if not found."""
-    import win32gui  # noqa: PLC0415 (lazy; mocked at sys.modules in tests)
+    import win32gui  # noqa: PLC0415 (lazy import)
     count = win32gui.GetMenuItemCount(parent_hmenu)
     for i in range(count):
         if normalize_menu_text(menu_string(parent_hmenu, i)) == name_lower:

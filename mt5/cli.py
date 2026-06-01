@@ -25,8 +25,8 @@ import click
 
 from mt5.emit import emit
 
-# Library imports — done at module level so test fixtures that mock
-# MetaTrader5 via sys.modules work cleanly.
+# Library imports — done at module level so a MetaTrader5 stub injected
+# via sys.modules is picked up cleanly.
 from mt5_cli import __version__ as _mt5_cli_version
 from mt5_cli import account as _account_mod
 from mt5_cli import alert as _alert_mod
@@ -105,8 +105,8 @@ def _terminal_data_path(cfg: dict) -> str | None:
     brought up (in which case the deployer falls back to its own
     resolution chain).
 
-    Keeping this lookup in the CLI keeps mt5_cli/mql5/ bridge-free per
-    the locked bridge-isolation rule.
+    Keeping this lookup in the CLI keeps mt5_cli/mql5/ bridge-free so the
+    MQL5 authoring modules never depend on the connection bridge.
     """
     if _autoconnect(cfg) is not None:
         return None
@@ -155,7 +155,7 @@ class EnvelopeGroup(click.Group):
         # its usage block to stderr before we get a chance to emit().
         # Preserve the caller's original standalone_mode semantics for
         # exit-vs-return: sys.exit(0) when True (real CLI), return when
-        # False (CliRunner under test).
+        # False (embedded/programmatic invocation).
         try:
             rv = super().main(
                 args=args,
@@ -1091,7 +1091,7 @@ def config_retcode(ctx: click.Context, code: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# ea (MQL5 Expert Advisors — Phase 3b plugin host)
+# ea (MQL5 Expert Advisors)
 # ---------------------------------------------------------------------------
 
 

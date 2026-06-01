@@ -1,9 +1,8 @@
 """Win32 chart-control primitives for the agnostic MT5 CLI.
 
-Cherry-pick from archive/legacy-mt5/core/chart.py with TDA-flavored
-orchestration removed (no `screenshot_tda` loop, no DOM panel toggle).
-The agent composes its own multi-timeframe workflows from these
-primitives; the tool is hands, not strategy.
+These are low-level building blocks for driving MT5 chart windows. The
+agent composes its own multi-timeframe workflows from these primitives;
+the tool is hands, not strategy.
 
 This module talks to an already-running MT5 terminal by sending Win32
 messages directly to its window/toolbar HWNDs. Chart UI control is

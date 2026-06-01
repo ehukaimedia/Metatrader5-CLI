@@ -1,9 +1,7 @@
 """Tests for mt5_cli/chart/ - Win32 chart-control primitives.
 
-Cherry-pick from archive/legacy-mt5/core/chart.py (941 LOC, with
-TDA-flavored orchestration stripped out). Tests use lazily-mocked
-pywin32 modules at sys.modules level since chart.py imports them via
-a `_win32()` helper.
+Tests use lazily-mocked pywin32 modules at sys.modules level since
+chart.py imports them via a `_win32()` helper.
 """
 import sys
 import types

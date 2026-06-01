@@ -4,8 +4,8 @@ history.py — Trade history primitives for mt5_cli.
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_call()`` via the bridge.
 
-Pattern-ported from archive/legacy-mt5/core/history.py; imports and envelope
-construction rewritten for mt5_cli.
+Provides historical orders, deals, and aggregate performance statistics as
+plain dicts wrapped in standard result envelopes.
 """
 from __future__ import annotations
 

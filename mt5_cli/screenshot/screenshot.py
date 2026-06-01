@@ -1,9 +1,8 @@
 """Screenshot primitives for the agnostic MT5 CLI.
 
-Cherry-pick from archive/legacy-mt5/core/screenshot.py with TDA-flavored
-orchestration removed (no `tda` multi-TF loop, no `visual_manifest` /
-`structured_context` writing). The agent composes its own screenshot
-workflows from these primitives; the tool is hands, not strategy.
+Low-level capture primitives with no multi-timeframe orchestration and no
+manifest/context writing. The agent composes its own screenshot workflows
+from these primitives; the tool is hands, not strategy.
 
 Bridge isolation: this module never touches the MT5 SDK bridge. It uses
 mss for monitor / region capture, pygetwindow for window bound lookup,
@@ -413,7 +412,7 @@ def dom(
         # Without this, MT5 opens the DOM for whatever chart is currently
         # active - so dom("USDJPY") on an active EURUSD chart would
         # capture EURUSD DOM but the envelope would report symbol=USDJPY
-        # (Codex P2 #7: label-vs-reality mismatch).
+        # (a label-vs-reality mismatch).
         from mt5_cli.chart import symbol as chart_symbol  # noqa: PLC0415
         activate_result = chart_symbol(
             symbol,

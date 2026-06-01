@@ -4,34 +4,32 @@ risk.py — Pre-flight risk checks and position-sizing for mt5_cli.
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_cli.bridge.mt5_call()``.
 
-Cherry-picked from archive/legacy-mt5/core/risk.py (354 LOC) with the
-following intentional divergences from legacy:
+Conventions used throughout this module:
 
 1. ``compute_volume_from_risk_pct`` returns an ok({"volume": ...}) envelope
-   on success instead of a raw float (spec §3 — same JSON envelope everywhere).
-2. ``check_order`` returns ok(None) on success instead of {"ok": True}.
+   on success — the same JSON envelope used everywhere in mt5_cli.
+2. ``check_order`` returns ok(None) on success.
 3. Error dicts use fail(code, message) from mt5_cli.reports — no
    mt5_retcode field (risk gates are local checks, not broker responses).
-4. Rate limiter uses time.monotonic() (unchanged from legacy) — correct choice
-   since wall-clock jumps would break the sliding window.
-5. Gate 2 (live) triggers on is_live_intent=False with a REAL account — the
-   task-table description is inverted; legacy line 239 is authoritative.
-6. Gate 10 (daily loss) triggers on daily_loss(cfg) <= -max_daily_loss — the
-   task table's abs() form would block winning days; legacy line 334 is correct.
+4. The rate limiter uses time.monotonic() so that wall-clock jumps cannot
+   break the sliding window.
+5. Gate 2 (live) triggers on is_live_intent=False with a REAL account.
+6. Gate 10 (daily loss) triggers on daily_loss(cfg) <= -max_daily_loss, so a
+   winning day never trips the limit.
 
-Gate order matches legacy exactly (verified against legacy lines 229–352):
-  Guard 1  RISK_STRATEGY_ID_TOO_LONG  (line 230)
-  Guard 2  RISK_LIVE_GATE_BLOCKED     (line 239)
-  Guard 3  RISK_SYMBOL_NOT_ALLOWED    (line 249)
-  Guard 4  RISK_MAX_LOT_EXCEEDED      (line 255)
-  Guard 5a RISK_NO_STOP_LOSS/None     (line 264)
-  Guard 5b RISK_NO_STOP_LOSS/distance (line 276)
-  Guard 6  RISK_SPREAD_TOO_WIDE       (line 285)
-  Guard 7  RISK_HEDGE_BLOCKED         (line 298)
-  Guard 8  RISK_MAX_POSITIONS         (line 313)
-  Guard 9  RISK_INSUFFICIENT_MARGIN   (line 322)
-  Guard 10 RISK_MAX_DAILY_LOSS        (line 334)
-  Guard 11 RISK_RATE_LIMIT            (line 343)
+The full gate order, run in sequence:
+  Guard 1  RISK_STRATEGY_ID_TOO_LONG
+  Guard 2  RISK_LIVE_GATE_BLOCKED
+  Guard 3  RISK_SYMBOL_NOT_ALLOWED
+  Guard 4  RISK_MAX_LOT_EXCEEDED
+  Guard 5a RISK_NO_STOP_LOSS/None
+  Guard 5b RISK_NO_STOP_LOSS/distance
+  Guard 6  RISK_SPREAD_TOO_WIDE
+  Guard 7  RISK_HEDGE_BLOCKED
+  Guard 8  RISK_MAX_POSITIONS
+  Guard 9  RISK_INSUFFICIENT_MARGIN
+  Guard 10 RISK_MAX_DAILY_LOSS
+  Guard 11 RISK_RATE_LIMIT
 """
 from __future__ import annotations
 
@@ -77,7 +75,7 @@ def _reset_rate_limiter() -> None:
 def resolve_magic(strategy_id: str | None, cfg: dict) -> int:
     """Return the magic number for the given strategy_id.
 
-    Three-tier priority (spec §6.7):
+    Three-tier priority:
 
     1. ``strategy_id`` is truthy AND found in ``cfg["strategy_ids"]``
        → return mapped value (must be < 100 000 to avoid auto-derive collision).
@@ -270,7 +268,7 @@ def check_order(
     is_live_intent:
         Pass True only when the caller has confirmed live trading intent.
         Combined with cfg["live"] and the MT5_LIVE env var, this forms
-        the preserved live-trading triple lock — see Guard 2.
+        the live-trading triple lock — see Guard 2.
     consume_rate_limit:
         When False the rate-limit window is still checked but no slot is
         consumed. Pass False from dry-run calls so they never reduce real
@@ -278,7 +276,7 @@ def check_order(
     """
 
     # ------------------------------------------------------------------
-    # Guard 1 — strategy_id length (legacy line 230)
+    # Guard 1 — strategy_id length
     # ------------------------------------------------------------------
     if strategy_id and len(strategy_id) > 31:
         return fail(
@@ -287,7 +285,7 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 2 — Live trading triple lock (spec §9, preserved from legacy)
+    # Guard 2 — Live trading triple lock
     # When account is REAL, ALL THREE of these must be armed:
     #   1. cfg["live"] is True
     #   2. MT5_LIVE env var == "1"
@@ -322,7 +320,7 @@ def check_order(
             )
 
     # ------------------------------------------------------------------
-    # Guard 3 — Symbol allowlist (legacy line 248–250)
+    # Guard 3 — Symbol allowlist
     # ------------------------------------------------------------------
     allowlist: list = cfg.get("symbol_allowlist", [])
     if allowlist and symbol not in allowlist:
@@ -332,7 +330,7 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 4 — Max lot per order (legacy line 254–259)
+    # Guard 4 — Max lot per order
     # ------------------------------------------------------------------
     if volume > cfg["max_lot_per_order"]:
         return fail(
@@ -341,13 +339,13 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 5a — SL presence (legacy line 264–265)
+    # Guard 5a — SL presence
     # ------------------------------------------------------------------
     if sl is None:
         return fail("RISK_NO_STOP_LOSS", "A stop-loss price is required.")
 
     # ------------------------------------------------------------------
-    # Guard 5b — SL minimum distance (legacy line 267–280)
+    # Guard 5b — SL minimum distance
     # ------------------------------------------------------------------
     tick = mt5_call("symbol_info_tick", symbol)
     sym_info = mt5_call("symbol_info", symbol)
@@ -376,7 +374,7 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 6 — Max spread (legacy line 284–290)
+    # Guard 6 — Max spread
     # ------------------------------------------------------------------
     spread_points = (tick.ask - tick.bid) / sym_info.point
     if spread_points > cfg["max_spread_points"]:
@@ -387,7 +385,7 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 7 — Hedge check (legacy line 294–308)
+    # Guard 7 — Hedge check
     # ------------------------------------------------------------------
     all_positions = mt5_call("positions_get") or []
     if not cfg.get("allow_hedging", False):
@@ -405,7 +403,7 @@ def check_order(
                 )
 
     # ------------------------------------------------------------------
-    # Guard 8 — Max positions (legacy line 312–317)
+    # Guard 8 — Max positions
     # ------------------------------------------------------------------
     if len(all_positions) >= cfg["max_positions"]:
         return fail(
@@ -414,7 +412,7 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 9 — Minimum free margin % (legacy line 319–329)
+    # Guard 9 — Minimum free margin %
     # ------------------------------------------------------------------
     if account_info.equity <= 0:
         return fail("RISK_INSUFFICIENT_MARGIN", "Account equity is zero or negative.")
@@ -427,9 +425,9 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 10 — Max daily loss (legacy line 333–338)
-    # NOTE: triggers on daily_loss <= -max_daily_loss (NOT abs()) — the
-    # task table's abs() form would block winning days; legacy is correct.
+    # Guard 10 — Max daily loss
+    # NOTE: triggers on daily_loss <= -max_daily_loss (NOT abs()), so a
+    # winning day never trips the limit.
     # ------------------------------------------------------------------
     if daily_loss(cfg) <= -cfg["max_daily_loss"]:
         return fail(
@@ -438,7 +436,7 @@ def check_order(
         )
 
     # ------------------------------------------------------------------
-    # Guard 11 — Rate limiter: sliding 60-second window (legacy line 342–352)
+    # Guard 11 — Rate limiter: sliding 60-second window
     # Uses time.monotonic() — immune to wall-clock jumps.
     # ------------------------------------------------------------------
     now = time.monotonic()

@@ -66,7 +66,7 @@ def new_chart(
         CHART_TIMEFRAME_VERIFY_FAILED   chart opened but switch_tf failed
                                         (returned with partial-success data)
     """
-    import win32gui  # noqa: PLC0415 (lazy; mocked in tests via sys.modules)
+    import win32gui  # noqa: PLC0415 (lazy import)
 
     symbol_upper = symbol.upper()
 
@@ -100,9 +100,9 @@ def new_chart(
 
     # Snapshot existing charts before posting, so we can identify the new
     # one by hwnd diff after the menu activation settles.
-    # Codex post-fix P2 #3: if the before-snapshot fails, we can't reliably
-    # diff afterwards - fail closed rather than silently fabricate a
-    # success envelope from "whichever chart MT5 happens to focus".
+    # If the before-snapshot fails, we can't reliably diff afterwards -
+    # fail closed rather than silently fabricate a success envelope from
+    # "whichever chart MT5 happens to focus".
     try:
         before = {c.hwnd for c in enumerate_chart_children(match.hwnd)}
     except Exception as exc:  # noqa: BLE001
@@ -130,10 +130,9 @@ def new_chart(
         time.sleep(settle_seconds)
 
     # Find the newly-opened chart by diffing the child enumeration.
-    # Codex post-fix P2 #3: previously fell back to "whichever chart is
-    # active" when the diff produced no new hwnd. That fallback let
-    # new_chart() return ok with a fabricated chart_id - the same
-    # label-vs-reality class of bug fixed for dom() at da5ebc4. Fail
+    # Do not fall back to "whichever chart is active" when the diff
+    # produces no new hwnd: that would let new_chart() return ok with a
+    # fabricated chart_id, reporting a chart that was never opened. Fail
     # closed instead: the menu post may not have opened a chart (e.g.,
     # MT5 refused, focused an existing chart instead, or the symbol
     # is in Market Watch but disabled).

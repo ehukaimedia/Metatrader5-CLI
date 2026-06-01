@@ -1,8 +1,8 @@
 """4-layer settings resolution: DEFAULTS -> file -> env -> CLI overrides.
 
-Path resolution (where the config file lives) is intentionally simple here.
-Phase 6 swaps in the full XDG_CONFIG_HOME / APPDATA / HOME resolver from
-config/paths.py.
+Path resolution (where the config file lives) is intentionally simple here:
+the config file is located under the user's home directory unless
+overridden by the MT5_CONFIG environment variable.
 """
 import json
 import os
@@ -54,7 +54,7 @@ ENV_MAP: dict[str, tuple[str, Any]] = {
 
 
 def _config_path() -> Path:
-    """Resolve config file path. Phase 6 swaps in the full XDG/APPDATA resolver."""
+    """Resolve config file path from MT5_CONFIG or the user's home directory."""
     if "MT5_CONFIG" in os.environ:
         return Path(os.environ["MT5_CONFIG"])
     home = Path(os.path.expanduser("~"))
@@ -78,7 +78,7 @@ def load(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
             # cfg.update() requires a mapping; silently skip the file
             # layer when the parse result is not a dict, same fall-back
             # as the corrupt-syntax case. Agents should not crash on a
-            # bad config file edit (Codex P2 #4).
+            # bad config file edit.
             if isinstance(parsed, dict):
                 cfg.update(parsed)
         except (OSError, ValueError):

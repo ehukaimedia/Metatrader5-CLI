@@ -2,38 +2,33 @@
 orders.py — Order placement, modification, cancellation and fill-polling
 for mt5_cli.
 
-Cherry-picked from archive/legacy-mt5/core/order.py (685 LOC).
 9 public functions: list_pending, place_market, place_limit, place_stop,
 dryrun, cancel, cancel_all_pending, modify, poll_fill.
 
 This module NEVER imports MetaTrader5 directly. All MT5 API access goes
 through ``mt5_cli.bridge.mt5_call()``.
 
-Deliberate divergences from legacy:
+Behavioral notes:
 
-1. risk_pct parameter dropped from place_market / place_limit / dryrun.
-   compute_volume_from_risk_pct is not called in this slice; that parameter
-   is handled at the CLI layer and will be wired in a later task.
+1. The place functions take an explicit volume; risk_pct sizing is handled
+   at the CLI layer, not here.
 
-2. expiry parameter dropped from place_limit. ORDER_TIME_SPECIFIED not
-   needed here; all pending orders use ORDER_TIME_GTC.
+2. All pending orders use ORDER_TIME_GTC; ORDER_TIME_SPECIFIED expiry is
+   not supported.
 
-3. _resolve_filling always returns ORDER_FILLING_FOK for "auto".
-   Legacy read symbol_info().filling_mode bitmask. Hardcoded to FOK
-   for Trading.com compatibility. Broker profile abstraction lands in Task 2.8.
+3. _resolve_filling returns ORDER_FILLING_FOK for "auto" (Trading.com
+   compatibility). Explicit "FOK"/"IOC"/"RETURN" map to their constants.
 
-4. _resolve_pending_filling for "auto" also returns ORDER_FILLING_FOK.
-   Legacy returned ORDER_FILLING_RETURN for pending "auto". The plan
-   spec says FOK/IOC only; no RETURN for pending. FOK hardcoded for now.
+4. _resolve_pending_filling supports FOK/IOC only for pending orders; "auto"
+   and "RETURN" both resolve to ORDER_FILLING_FOK.
 
-5. _finalize_order wraps mt5_retcode as fail(code, msg, data={"mt5_retcode": ...})
-   instead of a top-level kwarg. Matches the new envelope API established in
-   market.py (no mt5_retcode parameter on fail()).
+5. _finalize_order reports broker rejections as
+   fail(code, msg, data={"mt5_retcode": ...}), carrying the MT5 retcode in
+   the envelope's data field.
 
-6. check_order called with full keyword arguments (new API is keyword-only).
-   Legacy passed symbol/side/volume/sl/strategy_id/cfg positionally.
+6. check_order is called with keyword arguments only.
 
-7. cancel's live gate uses _live_gate_check (account_info-based check).
+7. cancel's live gate uses _live_gate_check (an account_info-based check).
    place_market / place_limit / dryrun get their live gate via check_order
    Guard 2 — no double-gating.
 """
@@ -153,26 +148,25 @@ def _magic_to_strategy_id(magic: int, cfg: dict | None) -> str | None:
 def _resolve_filling(symbol: str, filling_str: str) -> int:
     """Map filling string to MT5 constant for market orders.
 
-    "auto" → ORDER_FILLING_FOK (hardcoded for Trading.com; broker profile
-    abstraction lands in Task 2.8).
+    "auto" → ORDER_FILLING_FOK (for Trading.com compatibility).
     Explicit "FOK"/"IOC"/"RETURN" → mapped constant.
     """
     upper = filling_str.upper()
     if upper in _FILLING_MAP:
         return _FILLING_MAP[upper]
-    # "auto" — hardcode FOK (no symbol_info bitmask read in this task slice)
+    # "auto" — default to FOK
     return ORDER_FILLING_FOK
 
 
 def _resolve_pending_filling(filling_str: str) -> int:
     """Resolve filling for pending orders.
 
-    Per plan spec: FOK/IOC only; no RETURN for pending.
-    "auto" → ORDER_FILLING_FOK (hardcoded).
+    FOK/IOC only; no RETURN for pending.
+    "auto" → ORDER_FILLING_FOK.
     Explicit "FOK"/"IOC" → mapped constant. "RETURN" → FOK override.
     """
     upper = filling_str.upper()
-    # Only FOK and IOC are valid for pending orders per plan spec
+    # Only FOK and IOC are valid for pending orders
     if upper == "IOC":
         return ORDER_FILLING_IOC
     if upper == "FOK":
@@ -188,16 +182,13 @@ def _live_gate_check(is_live_intent: bool, cfg: dict) -> dict | None:
     check_order's full risk gauntlet. Place functions get their live gate
     through check_order Guard 2 — no double-gating.
 
-    On REAL accounts, enforces the same triple lock as check_order Guard 2
-    (spec §9, preserved from legacy):
+    On REAL accounts, enforces the same triple lock as check_order Guard 2:
       1. is_live_intent=True (the CLI/library caller's --live proxy)
       2. cfg["live"] is True (the config file/env layer)
       3. MT5_LIVE=1 env var (the operator's shell intent)
 
-    Codex post-fix P1 (2026-05-16): the pre-fix version of this helper
-    checked ONLY is_live_intent, so cancel/modify/cancel_all_pending
-    could mutate live orders with one gate armed. The fix aligns this
-    helper with check_order's Guard 2.
+    All three gates must be armed before a cancel/modify/cancel_all_pending
+    can mutate live orders.
 
     Args:
         is_live_intent: --live CLI flag proxy.
@@ -709,7 +700,7 @@ def cancel(ticket: int, *, cfg: dict, is_live_intent: bool) -> dict:
         ticket: Pending order ticket number.
         cfg: Effective configuration dict (required for the live gate).
         is_live_intent: Must be True on a live account; combined with the
-            other two gates above per spec section 9.
+            other two gates above (cfg["live"]=True and MT5_LIVE=1).
 
     Returns:
         ok({"ticket": ..., "cancelled": True}) on success, or fail envelope.
@@ -895,7 +886,7 @@ def modify(
         expiry: Deferred — accepted for signature stability but ignored.
         cfg: Effective configuration dict (required for the live gate).
         is_live_intent: Must be True on a live account; combined with
-            cfg["live"]=True and MT5_LIVE=1 per spec section 9.
+            cfg["live"]=True and MT5_LIVE=1.
 
     Returns:
         ok({"ticket": ..., "action": "SLTP"|"MODIFY", ...}) on success,
@@ -978,17 +969,16 @@ def cancel_all_pending(
     Continues on per-ticket failure (fail-soft). Returns per-ticket outcome
     dicts with cancelled/failed summary counts.
 
-    Deliberate divergence from legacy: return shape uses {"per_ticket": [...],
-    "cancelled": N, "failed": N} instead of legacy's flat list of {"ticket": ...,
-    "result": "canceled"/"error"} entries. The structured shape is easier for
-    agents to parse without iterating to count outcomes.
+    The return shape uses {"per_ticket": [...], "cancelled": N, "failed": N},
+    a structured form that is easy for agents to parse without iterating to
+    count outcomes.
 
     Args:
         symbol: Filter to this symbol only. None cancels all pending orders.
         cfg: Effective configuration dict (required for the live gate;
              threaded through to each per-ticket cancel() call).
         is_live_intent: Must be True on a live account; combined with
-            cfg["live"]=True and MT5_LIVE=1 per spec section 9.
+            cfg["live"]=True and MT5_LIVE=1.
 
     Returns:
         ok({"per_ticket": [...], "cancelled": N, "failed": N}) — outer ok=True

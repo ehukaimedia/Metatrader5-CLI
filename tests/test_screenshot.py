@@ -1,9 +1,7 @@
 """Tests for mt5_cli/screenshot/ - mss-based capture primitives.
 
-Cherry-pick from archive/legacy-mt5/core/screenshot.py with TDA
-orchestration stripped. mss / pygetwindow / PIL are mocked at
-sys.modules level so tests do not require a display or those packages
-being installed on a CI runner.
+mss / pygetwindow / PIL are mocked at sys.modules level so tests do not
+require a display or those packages being installed on a CI runner.
 """
 import sys
 import types
@@ -230,11 +228,11 @@ def test_dom_with_panels_disabled_still_captures(fake_capture_deps, tmp_path):
 def test_dom_with_open_panel_activates_symbol_chart_first(
     fake_capture_deps, tmp_path, monkeypatch
 ):
-    """Codex P2 #7: dom(symbol="USDJPY") with open_panel=True must
-    activate the USDJPY chart BEFORE posting the DOM menu command, so
-    the captured DOM matches the labeled symbol. Pre-fix dom() called
-    _open_dom_panel directly and the active chart drove which DOM
-    actually opened - mismatch between envelope label and reality.
+    """dom(symbol="USDJPY") with open_panel=True must activate the
+    USDJPY chart BEFORE posting the DOM menu command, so the captured
+    DOM matches the labeled symbol. Calling _open_dom_panel directly
+    would let the active chart drive which DOM actually opened, causing
+    a mismatch between the envelope label and reality.
     """
     fake_win = MagicMock(
         title="MetaTrader 5", left=0, top=0, width=400, height=300,
@@ -284,7 +282,7 @@ def test_dom_with_open_panel_activates_symbol_chart_first(
         env = dom(symbol="USDJPY", output_path=out, open_panel=True, close_panel=True,
                   settle_seconds=0)
         assert env["ok"] is True
-        # The fix: chart.symbol("USDJPY") was called before the DOM menu poke
+        # chart.symbol("USDJPY") must be called before the DOM menu poke
         assert activated_with == {"symbol": "USDJPY", "window_substring": "MT5"}
         # And the activation result is surfaced in the envelope
         assert env["data"]["activate_result"]["symbol"] == "USDJPY"

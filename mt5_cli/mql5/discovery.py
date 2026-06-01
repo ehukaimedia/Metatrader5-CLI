@@ -4,8 +4,7 @@ Search order (first match wins):
   1. ./ea/ or ./indicators/ (current working directory where the user
      runs `mt5`)
   2. ~/.local/share/metatrader5-cli/ea/ or /indicators/ (XDG_DATA_HOME
-     convention; %APPDATA%/metatrader5-cli/ on Windows — Phase 6
-     paths.py widens this to the full env / XDG / APPDATA chain)
+     convention; %APPDATA%/metatrader5-cli/ on Windows)
 
 The fallback root is XDG_DATA_HOME-style (~/.local/share/...) NOT the
 config dir, since EAs/indicators are user-authored DATA, not settings.
