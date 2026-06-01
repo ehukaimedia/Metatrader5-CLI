@@ -27,6 +27,7 @@ from mt5.emit import emit
 
 # Library imports — done at module level so test fixtures that mock
 # MetaTrader5 via sys.modules work cleanly.
+from mt5_cli import __version__ as _mt5_cli_version
 from mt5_cli import account as _account_mod
 from mt5_cli import alert as _alert_mod
 from mt5_cli import history as _history_mod
@@ -209,6 +210,8 @@ class EnvelopeGroup(click.Group):
 @click.group(cls=EnvelopeGroup)
 @click.option("--json", "json_mode", is_flag=True,
               help="Emit JSON envelopes (for agents / scripts).")
+@click.version_option(_mt5_cli_version, "--version", prog_name="mt5",
+                      message="%(prog)s %(version)s")
 @click.pass_context
 def main(ctx: click.Context, json_mode: bool) -> None:
     """mt5 - agent-native control of the MetaTrader 5 terminal."""
@@ -277,6 +280,7 @@ def status(ctx: click.Context) -> None:
     env = _account_mod.info()
     if env.get("ok"):
         env["data"]["connected"] = True
+        env["data"]["version"] = _mt5_cli_version
     emit(env, ctx.obj["json"])
 
 

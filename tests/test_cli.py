@@ -11,6 +11,7 @@ For each command:
 - arg threading: assert the stubbed library function received the right kwargs
 """
 import json
+import re
 import sys
 
 import pytest
@@ -65,6 +66,15 @@ def test_mt5_help_shows_all_groups(runner):
                   "market", "order", "position", "rates", "screenshot",
                   "status"):
         assert group in result.output
+
+
+def test_version_flag_prints_version_and_exits_0(runner):
+    """`mt5 --version` is the universal CLI convention; it must work and exit 0."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert "mt5" in result.output
+    assert re.search(r"\d+\.\d+", result.output)
 
 
 def test_unexpected_exception_still_emits_envelope_with_exit_0(runner):
