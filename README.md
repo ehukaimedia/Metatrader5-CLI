@@ -1,7 +1,15 @@
 # metatrader5-cli
 
+[![CI](https://github.com/ehukaimedia/Metatrader5-CLI/actions/workflows/ci.yml/badge.svg)](https://github.com/ehukaimedia/Metatrader5-CLI/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
+
 `metatrader5-cli` is a Python library and command-line tool for controlling
 MetaTrader 5 from scripts, terminals, and agent workflows.
+
+**Who it's for:** developers and AI agents that need reliable, safety-gated
+"hands" on an MT5 terminal — without a strategy or opinion baked in.
 
 It gives automation "hands" for MT5: account and market data, order and
 position management, chart control, screenshots, MQL5 compile/deploy helpers,
@@ -32,8 +40,10 @@ result envelope's `ok` field carries success or failure.
 - A configured MT5 terminal, usually already logged in to the broker account
   you want to inspect or control.
 
-The current broker profile is Trading.com. Multi-broker abstractions are not
-part of the current public surface.
+The data, chart, screenshot, and Strategy Tester commands are broker-agnostic
+and work against any MT5 terminal. Order placement ships with a Trading.com
+profile (FOK filling, no hedging); for other brokers, set `filling` in your
+config or pass `--filling` explicitly.
 
 ## Install
 
@@ -104,7 +114,22 @@ Two integration paths:
    MCP** — those stay behind the CLI's explicit triple-lock below.
 
 See [AGENTS.md](AGENTS.md) for the full contract, error-code table, and
-copy-paste examples.
+copy-paste examples, and [`examples/`](examples/) for a runnable agent loop.
+
+## Use as a library
+
+The same surface is importable — no subprocess needed:
+
+```python
+from mt5_cli.bridge import connect
+from mt5_cli.market import info
+
+connect()              # zero-config: attaches to the running terminal
+print(info("EURUSD"))  # {"ok": True, "data": {"bid": ..., "ask": ...}}
+```
+
+Library functions return the same `{ok, data}` / `{ok, error}` envelopes the
+CLI emits, and `import mt5_cli; mt5_cli.__version__` reports the version.
 
 ## Safety
 
@@ -128,6 +153,10 @@ mt5 --json position list
 mt5 --json order list-pending
 mt5 --json order dryrun AUDUSD buy --volume 0.01 --sl 0.7000
 ```
+
+**Screenshot privacy:** `mt5 screenshot take` captures the MT5 window as-is,
+which can include your account balance, equity, and broker login number. Review
+captures before sharing them with an agent, an LLM, or a public issue.
 
 ## Configuration
 
@@ -237,9 +266,43 @@ produces them.
 | `chart` | MT5 chart/window control |
 | `screenshot` | Capture and annotate MT5 screenshots |
 | `config` | Show effective config and retcode help |
+| `describe` | Machine catalog of commands + error codes (for agents) |
 | `ea` | MQL5 Expert Advisor scaffold, compile, deploy, discovery |
 | `indicator` | MQL5 custom indicator scaffold, compile, deploy, discovery |
 | `tester` | MT5 Strategy Tester runs, listing, and result parsing |
 
-Run `mt5 <group> --help` or `mt5 <group> <command> --help` for exact options.
+Run `mt5 <group> --help` or `mt5 <group> <command> --help` for exact options,
+or `mt5 --json describe` for a machine-readable catalog of every command.
+
+## Troubleshooting
+
+- **`MT5_CONNECTION_ERROR` / "Could not connect to MT5":** make sure the
+  MetaTrader 5 terminal is running and logged in. The CLI attaches to the
+  already-open terminal; it does not launch one for data commands.
+- **`TERMINAL_ALREADY_RUNNING` (tester):** an EA tester run needs a fresh
+  batch-mode launch — close the running `terminal64.exe` first.
+- **`mt5 ea list` finds nothing:** EAs/indicators are discovered from `./ea` or
+  `./indicators` in the current directory, then
+  `~/.local/share/metatrader5-cli/...`. Run from your trading project, or place
+  files in one of those locations.
+- **Non-Windows `pip install` fails:** the `MetaTrader5` dependency ships
+  Windows wheels only. This tool is Windows-only by design.
+
+## Disclaimer
+
+This software can place, modify, and close **real broker orders that can lose
+real money**. It is provided "as is", without warranty of any kind, and is **not
+financial advice**. You are solely responsible for any orders placed on your
+behalf. Test on a demo account first, and keep the live-trade gates closed until
+you have verified your workflow.
+
+## Trademark
+
+"MetaTrader" and "MT5" are trademarks of MetaQuotes Ltd. This project is an
+independent, community tool and is not affiliated with, endorsed by, or
+sponsored by MetaQuotes.
+
+## License
+
+[MIT](LICENSE) © ehukaimedia.
 
