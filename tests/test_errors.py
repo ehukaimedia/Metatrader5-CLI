@@ -9,11 +9,16 @@ from pathlib import Path
 
 import mt5
 import mt5_cli
+import mt5_mcp
 from mt5_cli.errors import ERROR_CODES, RETRYABLE, catalog, is_retryable
 
 
 def _codes_used_in_fail_calls() -> set[str]:
-    roots = [Path(mt5_cli.__file__).parent, Path(mt5.__file__).parent]
+    roots = [
+        Path(mt5_cli.__file__).parent,
+        Path(mt5.__file__).parent,
+        Path(mt5_mcp.__file__).parent,
+    ]
     codes: set[str] = set()
     for root in roots:
         for path in root.rglob("*.py"):

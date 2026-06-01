@@ -124,6 +124,38 @@ def test_version_flag_prints_version_and_exits_0(runner):
     assert re.search(r"\d+\.\d+", result.output)
 
 
+def test_keyboard_interrupt_is_not_swallowed_as_success(runner):
+    """A Ctrl-C / Abort must NOT be turned into an exit-0 MT5_INTERNAL_ERROR
+    envelope — an interrupt is not a command result. Click converts
+    KeyboardInterrupt into click.Abort (an Exception subclass), so the broad
+    handler must let it through."""
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt()
+    mp.setattr(cli_mod._market_mod, "info", interrupt)
+
+    result = cli_runner.invoke(main, ["--json", "market", "info", "EURUSD"])
+
+    assert result.exit_code != 0
+    assert "MT5_INTERNAL_ERROR" not in (result.output or "")
+
+
+def test_describe_exposes_negative_secondary_flags(runner):
+    """describe must export the negative form of toggle options (e.g.
+    --no-mask-secrets), which Click stores in p.secondary_opts, so agents can
+    discover them."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["--json", "describe"])
+    data = json.loads(result.output)["data"]
+    all_flags = {
+        f for c in data["commands"] for opt in c["options"] for f in opt.get("flags", [])
+    }
+    assert "--mask-secrets" in all_flags      # sanity: positive form present
+    assert "--no-mask-secrets" in all_flags   # negative (secondary) form discoverable
+
+
 def test_unexpected_exception_still_emits_envelope_with_exit_0(runner):
     """An unexpected library-level exception must surface as a fail envelope on
     stdout with exit 0 — the always-exit-0/always-envelope contract that agents

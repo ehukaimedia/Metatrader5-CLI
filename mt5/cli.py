@@ -181,6 +181,12 @@ class EnvelopeGroup(click.Group):
             if standalone_mode:
                 sys.exit(0)
             return
+        except click.Abort:
+            # Ctrl-C / EOF: Click converts KeyboardInterrupt and EOFError into
+            # click.Abort (an Exception subclass). An interrupt is NOT a command
+            # result, so let it propagate instead of masking it as an exit-0
+            # MT5_INTERNAL_ERROR envelope.
+            raise
         except Exception as exc:  # noqa: BLE001
             # Contract guarantee: ANY unexpected library/runtime error still
             # surfaces as a structured envelope on stdout with exit 0, never a
@@ -304,7 +310,8 @@ def _describe_param(p: click.Parameter) -> dict:
         "required": bool(p.required),
     }
     if isinstance(p, click.Option):
-        info["flags"] = list(p.opts)
+        # secondary_opts holds the negative form of toggles (e.g. --no-mask-secrets)
+        info["flags"] = list(p.opts) + list(p.secondary_opts)
         info["is_flag"] = bool(p.is_flag)
         if p.help:
             info["help"] = p.help
