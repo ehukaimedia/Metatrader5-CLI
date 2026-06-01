@@ -90,6 +90,31 @@ def test_json_flag_still_works_as_leading_group_flag(runner):
     assert env["data"]["retcode"] == 10009
 
 
+def test_describe_emits_command_and_error_catalog(runner):
+    """`mt5 --json describe` lets an agent self-onboard: it enumerates every
+    command (with args/options) and the full error-code taxonomy in one call,
+    with no live terminal needed."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["--json", "describe"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    data = env["data"]
+    assert "version" in data
+    paths = {c["command"] for c in data["commands"]}
+    assert "market info" in paths
+    assert "order dryrun" in paths
+    assert "status" in paths
+    # each command entry exposes its args/options
+    market_info = next(c for c in data["commands"] if c["command"] == "market info")
+    assert any(a["name"] == "symbol" for a in market_info["arguments"])
+    # full error taxonomy is enumerable
+    codes = {e["code"] for e in data["error_codes"]}
+    assert "MT5_CONNECTION_ERROR" in codes
+    assert "RISK_LIVE_GATE_BLOCKED" in codes
+    assert len(data["error_codes"]) >= 70
+
+
 def test_version_flag_prints_version_and_exits_0(runner):
     """`mt5 --version` is the universal CLI convention; it must work and exit 0."""
     cli_runner, main, _ = runner

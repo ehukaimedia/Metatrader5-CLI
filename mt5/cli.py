@@ -61,6 +61,7 @@ from mt5_cli.chart import (
 from mt5_cli.config import load as _config_load
 from mt5_cli.config import mask_secrets as _config_mask
 from mt5_cli.config import retcode_help as _config_retcode_help
+from mt5_cli.errors import catalog as _errors_catalog
 from mt5_cli.reports import fail, ok
 from mt5_cli.screenshot import (
     annotate as _screenshot_annotate,
@@ -292,6 +293,70 @@ def status(ctx: click.Context) -> None:
         env["data"]["connected"] = True
         env["data"]["version"] = _mt5_cli_version
     emit(env, ctx.obj["json"])
+
+
+def _describe_param(p: click.Parameter) -> dict:
+    """Describe one Click parameter (argument or option) for the catalog."""
+    info: dict = {
+        "name": p.name,
+        "kind": "argument" if isinstance(p, click.Argument) else "option",
+        "type": getattr(p.type, "name", None) or type(p.type).__name__,
+        "required": bool(p.required),
+    }
+    if isinstance(p, click.Option):
+        info["flags"] = list(p.opts)
+        info["is_flag"] = bool(p.is_flag)
+        if p.help:
+            info["help"] = p.help
+        if not p.is_flag and p.default is not None:
+            info["default"] = p.default
+    return info
+
+
+def _build_command_catalog() -> dict:
+    """Introspect the Click tree into a stable, machine-readable catalog.
+
+    Lets an agent enumerate every command, its arguments/options, and the full
+    error-code taxonomy in one structured call — no --help scraping.
+    """
+    commands: list[dict] = []
+
+    def walk(group: click.Group, prefix: str) -> None:
+        for name, cmd in sorted(group.commands.items()):
+            path = f"{prefix}{name}"
+            if isinstance(cmd, click.Group):
+                walk(cmd, path + " ")
+                continue
+            params = [
+                _describe_param(p)
+                for p in cmd.params
+                if not (isinstance(p, click.Option) and p.name == "help")
+            ]
+            commands.append({
+                "command": path,
+                "help": cmd.get_short_help_str(limit=120),
+                "arguments": [p for p in params if p["kind"] == "argument"],
+                "options": [p for p in params if p["kind"] == "option"],
+            })
+
+    walk(main, "")
+    return {
+        "version": _mt5_cli_version,
+        "envelope": {
+            "shape": "{ok: true, data} or {ok: false, error: {code, message, data?}}",
+            "exit_code": "always 0 — parse the envelope, not the exit code",
+            "json_flag": "--json works in any position",
+        },
+        "commands": commands,
+        "error_codes": _errors_catalog(),
+    }
+
+
+@main.command("describe")
+@click.pass_context
+def describe(ctx: click.Context) -> None:
+    """Emit a machine catalog of commands, arguments, and error codes (for agents)."""
+    emit(ok(_build_command_catalog()), ctx.obj["json"])
 
 
 # ---------------------------------------------------------------------------
