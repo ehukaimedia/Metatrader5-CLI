@@ -151,6 +151,16 @@ class EnvelopeGroup(click.Group):
 
     def main(self, args=None, prog_name=None, complete_var=None,
              standalone_mode=True, **extra):
+        # Make --json position-independent. Agents and shell wrappers commonly
+        # append it after the subcommand (mt5 market info EURUSD --json), the
+        # dominant CLI convention. --json is the top-level group flag, so hoist
+        # any occurrence to the front before Click parses. No command accepts
+        # --json as a value, so de-duping and moving it is unambiguous.
+        if args is None:
+            args = sys.argv[1:]
+        args = list(args)
+        if "--json" in args:
+            args = ["--json"] + [a for a in args if a != "--json"]
         # Force standalone_mode=False internally so Click does not write
         # its usage block to stderr before we get a chance to emit().
         # Preserve the caller's original standalone_mode semantics for

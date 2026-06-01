@@ -68,6 +68,28 @@ def test_mt5_help_shows_all_groups(runner):
         assert group in result.output
 
 
+def test_json_flag_works_after_subcommand(runner):
+    """Agents and shell wrappers naturally append --json AFTER the subcommand
+    (mt5 config retcode 10009 --json), the dominant CLI convention. It must work
+    in any position, not only as a leading group flag."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["config", "retcode", "10009", "--json"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    assert env["data"]["retcode"] == 10009
+
+
+def test_json_flag_still_works_as_leading_group_flag(runner):
+    """The documented leading form must keep working unchanged."""
+    cli_runner, main, _ = runner
+    result = cli_runner.invoke(main, ["--json", "config", "retcode", "10009"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    assert env["data"]["retcode"] == 10009
+
+
 def test_version_flag_prints_version_and_exits_0(runner):
     """`mt5 --version` is the universal CLI convention; it must work and exit 0."""
     cli_runner, main, _ = runner
