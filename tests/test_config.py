@@ -119,6 +119,28 @@ def test_save_writes_json(clean_env, tmp_path, monkeypatch):
     assert loaded["max_positions"] == 9
 
 
+def test_save_strips_password_by_default(clean_env, tmp_path, monkeypatch):
+    """save() must NOT persist the broker password to plaintext JSON by default —
+    steer users to the MT5_PASSWORD env var instead."""
+    import json
+    cfg_path = tmp_path / "saved.json"
+    monkeypatch.setenv("MT5_CONFIG", str(cfg_path))
+    save({"login": 12345, "password": "s3cret", "server": "Demo"})
+    raw = cfg_path.read_text()
+    assert "s3cret" not in raw
+    loaded = json.loads(raw)
+    assert "password" not in loaded
+    assert loaded["login"] == 12345  # non-secret fields still persisted
+
+
+def test_save_persists_password_only_when_explicitly_requested(clean_env, tmp_path, monkeypatch):
+    """An explicit opt-in may persist the password (with the caller owning the risk)."""
+    cfg_path = tmp_path / "saved.json"
+    monkeypatch.setenv("MT5_CONFIG", str(cfg_path))
+    save({"password": "s3cret"}, include_password=True)
+    assert "s3cret" in cfg_path.read_text()
+
+
 def test_live_env_var_parsed_as_bool(clean_env, tmp_path, monkeypatch):
     monkeypatch.setenv("MT5_CONFIG", str(tmp_path / "missing.json"))
     monkeypatch.setenv("MT5_LIVE", "1")

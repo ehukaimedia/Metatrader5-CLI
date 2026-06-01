@@ -91,11 +91,25 @@ def load(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     return cfg
 
 
-def save(cfg: dict[str, Any]) -> None:
-    """Write the config dict to the resolved config file path."""
+def save(cfg: dict[str, Any], *, include_password: bool = False) -> None:
+    """Write the config dict to the resolved config file path.
+
+    For safety, the broker ``password`` is NOT written by default — pass
+    ``include_password=True`` to override (you then own the plaintext-on-disk
+    risk; prefer the ``MT5_PASSWORD`` environment variable instead). The file is
+    created with owner-only permissions (0o600) on POSIX; on Windows, file ACLs
+    differ and are not adjusted here.
+    """
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cfg, indent=2))
+    to_write = dict(cfg)
+    if not include_password:
+        to_write.pop("password", None)
+    path.write_text(json.dumps(to_write, indent=2))
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def mask_secrets(cfg: dict[str, Any]) -> dict[str, Any]:

@@ -55,6 +55,15 @@ Point any MCP client at it to get typed tools: `status`, `account_info`,
 - Demo and contest accounts bypass the live gate by design — but they are still
   live broker execution environments. Use tiny volume and explicit intent.
 
+## Concurrency & latency
+
+- Each `mt5 ...` invocation is a fresh OS process that connects to **one
+  single-session** MT5 terminal. **Serialize your calls** — do not fan out many
+  parallel `mt5` processes against the same terminal; they race the one handle.
+- Each shell-out pays Python startup + a connect, so for tight loops prefer the
+  MCP server (one long-lived process) or import the library directly
+  (`from mt5_cli.market import info`) instead of spawning a process per call.
+
 ## Error codes you should handle
 
 | Code | Meaning | Retryable? |
