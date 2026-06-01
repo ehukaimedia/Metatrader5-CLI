@@ -25,7 +25,7 @@ No Critical or Important issues found in the read-only `alert list` PR.
 
 ### Minor / Non-Blocking
 
-**M1 - CLI-level alert-list wiring is not directly regression-tested**  
+**M1 - CLI-level alert-list wiring is not directly regression-tested - fixed in follow-up**
 `mt5/cli.py:279` wires the new `alert list` command, including the
 `_terminal_data_path(ctx.obj["cfg"])` autoconnect/data-path lookup. The library
 behavior is covered in `tests/test_alert.py`, and the top-level help surface is
@@ -36,6 +36,11 @@ terminal data path into `_alert_mod.list_alerts`.
 This is not blocking because the production wiring is simple and live dogfood
 confirmed the running-terminal path returns `resolved_via="explicit_data_path"`.
 Adding the CLI seam test would make the I1 behavior cheaper to preserve.
+
+Follow-up resolution: `tests/test_cli.py` now includes
+`test_alert_list_threads_terminal_data_path_from_bridge`, which stubs
+`_terminal_data_path` and asserts `alert list` passes the connected terminal
+data path through to `_alert_mod.list_alerts`.
 
 ## Verification Against Requested Checks
 

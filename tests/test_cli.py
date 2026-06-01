@@ -68,6 +68,30 @@ def test_mt5_help_shows_all_groups(runner):
 
 
 # ---------------------------------------------------------------------------
+# alert
+# ---------------------------------------------------------------------------
+
+
+def test_alert_list_threads_terminal_data_path_from_bridge(runner, tmp_path):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    connected_data_path = str(tmp_path / "connected_terminal")
+    _stub(mp, cli_mod._alert_mod, "list_alerts",
+          {"ok": True, "data": {"count": 0, "alerts": []}}, captured)
+    mp.setattr(cli_mod, "_terminal_data_path", lambda cfg: connected_data_path)
+
+    result = cli_runner.invoke(main, ["--json", "alert", "list"])
+
+    env = json.loads(result.output)
+    assert result.exit_code == 0
+    assert env["ok"] is True
+    assert captured["kwargs"]["alerts_path"] is None
+    assert captured["kwargs"]["data_path"] == connected_data_path
+    assert isinstance(captured["kwargs"]["cfg"], dict)
+
+
+# ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------
 
