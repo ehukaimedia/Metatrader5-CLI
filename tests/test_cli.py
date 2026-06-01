@@ -67,6 +67,26 @@ def test_mt5_help_shows_all_groups(runner):
         assert group in result.output
 
 
+def test_unexpected_exception_still_emits_envelope_with_exit_0(runner):
+    """An unexpected library-level exception must surface as a fail envelope on
+    stdout with exit 0 — the always-exit-0/always-envelope contract that agents
+    rely on (parse the envelope, never the exit code or stderr)."""
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("unexpected mt5 surprise")
+    mp.setattr(cli_mod._market_mod, "info", boom)
+
+    result = cli_runner.invoke(main, ["--json", "market", "info", "EURUSD"])
+
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "MT5_INTERNAL_ERROR"
+    assert env["error"]["data"]["type"] == "RuntimeError"
+
+
 # ---------------------------------------------------------------------------
 # alert
 # ---------------------------------------------------------------------------
@@ -401,6 +421,8 @@ def test_position_close_threads_is_live(runner, monkeypatch):
           {"ok": True, "data": {"closed": True}}, captured)
     cli_runner.invoke(main, ["--json", "position", "close", "12345", "--live"])
     assert captured["kwargs"]["is_live_intent"] is True
+    # cfg must be threaded so the real-account triple lock can read cfg["live"].
+    assert isinstance(captured["kwargs"]["cfg"], dict)
 
 
 def test_position_close_all_threads_symbol(runner, monkeypatch):
@@ -412,6 +434,7 @@ def test_position_close_all_threads_symbol(runner, monkeypatch):
     cli_runner.invoke(main, ["--json", "position", "close-all",
                              "--symbol", "EURUSD", "--live"])
     assert captured["kwargs"]["symbol"] == "EURUSD"
+    assert isinstance(captured["kwargs"]["cfg"], dict)
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +704,7 @@ def test_position_move_sl_threads_is_live(runner, monkeypatch):
     kw = captured["kwargs"]
     assert kw["sl"] == 1.10
     assert kw["is_live_intent"] is True
+    assert isinstance(kw["cfg"], dict)
 
 
 def test_position_breakeven_threads_is_live(runner, monkeypatch):
@@ -694,6 +718,7 @@ def test_position_breakeven_threads_is_live(runner, monkeypatch):
     kw = captured["kwargs"]
     assert kw["buffer_points"] == 5
     assert kw["is_live_intent"] is True
+    assert isinstance(kw["cfg"], dict)
 
 
 # ---------------------------------------------------------------------------

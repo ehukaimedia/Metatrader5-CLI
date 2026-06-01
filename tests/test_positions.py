@@ -547,3 +547,88 @@ class TestBreakeven:
         result = breakeven(504, buffer_points=5, is_live_intent=False)
         assert result["ok"] is False
         assert result["error"]["code"] == "MT5_ORDER_REJECTED"
+
+
+# ---------------------------------------------------------------------------
+# Real-account TRIPLE-LOCK tests
+#
+# Regression for the P0 safety gap: position mutations (close/close_all/
+# move_sl/breakeven) must enforce the SAME three gates as orders on a REAL
+# account — is_live_intent AND cfg["live"] AND MT5_LIVE=1 — while preserving
+# the documented DEMO/CONTEST bypass. Pre-fix, positions checked only
+# is_live_intent, so an agent with a stray --live could mutate a real account
+# the operator believed cfg["live"]=false / MT5_LIVE-unset protected.
+# Mirrors mt5_cli.orders.orders._live_gate_check (orders.py:207-233).
+# ---------------------------------------------------------------------------
+
+class TestPositionsTripleLock:
+
+    def test_close_real_account_blocked_when_cfg_live_false(self, mocked_mt5):
+        """REAL + is_live_intent=True but cfg['live']=False → still blocked."""
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        from mt5_cli.positions.positions import close
+        result = close(600, is_live_intent=True, cfg={"live": False})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()
+
+    def test_close_real_account_blocked_when_mt5_live_env_unset(self, mocked_mt5, monkeypatch):
+        """REAL + is_live_intent=True + cfg['live']=True but MT5_LIVE unset → blocked."""
+        monkeypatch.delenv("MT5_LIVE", raising=False)
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        from mt5_cli.positions.positions import close
+        result = close(601, is_live_intent=True, cfg={"live": True})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()
+
+    def test_close_real_account_allowed_when_all_three_gates_armed(self, mocked_mt5, monkeypatch):
+        """REAL + is_live_intent=True + cfg['live']=True + MT5_LIVE=1 → proceeds."""
+        monkeypatch.setenv("MT5_LIVE", "1")
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        mocked_mt5.symbol_info_tick.return_value = _tick(bid=1.1000, ask=1.1001)
+        pos = _make_position(ticket=602, pos_type=0, volume=0.1)
+        mocked_mt5.positions_get.return_value = [pos]
+        mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
+        from mt5_cli.positions.positions import close
+        result = close(602, is_live_intent=True, cfg={"live": True})
+        assert result["ok"] is True
+        mocked_mt5.order_send.assert_called_once()
+
+    def test_close_demo_bypass_not_blocked_even_with_cfg_live_false(self, mocked_mt5):
+        """DEMO bypasses the triple lock by design — not blocked even with cfg['live']=False."""
+        _setup_happy_path(mocked_mt5)  # DEMO account (trade_mode=0)
+        pos = _make_position(ticket=603, pos_type=0, volume=0.1)
+        mocked_mt5.positions_get.return_value = [pos]
+        mocked_mt5.order_send.return_value = _make_send_result(retcode=10009)
+        from mt5_cli.positions.positions import close
+        result = close(603, is_live_intent=False, cfg={"live": False})
+        assert result["ok"] is True
+        mocked_mt5.order_send.assert_called_once()
+
+    def test_close_all_real_account_blocked_when_cfg_live_false(self, mocked_mt5):
+        """close_all enforces the triple lock on REAL accounts."""
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        from mt5_cli.positions.positions import close_all
+        result = close_all(is_live_intent=True, cfg={"live": False})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()
+
+    def test_move_sl_real_account_blocked_when_cfg_live_false(self, mocked_mt5):
+        """move_sl enforces the triple lock on REAL accounts."""
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        from mt5_cli.positions.positions import move_sl
+        result = move_sl(604, sl=1.0950, is_live_intent=True, cfg={"live": False})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()
+
+    def test_breakeven_real_account_blocked_when_cfg_live_false(self, mocked_mt5):
+        """breakeven enforces the triple lock on REAL accounts."""
+        mocked_mt5.account_info.return_value = _acct(trade_mode=2)  # REAL
+        from mt5_cli.positions.positions import breakeven
+        result = breakeven(605, buffer_points=5, is_live_intent=True, cfg={"live": False})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "RISK_LIVE_GATE_BLOCKED"
+        mocked_mt5.order_send.assert_not_called()

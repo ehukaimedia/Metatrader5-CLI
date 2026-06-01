@@ -169,6 +169,24 @@ class EnvelopeGroup(click.Group):
             if standalone_mode:
                 sys.exit(0)
             return
+        except Exception as exc:  # noqa: BLE001
+            # Contract guarantee: ANY unexpected library/runtime error still
+            # surfaces as a structured envelope on stdout with exit 0, never a
+            # bare traceback + nonzero exit. Agents parse the envelope, not the
+            # exit code (see emit.py / README). UsageError is handled above with
+            # its own MT5_INVALID_PARAMS code; everything else lands here.
+            json_mode = self._infer_json_mode(args)
+            emit(
+                fail(
+                    "MT5_INTERNAL_ERROR",
+                    str(exc),
+                    data={"type": type(exc).__name__},
+                ),
+                json_mode,
+            )
+            if standalone_mode:
+                sys.exit(0)
+            return
         if standalone_mode:
             # Click already converted ctx.exit() / --help Exit to an int
             # return value when standalone_mode=False; honor it but cap
@@ -686,7 +704,8 @@ def position_close(ctx: click.Context, ticket: int, volume: float | None,
     if err is not None:
         emit(err, ctx.obj["json"])
         return
-    emit(_positions_mod.close(ticket, volume=volume, is_live_intent=is_live),
+    emit(_positions_mod.close(ticket, volume=volume, is_live_intent=is_live,
+                              cfg=ctx.obj["cfg"]),
          ctx.obj["json"])
 
 
@@ -701,7 +720,8 @@ def position_close_all(ctx: click.Context, symbol: str | None,
     if err is not None:
         emit(err, ctx.obj["json"])
         return
-    emit(_positions_mod.close_all(symbol=symbol, is_live_intent=is_live),
+    emit(_positions_mod.close_all(symbol=symbol, is_live_intent=is_live,
+                                  cfg=ctx.obj["cfg"]),
          ctx.obj["json"])
 
 
@@ -717,7 +737,8 @@ def position_move_sl(ctx: click.Context, ticket: int, sl: float,
     if err is not None:
         emit(err, ctx.obj["json"])
         return
-    emit(_positions_mod.move_sl(ticket, sl=sl, is_live_intent=is_live),
+    emit(_positions_mod.move_sl(ticket, sl=sl, is_live_intent=is_live,
+                                cfg=ctx.obj["cfg"]),
          ctx.obj["json"])
 
 
@@ -734,7 +755,7 @@ def position_breakeven(ctx: click.Context, ticket: int, buffer_points: int,
         emit(err, ctx.obj["json"])
         return
     emit(_positions_mod.breakeven(ticket, buffer_points=buffer_points,
-                                  is_live_intent=is_live),
+                                  is_live_intent=is_live, cfg=ctx.obj["cfg"]),
          ctx.obj["json"])
 
 
