@@ -7,9 +7,10 @@ name: Publish to PyPI
 #   Owner             : ehukaimedia
 #   Repository name   : Metatrader5-CLI
 #   Workflow name     : publish.yml
-#   Environment name  : pypi
-# Then create a GitHub Environment named "pypi" (Settings → Environments).
+#   Environment name  : (leave blank)
 # Trigger by publishing a Release, or manually via the "Run workflow" button.
+# Hardening (optional, later): add a protected GitHub Environment and set the
+# same name in both the PyPI publisher config and an `environment:` key below.
 
 on:
   release:
@@ -25,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     # The package is pure-Python (py3-none-any), so it builds on Linux even
     # though its MetaTrader5 runtime dependency is Windows-only.
-    environment: pypi
     permissions:
       id-token: write  # required for OIDC trusted publishing
     steps:
