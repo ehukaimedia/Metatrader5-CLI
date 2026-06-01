@@ -81,6 +81,31 @@ Failures use the same envelope style:
 }
 ```
 
+## Agents & MCP
+
+`metatrader5-cli` is built for agentic workflows. Every command emits a JSON
+envelope on stdout and always exits `0` — agents parse `ok`, never the exit code
+— and `--json` works in any position.
+
+Two integration paths:
+
+1. **Shell out to the CLI:** run `mt5 --json <command>` and parse the envelope.
+2. **MCP server (recommended for LLM agents):** install the extra and point any
+   MCP client at the `mt5-mcp` server.
+
+   ```bash
+   pip install metatrader5-cli[mcp]
+   mt5-mcp        # stdio MCP server
+   ```
+
+   It exposes typed read and dry-run tools (`status`, `account_*`, `market_*`,
+   `rates_*`, `history_*`, `position_list`, `order_list_pending`,
+   `order_dryrun`). For safety, **live-money mutations are not exposed over
+   MCP** — those stay behind the CLI's explicit triple-lock below.
+
+See [AGENTS.md](AGENTS.md) for the full contract, error-code table, and
+copy-paste examples.
+
 ## Safety
 
 Demo accounts are still live broker execution environments, even when the funds
