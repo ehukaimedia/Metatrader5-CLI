@@ -48,6 +48,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# MCP server for agent integration: pip install metatrader5-cli[mcp]
+mcp = ["mcp>=1.0"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -55,6 +57,7 @@ dev = [
     "mypy>=1.10",
     "build>=1.2",
     "twine>=5.0",
+    "mcp>=1.0",
 ]
 
 [project.urls]
@@ -64,6 +67,7 @@ Issues = "https://github.com/ehukaimedia/Metatrader5-CLI/issues"
 
 [project.scripts]
 mt5 = "mt5.cli:main"
+mt5-mcp = "mt5_mcp.server:main"
 
 [tool.setuptools.packages.find]
 include = ["mt5*", "mt5_cli*"]
