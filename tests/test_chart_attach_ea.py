@@ -1,0 +1,521 @@
+"""Tests for mt5_cli/chart/attach_ea.py - Insert > Experts > <name> menu poke.
+
+Strategy: fake MT5 menu tree representing Insert > Experts with both
+top-level EAs and nested category submenus (Examples, Advisors). Same
+pattern as test_chart_indicators_attach.py + test_chart_new_chart.py.
+"""
+import sys
+import types
+from unittest.mock import MagicMock
+
+import pytest
+
+
+def _purge_chart_cache():
+    for name in list(sys.modules):
+        if name.startswith("mt5_cli.chart"):
+            sys.modules.pop(name, None)
+
+
+# Fake menu tree representing MT5's main menu with the Insert > Experts subtree:
+#   100 = main menu bar:
+#     -> "&Insert"  (submenu 200)
+#   200 = Insert submenu:
+#     -> "&Indicators" (submenu 300)  — present for completeness
+#     -> "E&xperts"    (submenu 400)
+#   400 = Experts submenu (top-level favorites + nested categories):
+#     -> "MyTrendEA"          (leaf, cmd 8001)   — top-level user EA
+#     -> "AdaptiveTrailEA"    (leaf, cmd 8002)
+#     -> "Examples"           (submenu 410)      — built-in samples
+#     -> "Advisors"           (submenu 420)      — MQL5/Experts/Advisors/
+#   410 = Examples submenu:
+#     -> "MACD Sample"        (leaf, cmd 8101)
+#     -> "MovingAverage"      (leaf, cmd 8102)
+#   420 = Advisors submenu:
+#     -> "ExpertMACD"         (leaf, cmd 8201)
+#     -> "ExpertMAMA"         (leaf, cmd 8202)
+_FAKE_MENU_TREE = {
+    100: [("&Insert", 200, -1)],
+    200: [("&Indicators", 300, -1), ("E&xperts", 400, -1)],
+    300: [],  # unused
+    400: [
+        ("MyTrendEA", 0, 8001),
+        ("AdaptiveTrailEA", 0, 8002),
+        ("Examples", 410, -1),
+        ("Advisors", 420, -1),
+    ],
+    410: [
+        ("MACD Sample", 0, 8101),
+        ("MovingAverage", 0, 8102),
+    ],
+    420: [
+        ("ExpertMACD", 0, 8201),
+        ("ExpertMAMA", 0, 8202),
+    ],
+}
+
+
+@pytest.fixture
+def fake_pywin32(monkeypatch):
+    _purge_chart_cache()
+
+    fake_gui = MagicMock(name="win32gui")
+    fake_gui.IsWindowVisible.return_value = True
+    fake_gui.GetWindowText.return_value = "MetaTrader 5"
+    fake_gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+    fake_gui.EnumWindows.side_effect = lambda cb, _: cb(1000, None)
+    fake_gui.EnumChildWindows.return_value = None
+    fake_gui.GetParent.return_value = 0
+    fake_gui.GetFocus.return_value = 0
+    fake_gui.GetForegroundWindow.return_value = 9999  # the (fake) EA param dialog
+    fake_gui.PostMessage.return_value = 1
+    fake_gui.SendMessage.return_value = 0
+    fake_gui.GetMenu.return_value = 100
+    fake_gui.GetMenuItemCount.side_effect = lambda h: len(_FAKE_MENU_TREE.get(h, []))
+    fake_gui.GetSubMenu.side_effect = lambda h, i: _FAKE_MENU_TREE[h][i][1]
+    fake_gui.GetMenuItemID.side_effect = lambda h, i: _FAKE_MENU_TREE[h][i][2]
+
+    fake_con = types.SimpleNamespace(MF_BYPOSITION=0x0400)
+    fake_process = MagicMock(name="win32process")
+
+    monkeypatch.setitem(sys.modules, "win32gui", fake_gui)
+    monkeypatch.setitem(sys.modules, "win32con", fake_con)
+    monkeypatch.setitem(sys.modules, "win32process", fake_process)
+
+    # Patch menu_string at the shared helper module
+    from mt5_cli.chart import _menu
+    monkeypatch.setattr(
+        _menu,
+        "menu_string",
+        lambda hmenu, index: _FAKE_MENU_TREE[hmenu][index][0],
+    )
+
+    yield fake_gui
+
+    _purge_chart_cache()
+
+
+# ---------------------------------------------------------------------------
+# Happy path
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_finds_top_level_user_ea(fake_pywin32):
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["expert_name"] == "MyTrendEA"
+    assert env["data"]["command_id"] == 8001
+    assert env["data"]["menu_path"] == "Insert > Experts > MyTrendEA"
+
+    wm_command_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0111
+    ]
+    assert wm_command_calls
+    assert wm_command_calls[0].args == (1000, 0x0111, 8001, 0)
+
+
+def test_attach_ea_finds_ea_nested_under_advisors_submenu(fake_pywin32):
+    """Recursive walk under Experts must descend into Advisors/Examples."""
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("ExpertMAMA", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["command_id"] == 8202
+
+
+def test_attach_ea_finds_ea_nested_under_examples_submenu(fake_pywin32):
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MACD Sample", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["command_id"] == 8101
+
+
+def test_attach_ea_is_case_insensitive(fake_pywin32):
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("adaptivetrailea", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["command_id"] == 8002
+
+
+def test_attach_ea_handles_ampersand_accelerators(fake_pywin32):
+    """The fake tree uses '&Insert' / 'E&xperts'. Walk must strip '&'."""
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", settle_seconds=0)
+    assert env["ok"] is True  # passes only if '&' is stripped
+
+
+# ---------------------------------------------------------------------------
+# Auto-confirm
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_posts_enter_when_auto_confirm_true(fake_pywin32):
+    from mt5_cli.chart import attach_ea
+    attach_ea("MyTrendEA", settle_seconds=0, auto_confirm=True)
+    keydown_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0100 and c.args[2] == 0x0D  # WM_KEYDOWN + VK_RETURN
+    ]
+    assert keydown_calls
+    assert keydown_calls[0].args[0] == 9999  # foreground hwnd
+
+
+def test_attach_ea_skips_enter_when_auto_confirm_false(fake_pywin32):
+    from mt5_cli.chart import attach_ea
+    attach_ea("MyTrendEA", settle_seconds=0, auto_confirm=False)
+    keydown_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0100 and c.args[2] == 0x0D
+    ]
+    assert not keydown_calls
+
+
+# ---------------------------------------------------------------------------
+# Failure modes
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_fails_when_window_missing(monkeypatch):
+    _purge_chart_cache()
+    fake_gui = MagicMock(name="win32gui")
+    fake_gui.IsWindowVisible.return_value = True
+    fake_gui.GetWindowText.return_value = ""
+    fake_gui.EnumWindows.return_value = None
+    monkeypatch.setitem(sys.modules, "win32gui", fake_gui)
+    monkeypatch.setitem(sys.modules, "win32con", types.SimpleNamespace(MF_BYPOSITION=0x0400))
+    monkeypatch.setitem(sys.modules, "win32process", MagicMock())
+
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA")
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
+    _purge_chart_cache()
+
+
+def test_attach_ea_fails_when_menu_bar_absent(fake_pywin32):
+    fake_pywin32.GetMenu.return_value = 0
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_MENU_NOT_FOUND"
+
+
+def test_attach_ea_fails_when_experts_submenu_missing(fake_pywin32, monkeypatch):
+    broken_tree = dict(_FAKE_MENU_TREE)
+    # Insert without Experts
+    broken_tree[200] = [("&Indicators", 300, -1)]
+    from mt5_cli.chart import _menu
+    monkeypatch.setattr(
+        _menu, "menu_string",
+        lambda h, i: broken_tree[h][i][0],
+    )
+    fake_pywin32.GetMenuItemCount.side_effect = lambda h: len(broken_tree.get(h, []))
+    fake_pywin32.GetSubMenu.side_effect = lambda h, i: broken_tree[h][i][1]
+
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_MENU_PATH_NOT_FOUND"
+    assert "Experts" in env["error"]["message"]
+
+
+def test_attach_ea_fails_when_ea_not_found(fake_pywin32):
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("NonexistentEA", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_EA_NOT_FOUND"
+    assert "NonexistentEA" in env["error"]["message"]
+    assert "deploy" in env["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Chart activation
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_activates_chart_when_chart_id_given(fake_pywin32):
+    """Happy path: chart_id IS an enumerated MDI child of the MT5 window.
+    enumerate-then-activate succeeds; WM_MDIACTIVATE goes to MDIClient
+    (7777) with chart_id (5555) as wParam, and the EA menu command posts
+    to the MT5 main window."""
+    def enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(7777, None)   # MDIClient (for WM_MDIACTIVATE routing)
+            cb(5555, None)   # the requested chart child
+    fake_pywin32.EnumChildWindows.side_effect = enum_children
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        5555: "[EURUSD,M15]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        7777: "MDIClient",
+        5555: "AfxFrameOrView140s",
+    }.get(h, "MetaQuotes::MetaTrader::Frame")
+
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", chart_id=5555, settle_seconds=0)
+    assert env["ok"] is True
+    # WM_MDIACTIVATE (0x0222) should have been sent to MDIClient (7777)
+    # with chart_id (5555) as wParam.
+    mdi_calls = [
+        c for c in fake_pywin32.SendMessage.call_args_list
+        if c.args[1] == 0x0222
+    ]
+    assert mdi_calls
+    assert mdi_calls[0].args == (7777, 0x0222, 5555, 0)
+
+
+def test_attach_ea_fails_when_chart_id_not_an_enumerated_child(fake_pywin32):
+    """Stale or wrong-parent chart_id: MDIClient happily accepts
+    SendMessage(WM_MDIACTIVATE, hwnd, 0) for ANY hwnd without verifying
+    parentage and returns success, so activate_chart's bool alone is
+    not enough - the EA menu poke would still fire on the MT5 parent
+    and MT5 would attach the EA to whichever chart is actually active.
+    Must verify chart_id against enumerate_chart_children BEFORE
+    activating, and fail closed with CHART_ID_NOT_FOUND if absent.
+    Neither WM_MDIACTIVATE nor WM_COMMAND must fire."""
+    def enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(7777, None)   # MDIClient
+            cb(2000, None)   # the only real chart child
+    fake_pywin32.EnumChildWindows.side_effect = enum_children
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        2000: "[EURUSD,M15]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        7777: "MDIClient",
+        2000: "AfxFrameOrView140s",
+    }.get(h, "MetaQuotes::MetaTrader::Frame")
+
+    from mt5_cli.chart import attach_ea
+    # 9999 is NOT an enumerated chart child
+    env = attach_ea("MyTrendEA", chart_id=9999, settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_ID_NOT_FOUND"
+    assert "9999" in env["error"]["message"]
+
+    # Neither WM_MDIACTIVATE (0x0222) nor WM_COMMAND (0x0111) must fire
+    mdi_calls = [
+        c for c in fake_pywin32.SendMessage.call_args_list
+        if c.args[1] == 0x0222
+    ]
+    wm_command_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0111
+    ]
+    assert not mdi_calls, (
+        "attach_ea sent WM_MDIACTIVATE for a non-child hwnd; should have "
+        "fail-closed at the enumerate-then-verify gate"
+    )
+    assert not wm_command_calls, (
+        "attach_ea posted WM_COMMAND for a non-child chart_id; the EA "
+        "would have attached to whatever chart is actually active"
+    )
+
+
+def test_attach_ea_fails_when_activate_chart_returns_false(fake_pywin32, monkeypatch):
+    """Second gate of the fail-closed contract: even after the
+    enumerate-then-verify check passes (chart_id IS a real MDI child),
+    activate_chart can still fail at the Win32 layer (MDIClient
+    SendMessage raises, MDIClient lookup hits an edge case). When that
+    happens we still MUST NOT post WM_COMMAND. Stub activate_chart to
+    return False on a verified child, assert fail envelope + no WM_COMMAND."""
+    # Setup: chart 9999 IS an enumerated MDI child of MT5 (1000).
+    def enum_children(parent, cb, _):
+        if parent == 1000:
+            cb(7777, None)   # MDIClient
+            cb(9999, None)   # the requested chart child
+    fake_pywin32.EnumChildWindows.side_effect = enum_children
+    fake_pywin32.GetWindowText.side_effect = lambda h: {
+        1000: "MetaTrader 5",
+        9999: "[EURUSD,M15]",
+    }.get(h, "")
+    fake_pywin32.GetClassName.side_effect = lambda h: {
+        7777: "MDIClient",
+        9999: "AfxFrameOrView140s",
+    }.get(h, "MetaQuotes::MetaTrader::Frame")
+
+    # The chart package's __init__ re-exports attach_ea as a function, so
+    # `import mt5_cli.chart.attach_ea as alias` resolves to the function,
+    # not the submodule. Reach the submodule via sys.modules and patch
+    # the activate_chart name in its module namespace.
+    import sys as _sys
+    import mt5_cli.chart.attach_ea  # noqa: F401 - ensure submodule loaded
+    ea_mod = _sys.modules["mt5_cli.chart.attach_ea"]
+    monkeypatch.setattr(ea_mod, "activate_chart",
+                        lambda hwnd, parent_hwnd, settle_seconds=0: False)
+
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", chart_id=9999, settle_seconds=0)
+
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_ID_NOT_FOUND"
+    assert "9999" in env["error"]["message"]
+
+    # WM_COMMAND (0x0111) must NOT have been posted — fail-closed before
+    # the menu activation happens.
+    wm_command_calls = [
+        c for c in fake_pywin32.PostMessage.call_args_list
+        if c.args[1] == 0x0111
+    ]
+    assert not wm_command_calls, (
+        "attach_ea posted WM_COMMAND despite activate_chart returning False; "
+        "the EA could land on the wrong chart"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bridge isolation
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_module_does_not_import_metatrader5():
+    """Pure Win32 — never touches the MT5 SDK bridge."""
+    import importlib
+    import mt5_cli.chart.attach_ea  # noqa: F401
+    mod = importlib.import_module("mt5_cli.chart.attach_ea")
+    src = open(mod.__file__, encoding="utf-8").read()
+    assert "import MetaTrader5" not in src
+    assert "from MetaTrader5" not in src
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 Wave A.1: Navigator-path integration
+# ---------------------------------------------------------------------------
+
+
+def test_attach_ea_prefers_navigator_path_when_panel_present(monkeypatch):
+    """When the Navigator panel + SysTreeView32 are present AND the EA
+    is in the tree, attach_ea must use the Navigator path (method=
+    'nav_tree_rclick_enter') instead of falling back to menu_legacy.
+
+    This is the entire point of Wave A.1: deploy → attach works
+    without an MT5 restart because Navigator is filesystem-live while
+    Insert>Experts is startup-frozen."""
+    _purge_chart_cache()
+
+    fake_gui = MagicMock(name="win32gui")
+    fake_gui.IsWindowVisible.return_value = True
+    fake_gui.GetWindowText.return_value = "MetaTrader 5"
+    fake_gui.GetClassName.return_value = "MetaQuotes::MetaTrader::Frame"
+    fake_gui.EnumWindows.side_effect = lambda cb, _: cb(1000, None)
+    fake_gui.PostMessage.return_value = 1
+    fake_gui.GetForegroundWindow.return_value = 0
+    monkeypatch.setitem(sys.modules, "win32gui", fake_gui)
+    monkeypatch.setitem(sys.modules, "win32con",
+                        types.SimpleNamespace(MF_BYPOSITION=0x0400))
+    fake_process = MagicMock(name="win32process")
+    fake_process.GetWindowThreadProcessId.return_value = (6000, 5000)
+    monkeypatch.setitem(sys.modules, "win32process", fake_process)
+
+    # Stub the Navigator-walk helpers so we don't need the ctypes reader
+    from mt5_cli.chart import _navigator_walk
+    monkeypatch.setattr(_navigator_walk, "find_navigator_panel",
+                        lambda main_hwnd: 5555)
+    monkeypatch.setattr(_navigator_walk, "find_navigator_tree",
+                        lambda panel_hwnd: 7777)
+
+    class _StubReader:
+        def __init__(self, *a, **k): pass
+        def close(self): pass
+
+    monkeypatch.setattr(_navigator_walk, "Win32NavigatorTreeReader",
+                        _StubReader)
+    # Re-route the imported names in attach_ea (resolved at import time)
+    attach_ea_mod = sys.modules["mt5_cli.chart.attach_ea"]
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_panel",
+                        lambda main_hwnd: 5555)
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_tree",
+                        lambda panel_hwnd: 7777)
+    monkeypatch.setattr(attach_ea_mod, "Win32NavigatorTreeReader",
+                        _StubReader)
+
+    captured = {}
+
+    def fake_attach_via_navigator(*, reader, tree_hwnd, ea_name,
+                                  mt5_pid, mt5_tid):
+        captured["tree_hwnd"] = tree_hwnd
+        captured["ea_name"] = ea_name
+        captured["mt5_pid"] = mt5_pid
+        captured["mt5_tid"] = mt5_tid
+        return {
+            "ok": True,
+            "data": {
+                "method": "nav_tree_rclick_enter",
+                "ea": ea_name,
+                "popup_hwnd": 9999,
+                "tree_item_rect": (0, 500, 292, 520),
+            },
+        }
+
+    monkeypatch.setattr(attach_ea_mod, "attach_via_navigator",
+                        fake_attach_via_navigator)
+
+    env = attach_ea_mod.attach_ea("SmartFibChandelierManager", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["method"] == "nav_tree_rclick_enter"
+    assert captured["ea_name"] == "SmartFibChandelierManager"
+    assert captured["tree_hwnd"] == 7777
+    assert captured["mt5_pid"] == 5000
+    assert captured["mt5_tid"] == 6000
+
+
+def test_attach_ea_falls_back_to_menu_legacy_when_navigator_panel_missing(
+    fake_pywin32,
+):
+    """When Navigator panel cannot be located (NAV_TREE_NOT_FOUND), the
+    menu_legacy fallback must fire and the envelope must indicate
+    method='menu_legacy' so reviewers/operators see which path was used.
+
+    fake_pywin32 fixture provides no Navigator panel (EnumChildWindows
+    returns nothing), so the Navigator helpers naturally return None,
+    triggering the fallback."""
+    from mt5_cli.chart import attach_ea
+    env = attach_ea("MyTrendEA", settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["method"] == "menu_legacy"
+    assert env["data"]["command_id"] == 8001
+
+
+def test_attach_ea_returns_authoritative_nav_ea_not_found_no_fallback(
+    monkeypatch, fake_pywin32,
+):
+    """When the Navigator path returns NAV_EA_NOT_FOUND (EA genuinely
+    absent from the tree), attach_ea MUST surface that verdict — NOT
+    silently fall back to menu_legacy where a stale startup-cached entry
+    might give a false success.
+
+    This guards the locked contract: only NAV_TREE_NOT_FOUND triggers
+    fallback; every other Navigator error is authoritative."""
+    attach_ea_mod = sys.modules["mt5_cli.chart.attach_ea"]
+
+    class _StubReader:
+        def __init__(self, *a, **k): pass
+        def close(self): pass
+
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_panel",
+                        lambda main_hwnd: 5555)
+    monkeypatch.setattr(attach_ea_mod, "find_navigator_tree",
+                        lambda panel_hwnd: 7777)
+    monkeypatch.setattr(attach_ea_mod, "Win32NavigatorTreeReader",
+                        _StubReader)
+    fake_process = MagicMock(name="win32process")
+    fake_process.GetWindowThreadProcessId.return_value = (6000, 5000)
+    monkeypatch.setitem(sys.modules, "win32process", fake_process)
+
+    def fake_attach_via_navigator(**_kwargs):
+        return {
+            "ok": False,
+            "error": {
+                "code": "NAV_EA_NOT_FOUND",
+                "message": "EA 'GhostEA' not found in Navigator tree.",
+            },
+        }
+    monkeypatch.setattr(attach_ea_mod, "attach_via_navigator",
+                        fake_attach_via_navigator)
+
+    env = attach_ea_mod.attach_ea("GhostEA", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "NAV_EA_NOT_FOUND"

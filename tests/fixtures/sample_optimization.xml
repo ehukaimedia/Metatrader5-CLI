@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<results>
+  <pass>
+    <Profit>1234.56</Profit>
+    <ProfitFactor>1.42</ProfitFactor>
+    <Trades>412</Trades>
+    <FastPeriod>9</FastPeriod>
+    <SlowPeriod>21</SlowPeriod>
+  </pass>
+  <pass>
+    <Profit>987.65</Profit>
+    <ProfitFactor>1.18</ProfitFactor>
+    <Trades>389</Trades>
+    <FastPeriod>5</FastPeriod>
+    <SlowPeriod>20</SlowPeriod>
+  </pass>
+</results>
