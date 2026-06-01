@@ -1,0 +1,39 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.claude/
+.claire/
+.ehukaiconnect/
+
+# Build artifacts (compiled MQL5 binaries — sources are tracked, builds aren't)
+*.ex5
+*.zip
+
+# MT5 + agent compile logs (transient build output)
+*.log
+
+# Binary MT5 tester caches (these bloated the pre-release history)
+*.tst
+tester-cache/
+
+# Internal working-tree artifacts — never part of the public repo
+.ehukai_remote/
+archive/
+shared/
+skills/
+docs/code-reviews/
+docs/handoffs/
+docs/plans/
+docs/specs/
+docs/playgrounds/
+OPEN_SOURCE_PLAN.md

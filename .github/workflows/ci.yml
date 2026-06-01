@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    # Lint runs on Linux (fast): ruff needs only the source, not the
+    # Windows-only MetaTrader5 runtime.
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test:
+    # Tests must run on Windows: the MetaTrader5 dependency ships only
+    # win_amd64 wheels, so `pip install` resolves only on Windows.
+    name: test (py${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (with dev + mcp extras)
+        run: pip install -e ".[dev]"
+      - name: Tests (unit; integration needs a live terminal)
+        run: pytest -m "not integration" --cov=mt5_cli --cov=mt5 --cov=mt5_mcp --cov-report=term-missing
+
+  typecheck:
+    # mypy is informational for now (lenient config); it does not gate merges.
+    name: typecheck (mypy, non-blocking)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: mypy mt5_cli mt5 mt5_mcp

@@ -1,0 +1,4 @@
+# Archived content is preserved as-is. Suppress whitespace checks for everything
+# under archive/ so `git diff --check` stays clean despite trailing whitespace in
+# legacy MQL5 .set files, vendored docs, etc.
+archive/** -whitespace
