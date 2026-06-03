@@ -36,4 +36,13 @@ docs/handoffs/
 docs/plans/
 docs/specs/
 docs/playgrounds/
+
+# Public architecture contract docs required by AGENTS.md.
+!docs/
+!docs/plans/
+!docs/plans/**
+!docs/specs/
+!docs/specs/**
+!docs/playgrounds/
+!docs/playgrounds/**
 OPEN_SOURCE_PLAN.md

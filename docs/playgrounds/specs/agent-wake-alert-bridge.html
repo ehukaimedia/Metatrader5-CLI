@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Wake Alert Bridge</title>
+  <style>
+    :root {
+      --bg: #f7f7f4;
+      --ink: #202124;
+      --muted: #5f6368;
+      --line: #c8c6bd;
+      --panel: #ffffff;
+      --accent: #0b6bcb;
+      --risk: #b3261e;
+      --ok: #0f7b4a;
+      --warn: #a15c00;
+    }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 56px;
+    }
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.15;
+    }
+    h1 {
+      font-size: 32px;
+    }
+    h2 {
+      font-size: 22px;
+      margin-top: 32px;
+    }
+    h3 {
+      font-size: 16px;
+    }
+    p {
+      margin: 0 0 12px;
+    }
+    code {
+      font-family: Consolas, "Liberation Mono", monospace;
+      background: #ededE8;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .intent, .panel, .node, .lane {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .intent {
+      padding: 18px;
+      border-left: 6px solid var(--accent);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+    .node {
+      padding: 14px;
+      min-height: 130px;
+      position: relative;
+    }
+    .node::after {
+      content: ">";
+      position: absolute;
+      right: -11px;
+      top: 50%;
+      color: var(--muted);
+      transform: translateY(-50%);
+      font-weight: bold;
+    }
+    .node:last-child::after {
+      content: "";
+    }
+    .tag {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #e8f0fe;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .risk {
+      color: var(--risk);
+      font-weight: 700;
+    }
+    .ok {
+      color: var(--ok);
+      font-weight: 700;
+    }
+    .warn {
+      color: var(--warn);
+      font-weight: 700;
+    }
+    .lanes {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .lane {
+      padding: 14px;
+      min-height: 150px;
+    }
+    .lane h3 {
+      margin-bottom: 8px;
+    }
+    .panel {
+      padding: 18px;
+      margin-top: 12px;
+    }
+    .sources {
+      columns: 2;
+      column-gap: 28px;
+      padding-left: 20px;
+    }
+    .sources li {
+      break-inside: avoid;
+      margin: 0 0 8px;
+    }
+    .spec-seed {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .contract {
+      white-space: pre-wrap;
+      overflow-x: auto;
+      font-family: Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      background: #1f2937;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    @media (max-width: 900px) {
+      .grid, .lanes, .spec-seed {
+        grid-template-columns: 1fr;
+      }
+      .node::after {
+        content: "v";
+        right: 16px;
+        top: auto;
+        bottom: -18px;
+      }
+      .node:last-child::after {
+        content: "";
+      }
+      .sources {
+        columns: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- INTENT: Define the target architecture for MT5 alert wakes, agent handoff, permissioned trade execution, and MT5 mobile push notifications so future implementation does not bypass existing risk gates. -->
+  <main>
+    <section class="intent">
+      <h1>Agent Wake Alert Bridge</h1>
+      <p>
+        This playground maps the proposed bridge from MetaTrader 5 alerts to
+        Codex, Claude Code, Antigravity, MT5 push notifications, and optional
+        trade execution. It prevents the main anti-pattern: treating an agent
+        wake as implicit permission to trade.
+      </p>
+      <p>
+        Current behavior is read-heavy: <code>mt5 alert list</code> reads
+        <code>alerts.dat</code>, and the default MCP server exposes read and
+        dry-run tools only. Target behavior adds a policy engine before any
+        mutation can happen.
+      </p>
+    </section>
+
+    <h2>Wake Pipeline</h2>
+    <section class="grid" aria-label="Wake pipeline">
+      <article class="node">
+        <span class="tag">1. Observe</span>
+        <h3>MT5 Event Source</h3>
+        <p>Reads terminal alerts, market state, or trusted strategy signal files.</p>
+        <p><span class="warn">No outbound writes to</span> <code>alerts.dat</code>.</p>
+      </article>
+      <article class="node">
+        <span class="tag">2. Normalize</span>
+        <h3><code>wake.v1</code></h3>
+        <p>Builds a stable event id, dedupe key, trigger payload, account context, and source.</p>
+      </article>
+      <article class="node">
+        <span class="tag">3. Decide</span>
+        <h3>Policy Engine</h3>
+        <p>Matches user rules and selects notify, ask, dry-run, or trade behavior.</p>
+      </article>
+      <article class="node">
+        <span class="tag">4. Wake</span>
+        <h3>Adapters</h3>
+        <p>Dispatches to Codex, Claude Code, Antigravity, webhook, and MT5 push sinks.</p>
+      </article>
+      <article class="node">
+        <span class="tag">5. Execute</span>
+        <h3>Trade Executor</h3>
+        <p>Calls existing order and position library functions only after dry-run and policy pass.</p>
+      </article>
+    </section>
+
+    <h2>Permission Lanes</h2>
+    <section class="lanes">
+      <article class="lane">
+        <h3>Notify Only</h3>
+        <p>Send user notifications and write audit records. No trade intent is executed.</p>
+      </article>
+      <article class="lane">
+        <h3>Ask Permission</h3>
+        <p>Dry-run a configured trade intent, wake the agent, ask the user, and wait for approval.</p>
+      </article>
+      <article class="lane">
+        <h3>Auto Dry-Run</h3>
+        <p>Validate the proposed trade automatically and notify the user of pass/fail results.</p>
+      </article>
+      <article class="lane">
+        <h3>Auto Trade</h3>
+        <p><span class="risk">Mutates only</span> after dry-run, policy, dedupe, account, and live gates pass.</p>
+      </article>
+    </section>
+
+    <h2>Safety Contract</h2>
+    <section class="panel">
+      <p>
+        Real-account execution keeps the existing triple gate:
+        <code>cfg["live"] = true</code>, <code>MT5_LIVE=1</code>, and caller
+        live intent. For a daemon, caller live intent must come from an explicit
+        live startup flag or an equivalent local permission-bound adapter field.
+      </p>
+      <p>
+        The default <code>mt5-mcp</code> server stays read and dry-run only. A
+        mutation-capable agent surface must be separate or explicitly armed by a
+        follow-up spec.
+      </p>
+    </section>
+
+    <h2>MT5 Mobile Push Path</h2>
+    <section class="panel">
+      <p>
+        MT5 can send messages to the mobile app through MetaQuotes ID push
+        notifications. For CLI-originated messages, the preferred bridge is an
+        MQL5 service or EA that reads a local queue file and calls
+        <code>SendNotification()</code> inside the terminal.
+      </p>
+      <p>
+        This avoids writing the binary alert store and lets the project test a
+        queue contract, message length validation, and rate-limit handling.
+      </p>
+    </section>
+
+    <h2>Spec Seed</h2>
+    <section class="spec-seed">
+      <div class="panel">
+        <h3>Interfaces</h3>
+        <p><code>wake.v1</code> events, <code>trade_intent.v1</code> actions, policy config, adapter results, and JSONL audit records.</p>
+        <h3>Build Order</h3>
+        <p>Read-only watcher, notification adapters, agent adapters, permissioned executor, then MCP mutation decision.</p>
+      </div>
+      <div class="panel">
+        <h3>Acceptance Tests</h3>
+        <p>Policy validation, dedupe, ask blocks mutation, auto dry-run stops, auto trade dry-runs first, real-account gate matrix, adapter failure isolation.</p>
+        <h3>Non-Goals</h3>
+        <p>No strategies, no alert-store mutation, no live gate bypass, no default MCP live trading.</p>
+      </div>
+    </section>
+
+    <h2>Contract Snapshot</h2>
+    <pre class="contract">{
+  "schema": "wake.v1",
+  "source": "mt5.alert",
+  "permission_mode": "ask_permission",
+  "policy_id": "eurusd-breakdown-ask",
+  "proposed_action": {
+    "schema": "trade_intent.v1",
+    "action": "place_market",
+    "symbol": "EURUSD",
+    "side": "buy",
+    "volume": 0.01,
+    "sl": 1.075,
+    "tp": 1.09
+  }
+}</pre>
+
+    <h2>Source Anchors</h2>
+    <ul class="sources">
+      <li><code>mt5/cli.py</code>: envelope contract, alert command, live-intent threading.</li>
+      <li><code>mt5_cli/alert/alert.py</code>: read-only alert parser and path resolution.</li>
+      <li><code>mt5_mcp/server.py</code>: current read and dry-run MCP surface.</li>
+      <li><code>mt5_cli/orders/orders.py</code>: order mutation functions and live gate.</li>
+      <li><code>mt5_cli/positions/positions.py</code>: position mutation functions and live gate.</li>
+      <li><a href="https://openai.com/academy/codex-automations/">Codex Automations</a>: scheduled and same-thread recurring tasks.</li>
+      <li><a href="https://code.claude.com/docs/en/hooks">Claude Code Hooks</a>: lifecycle hooks and permission decisions.</li>
+      <li><a href="https://antigravity.google/docs/hooks">Antigravity Hooks</a>: execution-loop hooks.</li>
+      <li><a href="https://www.mql5.com/en/docs/network/sendnotification">MQL5 SendNotification</a>: MT5 mobile push function.</li>
+    </ul>
+  </main>
+</body>
+</html>
