@@ -1,6 +1,6 @@
 # Agent Wake Alert Trading Spec
 
-Status: Proposed
+Status: Partially implemented - first wake slice
 Date: 2026-06-03
 Owner: metatrader5-cli maintainers
 Related playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-bridge.html)
@@ -12,14 +12,20 @@ agent wakes for Codex, Claude Code, and Google Antigravity, with user-configured
 permission modes that can range from notification-only to fully autonomous trade
 execution.
 
-This spec is contract-first. It does not implement the daemon, adapters, or live
-mutation tools. It defines the interface and safety gates those changes must
-honor.
+This spec is contract-first. The first implementation slice ships bounded
+`mt5 alert watch` wake envelopes, policy matching, dedupe state, audit logging,
+dry-run decisions, and an MT5 push relay queue. Live mutation tools remain
+future work.
 
 ## Current Source Anchors
 
-- `mt5 alert list` currently reads `alerts.dat` only:
-  `mt5/cli.py`, `mt5_cli/alert/alert.py`, and `tests/test_alert.py`.
+- `mt5 alert list` reads `alerts.dat`; `mt5 alert watch` turns those records
+  into wake decisions:
+  `mt5/cli.py`, `mt5_cli/alert/alert.py`, `mt5_cli/wake/wake.py`,
+  `tests/test_alert.py`, and `tests/test_wake.py`.
+- The first slice treats alert records as wake candidates. Confirmed fired-alert
+  capture and alert creation require the future MQL5 relay/service path instead
+  of writing directly to MT5's binary alert file.
 - The alert parser is explicitly read-only because the binary alert record layout
   has not been round-trip validated for writes: `mt5_cli/alert/alert.py`.
 - The MCP server currently exposes read and dry-run tools only:
@@ -63,9 +69,10 @@ MT5 events to wake an agent, inspect current account state, optionally dry-run o
 place a trade, and leave a machine-readable audit trail without scraping terminal
 UI text or bypassing broker/risk controls.
 
-Dogfoodable first slice: a read-only wake daemon that detects new MT5 alerts,
-emits `wake.v1` envelopes, sends MT5 mobile push notifications, and wakes one
-configured agent in `ask_permission` mode.
+Dogfoodable first slice: a bounded wake command that observes MT5 alert records
+as wake candidates, emits `wake.v1` envelopes, writes audit logs, queues MT5
+mobile push relay requests, and provides an agent prompt for `ask_permission`
+mode.
 
 ## Goals
 
@@ -198,8 +205,9 @@ recorded. The approval expires at the configured `approval_ttl_seconds`.
 and stop before mutation.
 
 `auto_trade`: Run dry-run first, then mutate only if the policy, account class,
-risk limits, and live gates all pass. The audit log must include the dry-run
-result, mutation envelope, and policy decision.
+risk limits, and live gates all pass. In the first implementation slice,
+`auto_trade` is explicitly blocked with `WAKE_AUTONOMOUS_BLOCKED` after dry-run
+because live mutation is future work.
 
 All account classes require an explicit wake policy before mutation. Real-money
 accounts additionally require the existing triple live gate. For a daemon, the
@@ -254,20 +262,24 @@ Codex adapter:
 
 - Use Codex automation or thread wake capability for scheduled or recurring
   checks.
-- For urgent event wakes, emit a local artifact and send a prompt to the target
-  thread when that API/tooling is available.
+- First slice: include a prompt in the wake payload for the target agent to
+  consume; direct thread wake is future adapter work.
 - Local reliability is bounded by Codex availability and the machine being
   awake.
 
 Claude Code adapter:
 
 - Use Claude Code CLI/session resume for external wakes.
+- First slice: include a prompt in the wake payload; direct session wake is
+  future adapter work.
 - Use hooks for in-session safety, logging, and permission policy reinforcement.
 - Do not rely on hooks alone as an external scheduler.
 
 Antigravity adapter:
 
 - Use scheduled tasks for recurring checks where appropriate.
+- First slice: include a prompt in the wake payload; direct task/session wake is
+  future adapter work.
 - Use hooks for execution-loop policy and diagnostics.
 - Use CLI notifications for task-completion notification when configured.
 
@@ -279,8 +291,8 @@ Webhook adapter:
 
 MT5 push adapter:
 
-- Use an MQL5 relay service or EA that reads a local queue file and calls
-  `SendNotification()`.
+- First slice: write an `mt5_push_request.v1` local queue file for a future MQL5
+  relay service or EA that reads the queue and calls `SendNotification()`.
 - Respect the MQL5 255 character message limit and rate limits.
 - Report relay failures as `MT5_NOTIFICATION_FAILED` with MQL5 `GetLastError()`
   when available.
@@ -341,13 +353,14 @@ directory outside the repository.
 
 ## Acceptance Criteria
 
-- `mt5 alert watch --json` emits valid `wake.v1` envelopes and exits 0 on known
+- `mt5 alert watch --json` emits valid wake envelopes and exits 0 on known
   failures.
 - `mt5 alert watch --once --json` can be tested without a live terminal by using
   fixture alert files.
 - Duplicate alert observations do not trigger duplicate actions.
 - `ask_permission` never mutates without a recorded approval.
-- `auto_trade` always performs a dry-run first and blocks if dry-run fails.
+- `auto_trade` performs a dry-run first and returns `WAKE_AUTONOMOUS_BLOCKED`
+  instead of mutating in the first implementation slice.
 - Real-account autonomous execution requires policy opt-in, daemon live intent,
   `cfg["live"] = true`, and `MT5_LIVE=1`.
 - The default MCP server remains read and dry-run only.

@@ -1,27 +1,36 @@
 # Agent Wake Alert Trading Plan
 
-Status: Proposed
+Status: In progress
 Date: 2026-06-03
 Spec: [Agent Wake Alert Trading Spec](../specs/agent-wake-alert-trading.md)
 Playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-bridge.html)
 
-## Phase 1 - Read-Only Wake Events
+## Phase 1 - Read-Only Wake Events - Complete
 
-- Add `mt5_cli.wake` with policy parsing, validation, dedupe, and audit helpers.
-- Add `mt5 alert watch --once/--poll-seconds/--json`.
-- Emit `wake.v1` envelopes from fixture-backed alert records.
-- Add error codes for policy, dedupe, and audit failures.
-- Tests: alert fixture watch, invalid policy, duplicate suppression, envelope
+- Added `mt5_cli.wake` with policy parsing, validation, dedupe, and audit helpers.
+- Added `mt5 alert watch --once/--poll-seconds/--json`.
+- Emitted wake envelopes from fixture-backed alert records.
+- Added error codes for policy, state, audit, autonomous-block, and push-queue
+  failures.
+- Tests cover alert fixture watch, invalid policy, duplicate suppression, envelope
   shape, and no mutation path.
 
-## Phase 2 - Notification Adapters
+## Phase 2 - Notification Adapters - Partially Complete
 
 - Add adapter interface with `notify(wake_event) -> envelope`.
 - Implement `webhook` and `mt5_push` adapters first.
-- Add MQL5 notification relay template and queue contract.
-- Add relay message validation for the 255 character MQL5 notification limit.
+- Added the MT5 push queue contract; the MQL5 relay template is still pending.
+- Added relay message validation for the 255 character MQL5 notification limit.
 - Tests: adapter failure envelopes, HMAC signing, queue writes, message length,
   and rate-limit classification.
+
+## Phase 2.5 - Confirmed Alert Fire Relay - Pending
+
+- Add an MQL5 EA/service relay that records confirmed alert fire events and can
+  create/update terminal alerts through validated terminal APIs.
+- Keep direct writes to MT5 binary alert storage out of scope.
+- Tests: relay queue contract, fired-event dedupe, alert creation validation, and
+  MT5 push notification handoff.
 
 ## Phase 3 - Agent Wake Adapters
 
@@ -32,10 +41,11 @@ Playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-brid
 - Tests: adapter command construction, disabled adapter behavior, payload
   redaction, and failure isolation.
 
-## Phase 4 - Permissioned Trade Execution
+## Phase 4 - Permissioned Trade Execution - Partially Complete
 
-- Add trade intent validation and policy-bound templates.
-- Add `ask_permission`, `auto_dryrun`, and `auto_trade` execution states.
+- Added trade intent validation and policy-bound templates.
+- Added `ask_permission`, `auto_dryrun`, and blocked `auto_trade` execution
+  states.
 - Require dry-run before mutation.
 - For real accounts, preserve the existing triple live gate and require daemon
   live intent.

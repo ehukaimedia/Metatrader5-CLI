@@ -154,6 +154,19 @@ mt5 --json order list-pending
 mt5 --json order dryrun AUDUSD buy --volume 0.01 --sl 0.7000
 ```
 
+Alert wakes are a policy-first way to turn MT5 alert definitions into agent
+work. The first slice emits `wake.v1` envelopes, writes JSONL audit records,
+dedupes repeated alerts, can run `order dryrun` from a configured trade
+template, and can queue an MT5 mobile-push relay message. It does **not** send
+live orders. It reads alert definitions as wake candidates; confirmed
+fired-alert capture and alert creation should use the MQL5 relay path in a
+later slice.
+
+```bash
+mt5 --json alert watch --once
+mt5 --json alert watch --policy-path wake-policy.json --audit-path wake-audit.jsonl
+```
+
 **Screenshot privacy:** `mt5 screenshot take` captures the MT5 window as-is,
 which can include your account balance, equity, and broker login number. Review
 captures before sharing them with an agent, an LLM, or a public issue.
@@ -262,7 +275,7 @@ produces them.
 | `order` | Market, limit, stop, dry-run, modify, cancel, poll fills |
 | `position` | List, close, move stop loss, break-even |
 | `history` | Orders, deals, stats |
-| `alert` | List MT5 terminal alerts |
+| `alert` | List MT5 terminal alerts and emit wake decisions |
 | `chart` | MT5 chart/window control |
 | `screenshot` | Capture and annotate MT5 screenshots |
 | `config` | Show effective config and retcode help |

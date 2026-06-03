@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Proposed the agent wake alert trading architecture, including permission modes
   for notification-only, ask-before-trade, dry-run, and autonomous trade flows.
+- Added `mt5 alert watch` for bounded MT5 alert wake envelopes, policy matching,
+  dedupe state, JSONL audit records, dry-run decisions, and an MT5 push relay
+  queue. The first slice does not send live orders.
 
 ## [0.4.0]
 
