@@ -45,7 +45,8 @@ def _resolve_dir(directory: str | None, cfg: dict | None) -> Path:
     if directory:
         return Path(directory).expanduser()
     if cfg:
-        screenshot_cfg = cfg.get("screenshot") if isinstance(cfg.get("screenshot"), dict) else {}
+        raw_screenshot_cfg = cfg.get("screenshot")
+        screenshot_cfg = raw_screenshot_cfg if isinstance(raw_screenshot_cfg, dict) else {}
         configured = (
             screenshot_cfg.get("output_dir")
             or cfg.get("screenshot_output_dir")
@@ -66,7 +67,8 @@ def _resolve_monitor(monitor: int | None, cfg: dict | None) -> int:
 
 def _resolve_window_substring(window_substring: str, cfg: dict | None) -> str:
     if cfg and window_substring == "MT5":
-        screenshot_cfg = cfg.get("screenshot") if isinstance(cfg.get("screenshot"), dict) else {}
+        raw_screenshot_cfg = cfg.get("screenshot")
+        screenshot_cfg = raw_screenshot_cfg if isinstance(raw_screenshot_cfg, dict) else {}
         return screenshot_cfg.get("window_substring") or window_substring
     return window_substring
 
@@ -157,7 +159,7 @@ def take(
     else:
         Path(output_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
 
-    region = None
+    region: dict[str, int] | None = None
     window_matched = False
     window_title = None
     if window_substring:
@@ -165,10 +167,10 @@ def take(
             win = _find_window(window_substring)
             if win:
                 region = {
-                    "left": win.left,
-                    "top": win.top,
-                    "width": win.width,
-                    "height": win.height,
+                    "left": int(win.left),
+                    "top": int(win.top),
+                    "width": int(win.width),
+                    "height": int(win.height),
                 }
                 window_matched = True
                 window_title = getattr(win, "title", None)
@@ -183,7 +185,7 @@ def take(
 
     with mss.mss() as sct:
         mss_idx = 1 if monitor_idx == 0 else monitor_idx
-        target = region if window_matched else sct.monitors[mss_idx]
+        target = region if window_matched and region is not None else sct.monitors[mss_idx]
         shot = sct.grab(target)
         mss.tools.to_png(shot.rgb, shot.size, output=output_path)
 
