@@ -35,6 +35,7 @@ from mt5_cli import market as _market_mod
 from mt5_cli import orders as _orders_mod
 from mt5_cli import positions as _positions_mod
 from mt5_cli import rates as _rates_mod
+from mt5_cli import wake as _wake_mod
 from mt5_cli.bridge import connect as _bridge_connect
 from mt5_cli.bridge import is_connected as _bridge_is_connected
 from mt5_cli.bridge import mt5_call as _bridge_mt5_call
@@ -389,6 +390,54 @@ def alert_list_cmd(ctx: click.Context, alerts_path: str | None) -> None:
     emit(_alert_mod.list_alerts(alerts_path=alerts_path, cfg=ctx.obj["cfg"],
                                 data_path=_terminal_data_path(ctx.obj["cfg"])),
          ctx.obj["json"])
+
+
+@alert.command("watch")
+@click.option("--alerts-path", default=None,
+              help="Override alerts.dat path; default is the connected/workspace MT5 path.")
+@click.option("--policy-path", default=None,
+              help="JSON wake policy file; defaults to cfg['wake_policies'] or notify-only.")
+@click.option("--state-path", default=None,
+              help="Dedupe state JSON path; default is user-local runtime state.")
+@click.option("--audit-path", default=None,
+              help="Wake audit JSONL path; default is user-local runtime state.")
+@click.option("--iterations", type=int, default=1,
+              help="Bounded poll count. Default 1 preserves one-envelope output.")
+@click.option("--once", is_flag=True,
+              help="Alias for --iterations 1.")
+@click.option("--poll-seconds", type=float, default=5.0,
+              help="Delay between iterations when iterations > 1.")
+@click.option("--live", "is_live", is_flag=True,
+              help="Pass live intent to dry-run checks only; this command never sends orders.")
+@click.pass_context
+def alert_watch_cmd(
+    ctx: click.Context,
+    alerts_path: str | None,
+    policy_path: str | None,
+    state_path: str | None,
+    audit_path: str | None,
+    iterations: int,
+    once: bool,
+    poll_seconds: float,
+    is_live: bool,
+) -> None:
+    """Watch MT5 alerts and emit agent wake decisions."""
+    if once:
+        iterations = 1
+    emit(
+        _wake_mod.watch_alerts(
+            alerts_path=alerts_path,
+            cfg=ctx.obj["cfg"],
+            data_path=_terminal_data_path(ctx.obj["cfg"]),
+            policy_path=policy_path,
+            state_path=state_path,
+            audit_path=audit_path,
+            iterations=iterations,
+            poll_seconds=poll_seconds,
+            is_live_intent=is_live,
+        ),
+        ctx.obj["json"],
+    )
 
 
 # ---------------------------------------------------------------------------

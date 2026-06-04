@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Proposed the alert-seeded trading decision architecture, including permission
+  modes for notification-only, ask-before-trade, and dry-run flows.
+- Added `mt5 alert watch` for bounded MT5 alert wake envelopes, policy matching,
+  dedupe state, JSONL audit records, and dry-run decisions. The first slice reads
+  alert definitions as a watch-list only; it does not detect fired alerts, create
+  alerts, wake external agent runtimes, queue mobile notifications, or send live
+  orders.
+
 ## [0.4.0]
 
 Initial public release.

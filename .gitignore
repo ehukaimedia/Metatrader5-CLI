@@ -36,4 +36,14 @@ docs/handoffs/
 docs/plans/
 docs/specs/
 docs/playgrounds/
+
+# Public spec-driven architecture docs.
+!docs/
+!docs/plans/
+!docs/plans/**/*.md
+!docs/specs/
+!docs/specs/**/*.md
+!docs/playgrounds/
+!docs/playgrounds/**/
+!docs/playgrounds/**/*.html
 OPEN_SOURCE_PLAN.md

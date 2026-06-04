@@ -167,14 +167,16 @@ def render_set(params: list[str] | dict[str, str]) -> str:
     """
     lines: list[str] = []
     seen: set[str] = set()
-    raw_items = params.items() if isinstance(params, dict) else params
-    for raw in raw_items:
-        if isinstance(params, dict):
-            name, spec = raw
-        else:
+    items: list[tuple[str, str]] = []
+    if isinstance(params, dict):
+        items.extend(params.items())
+    else:
+        for raw in params:
             if "=" not in raw:
                 raise ValueError(f"Parameter {raw!r} must be Name=value")
             name, spec = raw.split("=", 1)
+            items.append((name, spec))
+    for name, spec in items:
         name = name.strip()
         if name in seen:
             raise ValueError(f"Duplicate parameter {name!r}")

@@ -90,10 +90,10 @@ def _deal_to_dict(deal) -> dict:
 # orders
 # ---------------------------------------------------------------------------
 
-# date_from/date_to are datetime objects (UTC). CLI/MCP coerces user strings before this layer.
+# date_from/date_to are UTC datetimes or None. CLI/MCP coerces user strings before this layer.
 def orders(
-    date_from: datetime,
-    date_to: datetime,
+    date_from: datetime | None,
+    date_to: datetime | None,
     symbol: str | None = None,
     strategy_id: str | None = None,
     cfg: dict | None = None,
@@ -103,8 +103,11 @@ def orders(
     Filters in Python by symbol and/or resolved magic (strategy_id).
     ``cfg`` is required when ``strategy_id`` is supplied.
     """
-    if strategy_id and cfg is None:
-        return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+    magic_filter: int | None = None
+    if strategy_id:
+        if cfg is None:
+            return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+        magic_filter = resolve_magic(strategy_id, cfg)
 
     raw = mt5_call("history_orders_get", date_from, date_to)
     if raw is None:
@@ -113,9 +116,8 @@ def orders(
     result = list(raw)
     if symbol:
         result = [o for o in result if o.symbol == symbol]
-    if strategy_id:
-        magic = resolve_magic(strategy_id, cfg)
-        result = [o for o in result if o.magic == magic]
+    if magic_filter is not None:
+        result = [o for o in result if o.magic == magic_filter]
 
     return ok([_order_to_dict(o, cfg) for o in result])
 
@@ -125,8 +127,8 @@ def orders(
 # ---------------------------------------------------------------------------
 
 def deals(
-    date_from: datetime,
-    date_to: datetime,
+    date_from: datetime | None,
+    date_to: datetime | None,
     symbol: str | None = None,
     strategy_id: str | None = None,
     cfg: dict | None = None,
@@ -136,8 +138,11 @@ def deals(
     Filters in Python by symbol and/or resolved magic (strategy_id).
     ``cfg`` is required when ``strategy_id`` is supplied.
     """
-    if strategy_id and cfg is None:
-        return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+    magic_filter: int | None = None
+    if strategy_id:
+        if cfg is None:
+            return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+        magic_filter = resolve_magic(strategy_id, cfg)
 
     raw = mt5_call("history_deals_get", date_from, date_to)
     if raw is None:
@@ -146,9 +151,8 @@ def deals(
     result = list(raw)
     if symbol:
         result = [d for d in result if d.symbol == symbol]
-    if strategy_id:
-        magic = resolve_magic(strategy_id, cfg)
-        result = [d for d in result if d.magic == magic]
+    if magic_filter is not None:
+        result = [d for d in result if d.magic == magic_filter]
 
     return ok([_deal_to_dict(d) for d in result])
 
@@ -158,8 +162,8 @@ def deals(
 # ---------------------------------------------------------------------------
 
 def stats(
-    date_from: datetime,
-    date_to: datetime,
+    date_from: datetime | None,
+    date_to: datetime | None,
     strategy_id: str | None = None,
     cfg: dict | None = None,
 ) -> dict:
@@ -169,17 +173,19 @@ def stats(
     ``cfg`` is required when ``strategy_id`` is supplied.
     Returns zeros (not NaN) when there are no deals.
     """
-    if strategy_id and cfg is None:
-        return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+    magic_filter: int | None = None
+    if strategy_id:
+        if cfg is None:
+            return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+        magic_filter = resolve_magic(strategy_id, cfg)
 
     raw = mt5_call("history_deals_get", date_from, date_to)
     if raw is None:
         return fail("MT5_CONNECTION_ERROR", "history_deals_get returned None.")
 
     deal_list = sorted(raw, key=lambda d: d.time)
-    if strategy_id:
-        magic = resolve_magic(strategy_id, cfg)
-        deal_list = [d for d in deal_list if d.magic == magic]
+    if magic_filter is not None:
+        deal_list = [d for d in deal_list if d.magic == magic_filter]
 
     n = len(deal_list)
     if n == 0:

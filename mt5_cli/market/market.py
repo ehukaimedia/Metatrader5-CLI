@@ -72,11 +72,12 @@ def _entry_dict(entry) -> dict:
 def _normalize_book_entry(entry) -> dict:
     raw = _entry_dict(entry)
     type_id = int(raw.get("type", 0) or 0)
+    price = raw.get("price")
     volume_dbl = raw.get("volume_dbl", raw.get("volume_real", raw.get("volume")))
     return {
         "type": type_id,
         "side": BOOK_TYPE_NAMES.get(type_id, "unknown"),
-        "price": float(raw.get("price")),
+        "price": float(price if price is not None else 0.0),
         "volume": int(raw.get("volume", 0) or 0),
         "volume_dbl": float(
             volume_dbl if volume_dbl is not None else (raw.get("volume", 0) or 0)

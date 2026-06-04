@@ -128,6 +128,8 @@ def _epoch_to_iso(epoch: int | float | None) -> str | None:
 
 def _is_agent_magic(magic: int | None) -> bool:
     """Return True when magic falls in the auto-derived range [100000, 180000)."""
+    if magic is None:
+        return False
     try:
         value = int(magic)
     except (TypeError, ValueError):
@@ -231,10 +233,23 @@ def _pending_order_to_dict(
 ) -> dict:
     """Normalize an MT5 pending order namedtuple/object to a plain dict."""
     type_filling = getattr(order, "type_filling", None)
-    try:
-        type_filling_key = int(type_filling)
-    except (TypeError, ValueError):
-        type_filling_key = type_filling
+    if type_filling is None:
+        type_filling_name = str(type_filling)
+    else:
+        try:
+            type_filling_key = int(type_filling)
+            type_filling_name = _FILLING_STR.get(type_filling_key, str(type_filling))
+        except (TypeError, ValueError):
+            type_filling_name = str(type_filling)
+    raw_state = getattr(order, "state", None)
+    if raw_state is None:
+        state_name = str(raw_state)
+    else:
+        try:
+            state_key = int(raw_state)
+            state_name = _ORDER_STATE_STR.get(state_key, str(raw_state))
+        except (TypeError, ValueError):
+            state_name = str(raw_state)
     strategy_id = strategy_id_hint or _magic_to_strategy_id(order.magic, cfg)
     comment = getattr(order, "comment", "") or ""
     comment_truncated = bool(
@@ -254,13 +269,10 @@ def _pending_order_to_dict(
         "tp": order.tp,
         "time_setup": _epoch_to_iso(getattr(order, "time_setup", None)),
         "time_expiration": _epoch_to_iso(getattr(order, "time_expiration", None)),
-        "state": _ORDER_STATE_STR.get(
-            getattr(order, "state", None),
-            str(getattr(order, "state", "")),
-        ),
+        "state": state_name,
         "type_time": getattr(order, "type_time", None),
         "type_filling": type_filling,
-        "type_filling_name": _FILLING_STR.get(type_filling_key, str(type_filling)),
+        "type_filling_name": type_filling_name,
         "magic": order.magic,
         "is_agent_magic": _is_agent_magic(order.magic),
         "strategy_id": strategy_id,
@@ -338,8 +350,11 @@ def list_pending(
     Returns:
         ok([...]) with list of pending order dicts, or fail envelope.
     """
-    if strategy_id and cfg is None:
-        return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+    magic_filter: int | None = None
+    if strategy_id:
+        if cfg is None:
+            return fail("RISK_INVALID_INPUT", "cfg is required when strategy_id is specified.")
+        magic_filter = resolve_magic(strategy_id, cfg)
 
     if symbol:
         orders = mt5_call("orders_get", symbol=symbol)
@@ -350,9 +365,8 @@ def list_pending(
         return fail("MT5_NO_DATA", "orders_get returned None.")
 
     result = list(orders)
-    if strategy_id:
-        magic = resolve_magic(strategy_id, cfg)
-        result = [o for o in result if int(o.magic) == int(magic)]
+    if magic_filter is not None:
+        result = [o for o in result if int(o.magic) == int(magic_filter)]
 
     return ok([_pending_order_to_dict(o, cfg, strategy_id_hint=strategy_id) for o in result])
 
@@ -596,12 +610,15 @@ def dryrun(
         if tick is None:
             return fail("MT5_NO_DATA", f"No tick data for {symbol!r}.")
         entry_price = tick.ask if side_lower == "buy" else tick.bid
+        risk_entry_price = None
     else:
+        if price is None:
+            return fail("MT5_INVALID_PARAMS", "--price is required for pending order dryrun.")
         entry_price = float(price)
+        risk_entry_price = entry_price
 
     # Pending orders: SL distance is measured from the trigger price, not
     # from the current ask. Market orders: let check_order default to ask.
-    risk_entry_price = float(price) if order_type_lower in {"limit", "stop"} else None
     risk_result = check_order(
         symbol=symbol,
         side=side,

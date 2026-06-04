@@ -200,6 +200,47 @@ def test_alert_list_threads_terminal_data_path_from_bridge(runner, tmp_path):
     assert isinstance(captured["kwargs"]["cfg"], dict)
 
 
+def test_alert_watch_threads_paths_and_live_intent(runner, tmp_path):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod._wake_mod, "watch_alerts",
+          {"ok": True, "data": {"count": 0, "events": []}}, captured)
+    mp.setattr(cli_mod, "_terminal_data_path", lambda cfg: str(tmp_path / "terminal"))
+
+    result = cli_runner.invoke(
+        main,
+        [
+            "--json",
+            "alert",
+            "watch",
+            "--alerts-path",
+            str(tmp_path / "alerts.dat"),
+            "--policy-path",
+            str(tmp_path / "policy.json"),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--audit-path",
+            str(tmp_path / "audit.jsonl"),
+            "--iterations",
+            "2",
+            "--once",
+            "--poll-seconds",
+            "0",
+            "--live",
+        ],
+    )
+
+    env = json.loads(result.output)
+    assert result.exit_code == 0
+    assert env["ok"] is True
+    assert captured["kwargs"]["data_path"] == str(tmp_path / "terminal")
+    assert captured["kwargs"]["policy_path"] == str(tmp_path / "policy.json")
+    assert captured["kwargs"]["iterations"] == 1
+    assert captured["kwargs"]["poll_seconds"] == 0.0
+    assert captured["kwargs"]["is_live_intent"] is True
+
+
 # ---------------------------------------------------------------------------
 # config
 # ---------------------------------------------------------------------------
