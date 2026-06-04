@@ -222,8 +222,6 @@ def test_alert_watch_threads_paths_and_live_intent(runner, tmp_path):
             str(tmp_path / "state.json"),
             "--audit-path",
             str(tmp_path / "audit.jsonl"),
-            "--mt5-push-queue-path",
-            str(tmp_path / "push.jsonl"),
             "--iterations",
             "2",
             "--once",

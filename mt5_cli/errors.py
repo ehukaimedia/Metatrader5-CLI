@@ -101,11 +101,9 @@ ERROR_CODES: dict[str, str] = {
     "ALERTS_PATH_UNRESOLVED": "The alerts file path could not be resolved.",
     # --- Wake alerts ---
     "WAKE_AUDIT_WRITE_FAILED": "The wake audit log could not be written.",
-    "WAKE_AUTONOMOUS_BLOCKED": "Autonomous live mutation is blocked by the wake policy layer.",
     "WAKE_POLICY_INVALID": "The wake policy configuration is invalid.",
     "WAKE_STATE_READ_ERROR": "The wake dedupe state could not be read.",
     "WAKE_STATE_WRITE_FAILED": "The wake dedupe state could not be written.",
-    "MT5_NOTIFICATION_FAILED": "The MT5 notification relay queue could not be written.",
     # --- Screenshot ---
     "SCREENSHOT_WINDOW_NOT_FOUND": "The target window for the screenshot was not found.",
 }

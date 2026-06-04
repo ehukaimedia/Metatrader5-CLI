@@ -1,8 +1,9 @@
 """Alert wake contracts for agent workflows.
 
-This module turns MT5 alert definitions into structured wake events. It is a
-first implementation slice: notification, ask-permission, and dry-run decisions
-are supported; live autonomous mutation is intentionally blocked.
+This module turns MT5 alert definitions into structured wake decisions. It
+supports notification, ask-permission, and dry-run decisions only; it does not
+detect fired alerts, wake external agent runtimes, queue mobile notifications,
+or place live orders.
 """
 from __future__ import annotations
 
@@ -23,7 +24,6 @@ VALID_PERMISSION_MODES = {
     "notify_only",
     "ask_permission",
     "auto_dryrun",
-    "auto_trade",
 }
 
 SUPPORTED_TRADE_ACTIONS = {
@@ -35,10 +35,6 @@ SUPPORTED_TRADE_ACTIONS = {
 SUPPORTED_ADAPTERS = {
     "audit",
     "stdout",
-    "mt5_push",
-    "codex",
-    "claude",
-    "antigravity",
 }
 
 DEFAULT_POLICY = {
@@ -111,7 +107,6 @@ def watch_alerts(
     policy_path: str | None = None,
     state_path: str | None = None,
     audit_path: str | None = None,
-    mt5_push_queue_path: str | None = None,
     iterations: int = 1,
     poll_seconds: float = 5.0,
     is_live_intent: bool = False,
@@ -136,7 +131,6 @@ def watch_alerts(
 
     state_file = _resolve_state_path(state_path)
     audit_file = _resolve_audit_path(audit_path)
-    push_queue_file = _resolve_push_queue_path(mt5_push_queue_path)
     state_env = _load_state(state_file)
     if not state_env.get("ok"):
         return state_env
@@ -176,7 +170,7 @@ def watch_alerts(
                 is_live_intent=is_live_intent,
                 dryrun_func=dryrun,
             )
-            adapters = _run_adapters(event, policy, execution, push_queue_file)
+            adapters = _run_adapters(policy)
             audit_env = _write_audit(audit_file, event, policy, execution, adapters)
             if not audit_env.get("ok"):
                 return audit_env
@@ -198,7 +192,6 @@ def watch_alerts(
             "policy_source": policies_env["data"]["source"],
             "state_path": str(state_file),
             "audit_path": str(audit_file),
-            "mt5_push_queue_path": str(push_queue_file),
             "alert_count": None if listed_data is None else listed_data.get("count"),
         }
     )
@@ -242,7 +235,7 @@ def _normalize_policy(policy: Any, index: int) -> dict:
         env = _validate_trade_template(policy_id, trade_template)
         if not env.get("ok"):
             return env
-    if permission_mode in {"auto_dryrun", "auto_trade"} and trade_template is None:
+    if permission_mode == "auto_dryrun" and trade_template is None:
         return fail(
             "WAKE_POLICY_INVALID",
             f"Policy {policy_id!r} requires trade_template for {permission_mode}.",
@@ -435,7 +428,7 @@ def _execute_policy(
         limits_env = _check_intent_limits(intent, policy.get("limits", {}))
         if not limits_env.get("ok"):
             return {"decision": "policy_blocked", "dryrun": limits_env, "mutation": None}
-    if mode in {"ask_permission", "auto_dryrun", "auto_trade"} and intent is not None:
+    if mode in {"ask_permission", "auto_dryrun"} and intent is not None:
         dryrun_env = _dryrun_trade_intent(intent, cfg, is_live_intent, dryrun_func)
 
     if mode == "notify_only":
@@ -452,18 +445,7 @@ def _execute_policy(
             "dryrun": dryrun_env,
             "mutation": None,
         }
-
-    # auto_trade is deliberately specified but not enabled in this first slice.
-    if dryrun_env and not dryrun_env.get("ok"):
-        return {"decision": "dryrun_failed", "dryrun": dryrun_env, "mutation": None}
-    return {
-        "decision": "autonomous_blocked",
-        "dryrun": dryrun_env,
-        "mutation": fail(
-            "WAKE_AUTONOMOUS_BLOCKED",
-            "auto_trade is specified but live mutation is not implemented in this first slice.",
-        ),
-    }
+    return {"decision": "notified", "dryrun": None, "mutation": None}
 
 
 def _check_intent_limits(intent: dict, limits: dict) -> dict:
@@ -521,51 +503,14 @@ def _dryrun_trade_intent(
     )
 
 
-def _run_adapters(
-    event: dict,
-    policy: dict,
-    execution: dict,
-    push_queue_file: Path,
-) -> list[dict]:
+def _run_adapters(policy: dict) -> list[dict]:
     results: list[dict] = []
     for adapter in policy.get("adapters", ["audit"]):
         if adapter == "audit":
             results.append({"name": "audit", "ok": True, "mode": "jsonl"})
         elif adapter == "stdout":
             results.append({"name": "stdout", "ok": True, "mode": "envelope"})
-        elif adapter == "mt5_push":
-            queued = _queue_mt5_push(push_queue_file, event, execution)
-            results.append({"name": "mt5_push", **queued})
-        else:
-            results.append({"name": adapter, "ok": True, "mode": "prompt_in_payload"})
     return results
-
-
-def _queue_mt5_push(push_queue_file: Path, event: dict, execution: dict) -> dict:
-    message = _mt5_push_message(event, execution)
-    record = {
-        "schema": "mt5_push_request.v1",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "event_id": event["event_id"],
-        "message": message,
-    }
-    try:
-        push_queue_file.parent.mkdir(parents=True, exist_ok=True)
-        with push_queue_file.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, separators=(",", ":")))
-            fh.write("\n")
-    except OSError as exc:
-        env = fail("MT5_NOTIFICATION_FAILED", f"Could not write MT5 push queue: {exc}")
-        return {"ok": False, "error": env["error"]}
-    return {"ok": True, "mode": "queued", "path": str(push_queue_file), "message": message}
-
-
-def _mt5_push_message(event: dict, execution: dict) -> str:
-    base = (
-        f"MT5 wake {event.get('symbol')} {event.get('trigger', {}).get('condition')} "
-        f"{event.get('trigger', {}).get('price')} -> {execution.get('decision')}"
-    )
-    return base[:255]
 
 
 def _write_audit(
@@ -636,14 +581,6 @@ def _resolve_audit_path(path: str | None) -> Path:
     if os.environ.get("MT5_WAKE_AUDIT_PATH"):
         return Path(os.environ["MT5_WAKE_AUDIT_PATH"])
     return _runtime_dir() / "wake-audit.jsonl"
-
-
-def _resolve_push_queue_path(path: str | None) -> Path:
-    if path:
-        return Path(path)
-    if os.environ.get("MT5_PUSH_QUEUE_PATH"):
-        return Path(os.environ["MT5_PUSH_QUEUE_PATH"])
-    return _runtime_dir() / "mt5-push-queue.jsonl"
 
 
 def _load_state(path: Path) -> dict:

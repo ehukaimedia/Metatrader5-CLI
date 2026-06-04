@@ -48,7 +48,6 @@ def test_watch_alerts_emits_default_notify_wake_and_audit(tmp_path):
         cfg={"login": 12345, "server": "Demo"},
         state_path=str(state_path),
         audit_path=str(audit_path),
-        mt5_push_queue_path=str(tmp_path / "push.jsonl"),
         now=_now,
     )
 
@@ -75,7 +74,6 @@ def test_watch_alerts_dedupe_state_suppresses_replay(tmp_path):
     kwargs = {
         "state_path": str(tmp_path / "wake-state.json"),
         "audit_path": str(tmp_path / "wake-audit.jsonl"),
-        "mt5_push_queue_path": str(tmp_path / "push.jsonl"),
         "now": _now,
     }
 
@@ -125,7 +123,6 @@ def test_auto_dryrun_policy_calls_order_dryrun(tmp_path):
         policy_path=str(policy_path),
         state_path=str(tmp_path / "state.json"),
         audit_path=str(tmp_path / "audit.jsonl"),
-        mt5_push_queue_path=str(tmp_path / "push.jsonl"),
         dryrun_func=dryrun_stub,
         now=_now,
     )
@@ -137,47 +134,6 @@ def test_auto_dryrun_policy_calls_order_dryrun(tmp_path):
     assert captured["side"] == "buy"
     assert captured["order_type"] == "market"
     assert captured["is_live_intent"] is False
-
-
-def test_auto_trade_is_blocked_after_successful_dryrun(tmp_path):
-    from mt5_cli.wake import watch_alerts
-
-    alerts_path = _sample_alert_file(tmp_path / "alerts.dat")
-    policy_path = tmp_path / "policy.json"
-    policy_path.write_text(
-        json.dumps(
-            {
-                "wake_policies": [
-                    {
-                        "id": "no-live-mutation-yet",
-                        "match": {"symbol": "AUDUSD"},
-                        "permission_mode": "auto_trade",
-                        "trade_template": {
-                            "action": "place_market",
-                            "side": "buy",
-                            "volume": 0.01,
-                            "sl": 0.7,
-                        },
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    env = watch_alerts(
-        str(alerts_path),
-        policy_path=str(policy_path),
-        state_path=str(tmp_path / "state.json"),
-        audit_path=str(tmp_path / "audit.jsonl"),
-        mt5_push_queue_path=str(tmp_path / "push.jsonl"),
-        dryrun_func=lambda **kwargs: {"ok": True, "data": {"dry_run": True}},
-        now=_now,
-    )
-
-    event = env["data"]["events"][0]
-    assert event["execution"]["decision"] == "autonomous_blocked"
-    assert event["execution"]["mutation"]["error"]["code"] == "WAKE_AUTONOMOUS_BLOCKED"
 
 
 def test_policy_max_volume_blocks_before_dryrun(tmp_path):
@@ -215,7 +171,6 @@ def test_policy_max_volume_blocks_before_dryrun(tmp_path):
         policy_path=str(policy_path),
         state_path=str(tmp_path / "state.json"),
         audit_path=str(tmp_path / "audit.jsonl"),
-        mt5_push_queue_path=str(tmp_path / "push.jsonl"),
         dryrun_func=dryrun_stub,
         now=_now,
     )
@@ -223,44 +178,6 @@ def test_policy_max_volume_blocks_before_dryrun(tmp_path):
     event = env["data"]["events"][0]
     assert event["execution"]["decision"] == "policy_blocked"
     assert event["execution"]["dryrun"]["error"]["code"] == "RISK_MAX_LOT_EXCEEDED"
-
-
-def test_mt5_push_adapter_writes_queue_file(tmp_path):
-    from mt5_cli.wake import watch_alerts
-
-    alerts_path = _sample_alert_file(tmp_path / "alerts.dat")
-    policy_path = tmp_path / "policy.json"
-    queue_path = tmp_path / "push.jsonl"
-    policy_path.write_text(
-        json.dumps(
-            {
-                "wake_policies": [
-                    {
-                        "id": "push-only",
-                        "match": {"symbol": "AUDUSD"},
-                        "permission_mode": "notify_only",
-                        "adapters": ["audit", "mt5_push"],
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    env = watch_alerts(
-        str(alerts_path),
-        policy_path=str(policy_path),
-        state_path=str(tmp_path / "state.json"),
-        audit_path=str(tmp_path / "audit.jsonl"),
-        mt5_push_queue_path=str(queue_path),
-        now=_now,
-    )
-
-    assert env["ok"] is True
-    queued = json.loads(queue_path.read_text(encoding="utf-8").splitlines()[0])
-    assert queued["schema"] == "mt5_push_request.v1"
-    assert len(queued["message"]) <= 255
-    assert "AUDUSD" in queued["message"]
 
 
 def test_invalid_policy_returns_failure_envelope():
@@ -273,6 +190,49 @@ def test_invalid_policy_returns_failure_envelope():
                     "id": "bad",
                     "permission_mode": "auto_dryrun",
                     "trade_template": {"action": "close_position"},
+                }
+            ]
+        }
+    )
+
+    assert env["ok"] is False
+    assert env["error"]["code"] == "WAKE_POLICY_INVALID"
+
+
+def test_auto_trade_permission_mode_is_not_supported():
+    from mt5_cli.wake import load_policies
+
+    env = load_policies(
+        cfg={
+            "wake_policies": [
+                {
+                    "id": "bad-mode",
+                    "permission_mode": "auto_trade",
+                    "trade_template": {
+                        "action": "place_market",
+                        "side": "buy",
+                        "volume": 0.01,
+                        "sl": 0.7,
+                    },
+                }
+            ]
+        }
+    )
+
+    assert env["ok"] is False
+    assert env["error"]["code"] == "WAKE_POLICY_INVALID"
+
+
+def test_external_wake_adapters_are_not_supported():
+    from mt5_cli.wake import load_policies
+
+    env = load_policies(
+        cfg={
+            "wake_policies": [
+                {
+                    "id": "bad-adapter",
+                    "permission_mode": "notify_only",
+                    "adapters": ["audit", "mt5_push"],
                 }
             ]
         }

@@ -401,8 +401,6 @@ def alert_list_cmd(ctx: click.Context, alerts_path: str | None) -> None:
               help="Dedupe state JSON path; default is user-local runtime state.")
 @click.option("--audit-path", default=None,
               help="Wake audit JSONL path; default is user-local runtime state.")
-@click.option("--mt5-push-queue-path", default=None,
-              help="Queue JSONL path for a future MQL5 SendNotification relay.")
 @click.option("--iterations", type=int, default=1,
               help="Bounded poll count. Default 1 preserves one-envelope output.")
 @click.option("--once", is_flag=True,
@@ -418,7 +416,6 @@ def alert_watch_cmd(
     policy_path: str | None,
     state_path: str | None,
     audit_path: str | None,
-    mt5_push_queue_path: str | None,
     iterations: int,
     once: bool,
     poll_seconds: float,
@@ -435,7 +432,6 @@ def alert_watch_cmd(
             policy_path=policy_path,
             state_path=state_path,
             audit_path=audit_path,
-            mt5_push_queue_path=mt5_push_queue_path,
             iterations=iterations,
             poll_seconds=poll_seconds,
             is_live_intent=is_live,

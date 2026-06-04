@@ -3,1089 +3,452 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agent Wake Alert Bridge - Interactive Spec Playground</title>
+  <title>Agent Wake Alert Bridge</title>
   <style>
     :root {
-      --bg: #f6f5ef;
+      color-scheme: light;
+      --ink: #1f2933;
+      --muted: #5b6773;
+      --bg: #f6f4ef;
       --panel: #ffffff;
-      --panel-border: #d8d5ca;
-      --text-primary: #23262a;
-      --text-secondary: #63605a;
-      --accent: #0f6f82;
-      --accent-hover: #0a5262;
-      --risk: #b42318;
-      --risk-bg: rgba(180, 35, 24, 0.1);
-      --ok: #176b3a;
-      --ok-bg: rgba(23, 107, 58, 0.1);
-      --warn: #9a5b00;
-      --warn-bg: rgba(154, 91, 0, 0.12);
-      --info: #5f5a18;
-      --info-bg: rgba(95, 90, 24, 0.12);
-      --code-bg: #17202a;
+      --line: #d8d2c4;
+      --teal: #0f766e;
+      --teal-soft: #d8f3ef;
+      --amber: #b7791f;
+      --amber-soft: #fff1d6;
+      --red: #b42318;
+      --red-soft: #ffe4df;
+      --shadow: 0 18px 45px rgba(31, 41, 51, 0.1);
     }
+
     * {
       box-sizing: border-box;
     }
+
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text-primary);
+      color: var(--ink);
       background: var(--bg);
-      line-height: 1.6;
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.5;
     }
+
     main {
-      max-width: 1300px;
+      max-width: 1180px;
       margin: 0 auto;
-      padding: 32px 20px 80px;
+      padding: 32px 20px 48px;
     }
+
     header {
-      margin-bottom: 32px;
-      border-bottom: 1px solid var(--panel-border);
-      padding-bottom: 24px;
+      display: grid;
+      gap: 14px;
+      margin-bottom: 24px;
     }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
     h1 {
-      font-size: 36px;
-      font-weight: 700;
-      margin: 0 0 8px;
-      color: var(--text-primary);
+      max-width: 780px;
+      font-size: clamp(2rem, 5vw, 4.4rem);
+      line-height: 1;
+      letter-spacing: 0;
     }
-    .subtitle {
-      color: var(--text-secondary);
-      font-size: 16px;
-      margin: 0;
+
+    h2 {
+      font-size: 1.35rem;
+      margin-bottom: 12px;
     }
-    .grid-layout {
-      display: grid;
-      grid-template-columns: 420px 1fr;
-      gap: 24px;
-      align-items: start;
-    }
-    /* Cards and Panels */
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--panel-border);
-      border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 8px 22px rgba(40, 36, 24, 0.08);
-      transition: border-color 0.2s;
-    }
-    .card:hover {
-      border-color: var(--accent);
-    }
-    h2, h3 {
-      margin-top: 0;
-      font-weight: 600;
-      color: var(--text-primary);
-      border-left: 4px solid var(--accent);
-      padding-left: 10px;
-      line-height: 1.2;
-    }
-    h2 { font-size: 20px; margin-bottom: 20px; }
-    h3 { font-size: 16px; margin-bottom: 16px; border-left-color: var(--info); }
-    
-    /* Control styles */
-    .control-group {
-      margin-bottom: 18px;
-    }
-    label {
-      display: block;
-      color: var(--text-secondary);
-      font-size: 13px;
-      font-weight: 500;
+
+    h3 {
+      font-size: 1rem;
       margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
-    select, input[type="text"], input[type="number"] {
-      width: 100%;
-      background: #fbfaf6;
-      border: 1px solid var(--panel-border);
-      color: var(--text-primary);
-      padding: 10px 12px;
-      border-radius: 6px;
-      font-family: inherit;
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s;
+
+    code,
+    pre {
+      font-family: Consolas, "Courier New", monospace;
     }
-    select:focus, input:focus {
-      border-color: var(--accent);
-    }
-    .checkbox-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--text-primary);
-      text-transform: none;
-      font-size: 14px;
-      cursor: pointer;
-    }
-    .checkbox-label input {
-      width: 18px;
-      height: 18px;
-      accent-color: var(--accent);
-      cursor: pointer;
-    }
-    
-    /* Presets */
-    .preset-container {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-    .preset-btn {
-      background: #f3f1e9;
-      border: 1px solid var(--panel-border);
-      color: var(--text-secondary);
-      padding: 8px 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 500;
-      transition: all 0.2s;
-      text-align: center;
-    }
-    .preset-btn:hover {
-      background: #e8e4d8;
-      color: var(--text-primary);
-      border-color: var(--accent);
-    }
-    .preset-btn.active {
-      background: var(--accent);
-      color: white;
-      border-color: var(--accent);
-    }
-    
-    /* Visual Pipeline */
-    .pipeline {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    .pipeline-step {
-      background: #f3f1e9;
-      border: 1px solid var(--panel-border);
-      border-radius: 8px;
-      padding: 12px;
-      text-align: center;
-      position: relative;
-    }
-    .pipeline-step::after {
-      content: ">";
-      position: absolute;
-      right: -10px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-secondary);
-      z-index: 10;
-      font-size: 14px;
-    }
-    .pipeline-step:last-child::after {
-      content: "";
-    }
-    .pipeline-step .step-num {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: var(--panel-border);
-      font-size: 11px;
-      line-height: 20px;
-      font-weight: 700;
-      color: var(--text-secondary);
-      margin-bottom: 4px;
-    }
-    .pipeline-step.active .step-num {
-      background: var(--accent);
-      color: white;
-    }
-    .pipeline-step h4 {
-      margin: 0 0 4px;
-      font-size: 13px;
-      font-weight: 600;
-    }
-    .pipeline-step p {
-      margin: 0;
-      font-size: 11px;
-      color: var(--text-secondary);
-      line-height: 1.2;
-    }
-    
-    /* Live Status Box */
-    .status-banner {
-      border-radius: 8px;
+
+    pre {
+      overflow: auto;
       padding: 16px;
-      margin-bottom: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .status-banner.success { background: var(--ok-bg); border: 1px solid var(--ok); color: #a7f3d0; }
-    .status-banner.error { background: var(--risk-bg); border: 1px solid var(--risk); color: #fecaca; }
-    .status-banner.warn { background: var(--warn-bg); border: 1px solid var(--warn); color: #fef3c7; }
-    .status-banner.info { background: var(--info-bg); border: 1px solid var(--info); color: #ddd6fe; }
-    .status-title { font-weight: 700; font-size: 15px; }
-    .status-desc { font-size: 13.5px; }
-    .slice-note {
-      margin: -12px 0 24px;
-      padding: 12px 14px;
-      border-left: 4px solid var(--accent);
-      background: #eef6f3;
-      color: var(--text-primary);
-      font-size: 13px;
+      border-radius: 8px;
+      background: #17212b;
+      color: #f7fafc;
+      font-size: 0.9rem;
       line-height: 1.45;
     }
-    
-    /* Code Viewer Tabs */
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid var(--panel-border);
-      margin-bottom: 16px;
-      gap: 4px;
+
+    .eyebrow {
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
     }
-    .tab-btn {
-      background: transparent;
-      border: none;
-      color: var(--text-secondary);
-      padding: 10px 16px;
-      font-family: inherit;
-      font-size: 14px;
-      cursor: pointer;
-      font-weight: 500;
+
+    .lede {
+      max-width: 880px;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+
+    .band {
+      margin-top: 18px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .tile {
+      min-height: 118px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .tile p,
+    li {
+      color: var(--muted);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .step {
       position: relative;
+      min-height: 148px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
     }
-    .tab-btn:hover {
-      color: var(--text-primary);
-    }
-    .tab-btn.active {
-      color: var(--accent-hover);
-    }
-    .tab-btn.active::after {
+
+    .step:not(:last-child)::after {
       content: "";
       position: absolute;
-      bottom: -1px;
-      left: 0;
-      right: 0;
+      top: 50%;
+      right: -12px;
+      width: 12px;
       height: 2px;
-      background: var(--accent);
+      background: var(--teal);
     }
-    .tab-content {
-      display: none;
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--teal-soft);
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 700;
     }
-    .tab-content.active {
-      display: block;
+
+    .warn {
+      background: var(--amber-soft);
+      color: var(--amber);
     }
-    pre {
-      margin: 0;
-      background: var(--code-bg);
-      border: 1px solid var(--panel-border);
+
+    .stop {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    button {
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 18px;
-      overflow-x: auto;
-      font-family: Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 13.5px;
-      max-height: 480px;
-    }
-    
-    /* JSON Highlighting styles */
-    .json-key { color: #818cf8; }
-    .json-string { color: #34d399; }
-    .json-number { color: #fbbf24; }
-    .json-boolean { color: #f472b6; }
-    .json-null { color: #a78bfa; }
-    
-    /* Prompt Section */
-    .prompt-box {
-      margin-top: 24px;
-      border-top: 1px solid var(--panel-border);
-      padding-top: 24px;
-    }
-    .prompt-container {
-      position: relative;
-    }
-    .copy-btn {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      background: var(--accent);
-      border: none;
-      color: white;
-      padding: 6px 12px;
-      border-radius: 4px;
+      background: #ffffff;
+      color: var(--ink);
       cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
-      font-family: inherit;
-      transition: background-color 0.2s;
+      font-weight: 700;
     }
-    .copy-btn:hover {
-      background: var(--accent-hover);
+
+    button[aria-pressed="true"] {
+      border-color: var(--teal);
+      background: var(--teal);
+      color: #ffffff;
     }
-    
-    /* Doc Section styling */
-    .doc-section {
-      margin-top: 48px;
-      border-top: 1px solid var(--panel-border);
-      padding-top: 32px;
-    }
-    .doc-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 32px;
-    }
-    .doc-card h3 {
-      border-left-color: var(--accent);
-    }
-    .doc-card ul {
+
+    ul {
+      margin: 0;
       padding-left: 20px;
-      margin: 0 0 16px;
     }
-    .doc-card li {
-      margin-bottom: 8px;
-      font-size: 14px;
-      color: var(--text-secondary);
+
+    .two {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
     }
-    .doc-card code {
-      font-family: Consolas, "Liberation Mono", "Courier New", monospace;
-      background: var(--code-bg);
-      padding: 2px 4px;
-      border-radius: 4px;
-      font-size: 12.5px;
-      color: #e2e8f0;
+
+    .matrix {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
     }
-    
-    @media (max-width: 960px) {
-      .grid-layout {
+
+    .cell {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    @media (max-width: 900px) {
+      .grid,
+      .flow,
+      .two,
+      .matrix {
         grid-template-columns: 1fr;
       }
-      .pipeline {
-        grid-template-columns: 1fr;
-      }
-      .pipeline-step::after {
-        content: "v";
-        right: auto;
-        left: 50%;
-        bottom: -15px;
-        top: auto;
-        transform: translateX(-50%);
-      }
-      .doc-grid {
-        grid-template-columns: 1fr;
+
+      .step::after {
+        display: none;
       }
     }
   </style>
 </head>
 <body>
-  <!-- INTENT: Keep the current MT5 alert-wake slice and target architecture aligned so future implementation does not bypass existing risk gates. -->
+  <!-- INTENT: Keep the alert wake architecture honest by showing only the shipped read-only decision slice and its source anchors. -->
   <main>
     <header>
+      <p class="eyebrow">Spec playground</p>
       <h1>Agent Wake Alert Bridge</h1>
-      <p class="subtitle">Interactive Specification & Core Architectural Verification Playground</p>
+      <p class="lede">
+        MT5 alert definitions become a read-only watch-list for agents. The
+        watcher emits structured decisions, dedupes repeats, optionally runs
+        order dry-runs, writes audit records, and never mutates the terminal or
+        places trades.
+      </p>
     </header>
 
-    <div class="grid-layout">
-      <!-- Left Column: Controls & Presets -->
-      <div class="card">
-        <h2>Simulator Controls</h2>
-        
-        <label>Configuration Presets</label>
-        <div class="preset-container">
-          <button class="preset-btn active" onclick="loadPreset('safe_demo')">Safe Demo Notify</button>
-          <button class="preset-btn" onclick="loadPreset('demo_trade')">Demo Auto-Trade Blocked</button>
-          <button class="preset-btn" onclick="loadPreset('real_ask')">Real Ask Approval</button>
-          <button class="preset-btn" onclick="loadPreset('real_blocked')">Real Gate Blocked</button>
-        </div>
-
-        <hr style="border: 0; border-top: 1px solid var(--panel-border); margin: 20px 0;">
-
-        <div class="control-group">
-          <label for="triggerSource">Event Source</label>
-          <select id="triggerSource" onchange="updateState()">
-            <option value="mt5.alert">mt5.alert (Terminal Alert)</option>
-            <option value="market.condition">market.condition (Price Alert)</option>
-            <option value="strategy.signal">strategy.signal (MQL5 EA / Signal)</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="symbol">Symbol</label>
-          <select id="symbol" onchange="updateState()">
-            <option value="EURUSD">EURUSD</option>
-            <option value="USDJPY">USDJPY</option>
-            <option value="GBPUSD">GBPUSD</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="triggerType">Trigger Kind</label>
-          <select id="triggerType" onchange="updateState()">
-            <option value="Bid <">Bid &lt;</option>
-            <option value="Ask >">Ask &gt;</option>
-            <option value="EA Signal">EA Strategy Signal</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="triggerVal">Trigger Value</label>
-          <input type="text" id="triggerVal" value="1.0800" oninput="updateState()">
-        </div>
-
-        <div class="control-group">
-          <label for="permissionMode">Permission Mode</label>
-          <select id="permissionMode" onchange="updateState()">
-            <option value="notify_only">notify_only (Log/Push Only)</option>
-            <option value="ask_permission">ask_permission (Interactive approval)</option>
-            <option value="auto_dryrun">auto_dryrun (Risk Check Only)</option>
-            <option value="auto_trade">auto_trade (Blocked in current slice)</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="targetAgent">Target Agent Adapter</label>
-          <select id="targetAgent" onchange="updateState()">
-            <option value="Claude Code">Claude Code (CLI Hooks)</option>
-            <option value="Codex">Codex (Automation Thread)</option>
-            <option value="Antigravity">Antigravity (Task Schedules)</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="hasTradeIntent" checked onchange="updateState()">
-            Attach proposed trade intent
-          </label>
-        </div>
-
-        <div id="intentFields">
-          <div class="control-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div>
-              <label for="tradeSide">Side</label>
-              <select id="tradeSide" onchange="updateState()">
-                <option value="buy">BUY</option>
-                <option value="sell">SELL</option>
-              </select>
-            </div>
-            <div>
-              <label for="tradeVolume">Volume</label>
-              <input type="number" id="tradeVolume" step="0.01" value="0.01" oninput="updateState()">
-            </div>
-          </div>
-        </div>
-
-        <hr style="border: 0; border-top: 1px solid var(--panel-border); margin: 20px 0;">
-
-        <div class="control-group">
-          <label>Live Safety Gates (Real Account)</label>
-          <div class="checkbox-group">
-            <label class="checkbox-label">
-              <input type="checkbox" id="accountClassReal" onchange="updateState()">
-              Account Class is REAL (Live Money)
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="gateCfgLive" onchange="updateState()">
-              <code>cfg["live"] = true</code>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="gateEnvLive" onchange="updateState()">
-              <code>MT5_LIVE=1</code> env var
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="gateCliLive" onchange="updateState()">
-              <code>--live</code> startup flag
-            </label>
-          </div>
-        </div>
+    <section class="band" aria-labelledby="intent-title">
+      <h2 id="intent-title">Intent</h2>
+      <div class="grid">
+        <article class="tile">
+          <span class="badge">Read-only input</span>
+          <h3>Alert definitions</h3>
+          <p><code>mt5_cli/alert/alert.py</code> reads MT5 alert records and does not write the binary alert store.</p>
+        </article>
+        <article class="tile">
+          <span class="badge">Decision core</span>
+          <h3>Wake policy</h3>
+          <p><code>mt5_cli/wake/wake.py</code> validates policy, dedupes events, and emits <code>wake.v1</code>.</p>
+        </article>
+        <article class="tile">
+          <span class="badge">No mutation</span>
+          <h3>Dry-run only</h3>
+          <p>Trade templates can call the existing dry-run path. Live orders are outside <code>mt5 alert watch</code>.</p>
+        </article>
       </div>
+    </section>
 
-      <!-- Right Column: Visual Pipeline & Code Outputs -->
-      <div>
-        <!-- Pipeline Flow -->
-        <div class="pipeline" aria-label="Wake pipeline execution flow">
-          <div class="pipeline-step active" id="step1">
-            <span class="step-num">1</span>
-            <h4>Observe</h4>
-            <p id="step1Desc">Event Source Active</p>
-          </div>
-          <div class="pipeline-step active" id="step2">
-            <span class="step-num">2</span>
-            <h4>Normalize</h4>
-            <p>wake.v1 Envelope</p>
-          </div>
-          <div class="pipeline-step active" id="step3">
-            <span class="step-num">3</span>
-            <h4>Decide</h4>
-            <p id="step3Desc">Resolve Policy</p>
-          </div>
-          <div class="pipeline-step active" id="step4">
-            <span class="step-num">4</span>
-            <h4>Wake</h4>
-            <p id="step4Desc">Notify Adapters</p>
-          </div>
-          <div class="pipeline-step active" id="step5">
-            <span class="step-num">5</span>
-            <h4>Execute</h4>
-            <p id="step5Desc">Verify and Trade</p>
-          </div>
-        </div>
-
-        <!-- Banner Alert Status -->
-        <div class="status-banner info" id="statusBanner">
-          <div class="status-title" id="statusTitle">Current Slice Loaded</div>
-          <div class="status-desc" id="statusDesc">Adjust the simulator controls on the left.</div>
-        </div>
-        <div class="slice-note">
-          Current shipped slice: <code>mt5 alert watch</code> observes alert records as wake candidates, writes audit/state files, queues push-relay requests, and blocks <code>auto_trade</code> with <code>WAKE_AUTONOMOUS_BLOCKED</code>. Confirmed fired-alert capture, alert creation, and live mutation are target architecture.
-        </div>
-
-        <!-- Code Previews -->
-        <div class="card">
-          <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('tab-wake')">wake.v1 Payload</button>
-            <button class="tab-btn" onclick="switchTab('tab-policy')">Policy Config</button>
-            <button class="tab-btn" onclick="switchTab('tab-intent')">Trade Intent</button>
-            <button class="tab-btn" onclick="switchTab('tab-audit')">Audit Log</button>
-          </div>
-
-          <div id="tab-wake" class="tab-content active">
-            <pre><code id="codeWake"></code></pre>
-          </div>
-          <div id="tab-policy" class="tab-content">
-            <pre><code id="codePolicy"></code></pre>
-          </div>
-          <div id="tab-intent" class="tab-content">
-            <pre><code id="codeIntent"></code></pre>
-          </div>
-          <div id="tab-audit" class="tab-content">
-            <pre><code id="codeAudit"></code></pre>
-          </div>
-
-          <!-- Prompt Generator -->
-          <div class="prompt-box">
-            <h3>Agent Wake Notification Prompt</h3>
-            <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 12px;">
-              This is the generated prompt or command payload that gets pushed to your active LLM developer environment to wake the agent.
-            </p>
-            <div class="prompt-container">
-              <button class="copy-btn" onclick="copyPrompt()">Copy Prompt</button>
-              <pre style="background: var(--code-bg); border-color: #334155;"><code id="promptText" style="color: #93e0d1;"></code></pre>
-            </div>
-          </div>
-        </div>
+    <section class="band" aria-labelledby="flow-title">
+      <h2 id="flow-title">Shipped Flow</h2>
+      <div class="flow">
+        <article class="step">
+          <span class="badge">1</span>
+          <h3>Read alerts</h3>
+          <p>Use <code>mt5 alert list</code> behavior through the read-only parser.</p>
+        </article>
+        <article class="step">
+          <span class="badge">2</span>
+          <h3>Build wake</h3>
+          <p>Create <code>wake.v1</code> with symbol, condition, price, and stable dedupe key.</p>
+        </article>
+        <article class="step">
+          <span class="badge">3</span>
+          <h3>Apply policy</h3>
+          <p>Match by source, symbol, condition, or source text; default to notify-only.</p>
+        </article>
+        <article class="step">
+          <span class="badge">4</span>
+          <h3>Dry-run when asked</h3>
+          <p>Only explicit trade templates enter <code>order dryrun</code>; limits run first.</p>
+        </article>
+        <article class="step">
+          <span class="badge">5</span>
+          <h3>Audit and return</h3>
+          <p>Write <code>wake_audit.v1</code>, save state, and return one JSON envelope.</p>
+        </article>
       </div>
-    </div>
+    </section>
 
-    <!-- Static Spec Documentation / Spec Seed -->
-    <section class="doc-section">
-      <h2>Architectural Contracts & Non-Goals</h2>
-      <div class="doc-grid">
-        <div class="doc-card">
-          <h3>Acceptance Criteria</h3>
+    <section class="band" aria-labelledby="mode-title">
+      <h2 id="mode-title">Decision Modes</h2>
+      <div class="controls" role="group" aria-label="Decision mode">
+        <button type="button" data-mode="notify_only" aria-pressed="true">notify_only</button>
+        <button type="button" data-mode="ask_permission" aria-pressed="false">ask_permission</button>
+        <button type="button" data-mode="auto_dryrun" aria-pressed="false">auto_dryrun</button>
+      </div>
+      <div class="two">
+        <article>
+          <h3 id="mode-heading">notify_only</h3>
+          <p id="mode-copy">Emit and audit the wake. No trade template is required and no dry-run runs.</p>
+        </article>
+        <pre id="mode-json">{
+  "permission_mode": "notify_only",
+  "execution": {
+    "decision": "notified",
+    "dryrun": null,
+    "mutation": null
+  }
+}</pre>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="contract-title">
+      <h2 id="contract-title">Spec Seed</h2>
+      <div class="two">
+        <article>
+          <h3>Policy shape</h3>
+          <pre>{
+  "wake_policies": [
+    {
+      "id": "audusd-watch",
+      "enabled": true,
+      "match": {
+        "source": "mt5.alert",
+        "symbol": "AUDUSD",
+        "condition": "Bid <"
+      },
+      "permission_mode": "auto_dryrun",
+      "adapters": ["audit"],
+      "limits": {
+        "allowed_symbols": ["AUDUSD"],
+        "max_volume": 0.02
+      },
+      "trade_template": {
+        "action": "place_market",
+        "side": "buy",
+        "volume": 0.01,
+        "sl": 0.7
+      }
+    }
+  ]
+}</pre>
+        </article>
+        <article>
+          <h3>Supported contract</h3>
+          <div class="matrix">
+            <div class="cell"><strong>Modes</strong><br>notify_only<br>ask_permission<br>auto_dryrun</div>
+            <div class="cell"><strong>Adapters</strong><br>audit<br>stdout</div>
+            <div class="cell"><strong>Trade actions</strong><br>place_market<br>place_limit<br>place_stop</div>
+          </div>
+          <h3 style="margin-top: 16px;">Non-goals</h3>
           <ul>
-            <li><code>mt5 alert watch --json</code> must output valid JSON envelopes and always exit <code>0</code> on expected handler results to preserve the CLI contract.</li>
-            <li>Double-observations must be filtered out at the policy layer using a unique key schema: <code>terminal:login:source:symbol:condition:price:timestamp</code>.</li>
-            <li>No trade execution can happen on a <code>real</code> class account unless all three gates are active: <code>cfg["live"] = true</code>, environment variable <code>MT5_LIVE=1</code>, and the <code>--live</code> daemon invocation flag.</li>
-            <li>The <code>ask_permission</code> lane must verify the trade dry-run outcome, notify the agent target, and block execution until an explicit <code>approve</code> event is parsed.</li>
+            <li>No alert creation or binary alert writes.</li>
+            <li>No fired-alert history detection.</li>
+            <li>No external runtime wake hooks.</li>
+            <li>No mobile notification queue.</li>
+            <li>No live mutation from the watcher.</li>
           </ul>
-        </div>
-        <div class="doc-card">
-          <h3>Non-Goals</h3>
-          <ul>
-            <li>The CLI will <strong>never write back</strong> to the binary <code>alerts.dat</code> database, as the format is volatile and not round-trip validated for write commands.</li>
-            <li>The default MCP server remains read-only. Live mutations are blocked on the MCP interface unless a separate, explicitly configured <code>mt5-mcp-live</code> is armed.</li>
-            <li>No trading strategy or decision-making engine is built in. Wakes only carry structural parameters and template risk envelopes.</li>
-          </ul>
-        </div>
+        </article>
       </div>
+    </section>
 
-      <div style="margin-top: 32px;" class="card">
-        <h3>Primary Source Anchors</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; font-size: 13.5px; color: var(--text-secondary);">
-          <div>
-            <strong>Terminal Read-Only Hooks:</strong><br>
-            <code>mt5/cli.py</code> (Envelope parser)<br>
-            <code>mt5_cli/alert/alert.py</code> (Binary parser)
-          </div>
-          <div>
-            <strong>Risk Guards & Orders:</strong><br>
-            <code>mt5_cli/orders/orders.py</code> (Mutation gates)<br>
-            <code>mt5_cli/positions/positions.py</code> (Hedge controls)
-          </div>
-          <div>
-            <strong>Push Notification relays:</strong><br>
-            MQL5 <a href="https://www.mql5.com/en/docs/network/sendnotification" style="color: var(--accent-hover); text-decoration: none;">SendNotification() API</a> (255-character limit)
-          </div>
-        </div>
+    <section class="band" aria-labelledby="anchors-title">
+      <h2 id="anchors-title">Source Anchors</h2>
+      <div class="grid">
+        <article class="tile">
+          <span class="badge">CLI</span>
+          <h3>mt5/cli.py</h3>
+          <p><code>alert watch</code> threads paths, bounded polling, and dry-run-only live intent.</p>
+        </article>
+        <article class="tile">
+          <span class="badge">Library</span>
+          <h3>mt5_cli/wake/wake.py</h3>
+          <p>Owns policy validation, event construction, dedupe, dry-run dispatch, and audit writes.</p>
+        </article>
+        <article class="tile">
+          <span class="badge">Tests</span>
+          <h3>tests/test_wake.py</h3>
+          <p>Covers envelope shape, replay suppression, dry-run execution, policy limits, and rejected unsupported paths.</p>
+        </article>
       </div>
     </section>
   </main>
 
   <script>
-    // State management
-    const state = {
-      triggerSource: 'mt5.alert',
-      symbol: 'EURUSD',
-      triggerType: 'Bid <',
-      triggerVal: '1.0800',
-      permissionMode: 'notify_only',
-      targetAgent: 'Claude Code',
-      hasTradeIntent: true,
-      tradeAction: 'place_market',
-      tradeSide: 'buy',
-      tradeVolume: 0.01,
-      tradeSL: 1.075,
-      tradeTP: 1.09,
-      accountClass: 'demo',
-      accountLogin: 123456,
-      gateCfgLive: false,
-      gateEnvLive: false,
-      gateCliLive: false
-    };
-
-    const DEFAULTS = {...state};
-
-    // Pre-configured scenarios
-    const PRESETS = {
-      safe_demo: {
-        triggerSource: 'mt5.alert',
-        symbol: 'EURUSD',
-        triggerType: 'Bid <',
-        triggerVal: '1.0800',
-        permissionMode: 'notify_only',
-        targetAgent: 'Claude Code',
-        hasTradeIntent: false,
-        tradeSide: 'buy',
-        tradeVolume: 0.01,
-        accountClass: 'demo',
-        gateCfgLive: false,
-        gateEnvLive: false,
-        gateCliLive: false
+    const modes = {
+      notify_only: {
+        copy: 'Emit and audit the wake. No trade template is required and no dry-run runs.',
+        json: {
+          permission_mode: 'notify_only',
+          execution: {
+            decision: 'notified',
+            dryrun: null,
+            mutation: null
+          }
+        }
       },
-      demo_trade: {
-        triggerSource: 'strategy.signal',
-        symbol: 'USDJPY',
-        triggerType: 'EA Signal',
-        triggerVal: 'Buy Signal',
-        permissionMode: 'auto_trade',
-        targetAgent: 'Claude Code',
-        hasTradeIntent: true,
-        tradeSide: 'buy',
-        tradeVolume: 0.05,
-        accountClass: 'demo',
-        gateCfgLive: false,
-        gateEnvLive: false,
-        gateCliLive: true
+      ask_permission: {
+        copy: 'Dry-run only when an explicit trade template exists, then return permission_required. No order is sent.',
+        json: {
+          permission_mode: 'ask_permission',
+          execution: {
+            decision: 'permission_required',
+            dryrun: { ok: true, data: { dry_run: true } },
+            mutation: null
+          }
+        }
       },
-      real_ask: {
-        triggerSource: 'mt5.alert',
-        symbol: 'GBPUSD',
-        triggerType: 'Ask >',
-        triggerVal: '1.2500',
-        permissionMode: 'ask_permission',
-        targetAgent: 'Claude Code',
-        hasTradeIntent: true,
-        tradeSide: 'sell',
-        tradeVolume: 0.02,
-        accountClass: 'real',
-        gateCfgLive: true,
-        gateEnvLive: true,
-        gateCliLive: true
-      },
-      real_blocked: {
-        triggerSource: 'mt5.alert',
-        symbol: 'EURUSD',
-        triggerType: 'Bid <',
-        triggerVal: '1.0700',
-        permissionMode: 'auto_trade',
-        targetAgent: 'Claude Code',
-        hasTradeIntent: true,
-        tradeSide: 'buy',
-        tradeVolume: 0.10,
-        accountClass: 'real',
-        gateCfgLive: true,
-        gateEnvLive: false,
-        gateCliLive: true
+      auto_dryrun: {
+        copy: 'Run policy limits and order dry-run automatically, audit the result, and stop before mutation.',
+        json: {
+          permission_mode: 'auto_dryrun',
+          execution: {
+            decision: 'dryrun_passed',
+            dryrun: { ok: true, data: { dry_run: true } },
+            mutation: null
+          }
+        }
       }
     };
 
-    function loadPreset(name) {
-      const preset = PRESETS[name];
-      if (!preset) return;
+    const heading = document.getElementById('mode-heading');
+    const copy = document.getElementById('mode-copy');
+    const json = document.getElementById('mode-json');
 
-      // Update control elements
-      document.getElementById('triggerSource').value = preset.triggerSource;
-      document.getElementById('symbol').value = preset.symbol;
-      document.getElementById('triggerType').value = preset.triggerType;
-      document.getElementById('triggerVal').value = preset.triggerVal;
-      document.getElementById('permissionMode').value = preset.permissionMode;
-      document.getElementById('targetAgent').value = preset.targetAgent;
-      document.getElementById('hasTradeIntent').checked = preset.hasTradeIntent;
-      document.getElementById('tradeSide').value = preset.tradeSide;
-      document.getElementById('tradeVolume').value = preset.tradeVolume;
-      
-      document.getElementById('accountClassReal').checked = preset.accountClass === 'real';
-      document.getElementById('gateCfgLive').checked = preset.gateCfgLive;
-      document.getElementById('gateEnvLive').checked = preset.gateEnvLive;
-      document.getElementById('gateCliLive').checked = preset.gateCliLive;
-
-      // Style preset buttons
-      document.querySelectorAll('.preset-btn').forEach(btn => {
-        btn.classList.remove('active');
+    document.querySelectorAll('[data-mode]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-mode]').forEach((item) => {
+          item.setAttribute('aria-pressed', String(item === button));
+        });
+        const mode = button.dataset.mode;
+        heading.textContent = mode;
+        copy.textContent = modes[mode].copy;
+        json.textContent = JSON.stringify(modes[mode].json, null, 2);
       });
-      event.target.classList.add('active');
-
-      updateState();
-    }
-
-    function updateState() {
-      state.triggerSource = document.getElementById('triggerSource').value;
-      state.symbol = document.getElementById('symbol').value;
-      state.triggerType = document.getElementById('triggerType').value;
-      state.triggerVal = document.getElementById('triggerVal').value;
-      state.permissionMode = document.getElementById('permissionMode').value;
-      state.targetAgent = document.getElementById('targetAgent').value;
-      state.hasTradeIntent = document.getElementById('hasTradeIntent').checked;
-      state.tradeSide = document.getElementById('tradeSide').value;
-      state.tradeVolume = parseFloat(document.getElementById('tradeVolume').value) || 0.01;
-      
-      state.accountClass = document.getElementById('accountClassReal').checked ? 'real' : 'demo';
-      state.gateCfgLive = document.getElementById('gateCfgLive').checked;
-      state.gateEnvLive = document.getElementById('gateEnvLive').checked;
-      state.gateCliLive = document.getElementById('gateCliLive').checked;
-
-      // SL / TP logic helper
-      if (state.tradeSide === 'buy') {
-        state.tradeSL = (parseFloat(state.triggerVal) * 0.995).toFixed(4);
-        state.tradeTP = (parseFloat(state.triggerVal) * 1.01).toFixed(4);
-      } else {
-        state.tradeSL = (parseFloat(state.triggerVal) * 1.005).toFixed(4);
-        state.tradeTP = (parseFloat(state.triggerVal) * 0.99).toFixed(4);
-      }
-
-      // Show or hide intent subfields
-      const intentContainer = document.getElementById('intentFields');
-      intentContainer.style.display = state.hasTradeIntent ? 'block' : 'none';
-
-      // Perform evaluations
-      evaluatePipeline();
-      renderJSONs();
-      updatePrompt();
-    }
-
-    function evaluatePipeline() {
-      // Step descriptors
-      document.getElementById('step1Desc').textContent = `Observed from ${state.triggerSource}`;
-      document.getElementById('step3Desc').textContent = `Matched Policy for ${state.symbol}`;
-      document.getElementById('step4Desc').textContent = `Notifying ${state.targetAgent}`;
-
-      const banner = document.getElementById('statusBanner');
-      const title = document.getElementById('statusTitle');
-      const desc = document.getElementById('statusDesc');
-
-      // Clear layout classes
-      banner.className = 'status-banner';
-
-      // Verification logic
-      const isReal = state.accountClass === 'real';
-      const mode = state.permissionMode;
-      const hasIntent = state.hasTradeIntent;
-
-      if (!hasIntent) {
-        banner.classList.add('info');
-        title.textContent = 'NOTIFY ONLY';
-        desc.textContent = 'Event logged and notifications dispatched successfully. No trade requested.';
-        document.getElementById('step5Desc').textContent = 'Audit Log Written';
-        return;
-      }
-
-      if (mode === 'notify_only') {
-        banner.classList.add('info');
-        title.textContent = 'NOTIFY ONLY';
-        desc.textContent = 'Notification dispatched. Proposed trade template ignored per policy.';
-        document.getElementById('step5Desc').textContent = 'Notifications sent';
-      } else if (mode === 'auto_dryrun') {
-        banner.classList.add('warn');
-        title.textContent = 'DRY-RUN GATED';
-        desc.textContent = 'Broker dry-run validation passed. Execution halted safely per auto_dryrun policy.';
-        document.getElementById('step5Desc').textContent = 'Verification Only';
-      } else if (mode === 'auto_trade') {
-        // Real money safety check
-        if (isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive)) {
-          banner.classList.add('error');
-          title.textContent = 'RISK GATE BLOCKED';
-          let missing = [];
-          if (!state.gateCfgLive) missing.push('cfg.live');
-          if (!state.gateEnvLive) missing.push('MT5_LIVE=1');
-          if (!state.gateCliLive) missing.push('--live flag');
-          desc.textContent = `Blocked real account execution: missing ${missing.join(', ')}. Code: RISK_LIVE_GATE_BLOCKED`;
-          document.getElementById('step5Desc').textContent = 'Execution Blocked';
-        } else {
-          banner.classList.add('warn');
-          title.textContent = 'AUTONOMOUS MUTATION BLOCKED';
-          desc.textContent = 'Dry-run passed, then current mt5 alert watch stops with WAKE_AUTONOMOUS_BLOCKED. Live mutation remains future work.';
-          document.getElementById('step5Desc').textContent = 'WAKE_AUTONOMOUS_BLOCKED';
-        }
-      } else {
-        if (isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive)) {
-          banner.classList.add('error');
-          title.textContent = 'RISK GATE BLOCKED';
-          let missing = [];
-          if (!state.gateCfgLive) missing.push('cfg.live');
-          if (!state.gateEnvLive) missing.push('MT5_LIVE=1');
-          if (!state.gateCliLive) missing.push('--live flag');
-          desc.textContent = `Blocked real account dry-run: missing ${missing.join(', ')}. Code: RISK_LIVE_GATE_BLOCKED`;
-          document.getElementById('step5Desc').textContent = 'Execution Blocked';
-        } else {
-          banner.classList.add('warn');
-          title.textContent = 'WAITING FOR APPROVAL';
-          desc.textContent = 'Dry-run passed. Target agent woken. Awaiting authorization...';
-          document.getElementById('step5Desc').textContent = 'Awaiting User CLI Handoff';
-        }
-      }
-    }
-
-    function renderJSONs() {
-      // 1. Wake.v1 Envelope
-      const wakeJson = {
-        ok: true,
-        data: {
-          schema: "wake.v1",
-          event_id: "01JKW8...",
-          dedupe_key: `terminal:${state.accountLogin}:${state.triggerSource}:${state.symbol}:${state.triggerType}:${state.triggerVal}`,
-          source: state.triggerSource,
-          observed_at: new Date().toISOString(),
-          account: {
-            login: state.accountLogin,
-            trade_mode: state.accountClass
-          },
-          symbol: state.symbol,
-          trigger: {
-            kind: state.triggerType.includes('Signal') ? 'strategy' : 'price',
-            condition: state.triggerType,
-            price: parseFloat(state.triggerVal) || 0.0,
-            source_text: "alert watch"
-          },
-          policy_id: `${state.symbol.toLowerCase()}-watch-policy`,
-          permission_mode: state.permissionMode,
-          proposed_action: state.hasTradeIntent ? {
-            schema: "trade_intent.v1",
-            action: state.tradeAction,
-            symbol: state.symbol,
-            side: state.tradeSide,
-            volume: state.tradeVolume,
-            sl: parseFloat(state.tradeSL),
-            tp: parseFloat(state.tradeTP)
-          } : null
-        }
-      };
-
-      // 2. Policy JSON
-      const policyJson = {
-        id: `${state.symbol.toLowerCase()}-watch-policy`,
-        enabled: true,
-        match: {
-          source: state.triggerSource,
-          symbol: state.symbol,
-          condition: state.triggerType
-        },
-        permission_mode: state.permissionMode,
-        adapters: [
-          state.targetAgent.toLowerCase().replace(' ', '_'),
-          "mt5_push"
-        ],
-        limits: {
-          allowed_symbols: [state.symbol],
-          max_volume: 0.10,
-          max_open_positions: 1,
-          cooldown_seconds: 600,
-          approval_ttl_seconds: 300
-        },
-        trade_template: state.hasTradeIntent ? {
-          schema: "trade_intent.v1",
-          action: state.tradeAction,
-          side: state.tradeSide,
-          volume: state.tradeVolume,
-          sl: parseFloat(state.tradeSL),
-          tp: parseFloat(state.tradeTP)
-        } : null
-      };
-
-      // 3. Trade Intent JSON
-      const intentJson = state.hasTradeIntent ? {
-        schema: "trade_intent.v1",
-        action: state.tradeAction,
-        symbol: state.symbol,
-        side: state.tradeSide,
-        volume: state.tradeVolume,
-        sl: parseFloat(state.tradeSL),
-        tp: parseFloat(state.tradeTP),
-        order_type: "market",
-        comment: `wake ${state.symbol.toLowerCase()}-alert`,
-        client_order_id: "wake-01JKW8...",
-        max_slippage_pips: 2.0,
-        ttl_seconds: 120
-      } : null;
-
-      // 4. Audit Log Record
-      const isReal = state.accountClass === 'real';
-      const missingLiveGate = isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive);
-      let outcomeDecision = "logged_only";
-      if (state.hasTradeIntent) {
-        if (state.permissionMode === 'notify_only') outcomeDecision = "ignored_intent";
-        else if (state.permissionMode === 'auto_dryrun') outcomeDecision = "halted_at_dryrun";
-        else if (missingLiveGate) outcomeDecision = "blocked_by_safety_gate";
-        else if (state.permissionMode === 'ask_permission') outcomeDecision = "waiting_for_user_approval";
-        else outcomeDecision = "autonomous_blocked";
-      }
-      const shouldDryrun = state.hasTradeIntent && state.permissionMode !== 'notify_only';
-      const dryrunRecord = shouldDryrun
-        ? missingLiveGate
-          ? {
-              ok: false,
-              error: {
-                code: "RISK_LIVE_GATE_BLOCKED",
-                message: "Live account dry-run requires cfg.live, MT5_LIVE=1, and --live."
-              }
-            }
-          : { ok: true, message: "Dry-run validation successful." }
-        : null;
-
-      const auditJson = {
-        schema: "wake_audit.v1",
-        event_id: "01JKW8...",
-        policy_id: `${state.symbol.toLowerCase()}-watch-policy`,
-        permission_mode: state.permissionMode,
-        decision: outcomeDecision,
-        dryrun: dryrunRecord,
-        mutation: outcomeDecision === 'autonomous_blocked' ? {
-          ok: false,
-          error: {
-            code: "WAKE_AUTONOMOUS_BLOCKED",
-            message: "auto_trade is specified but live mutation is not implemented in this first slice."
-          }
-        } : null,
-        adapters: [
-          { name: state.targetAgent.toLowerCase().replace(' ', '_'), ok: true },
-          { name: "mt5_push", ok: true }
-        ]
-      };
-
-      document.getElementById('codeWake').innerHTML = highlightJSON(wakeJson);
-      document.getElementById('codePolicy').innerHTML = highlightJSON(policyJson);
-      document.getElementById('codeIntent').innerHTML = highlightJSON(intentJson ? intentJson : { message: "No intent attached" });
-      document.getElementById('codeAudit').innerHTML = highlightJSON(auditJson);
-    }
-
-    function updatePrompt() {
-      const agent = state.targetAgent;
-      let text = "";
-      if (agent === 'Codex') {
-        text = `[Codex Automation Wake]
-An alert event was observed from MetaTrader 5:
-Trigger: ${state.symbol} ${state.triggerType} ${state.triggerVal}
-Account: ${state.accountClass} (${state.accountLogin})
-Permission Mode: ${state.permissionMode}
-
-Task: Retrieve the account risk limits, perform a dry-run check, and log the wake audit record.`;
-        if (state.permissionMode === 'ask_permission' && state.hasTradeIntent) {
-          text += `\n\nProposed Trade Intent:
-Action: ${state.tradeAction}
-Side: ${state.tradeSide}
-Volume: ${state.tradeVolume}
-SL: ${state.tradeSL}, TP: ${state.tradeTP}
-
-Please verify the parameters and ask for confirmation before placing this trade.`;
-        }
-      } else if (agent === 'Claude Code') {
-        text = `[Claude Code Hook Wake]
-Source: ${state.triggerSource} for ${state.symbol}
-Mode: ${state.permissionMode}
-Event details: Triggered by ${state.triggerType} at ${state.triggerVal}
-
-Please execute the alert lifecycle hook:
-1. Inspect MT5 terminal status.
-2. Verify policy ID "${state.symbol.toLowerCase()}-watch-policy".`;
-        if (state.hasTradeIntent) {
-          text += `\n3. Execute dry-run order validation for ${state.tradeSide} ${state.tradeVolume} ${state.symbol}.`;
-          if (state.permissionMode === 'ask_permission') {
-            text += `\n4. Ask the user in this session: "Approve placing ${state.tradeSide} ${state.tradeVolume} ${state.symbol}?"`;
-          }
-        }
-      } else {
-        text = `[Antigravity Scheduled Wake]
-Event Source: ${state.triggerSource}
-Trigger: ${state.symbol} (${state.triggerType} ${state.triggerVal})
-Account: ${state.accountClass} (#${state.accountLogin})
-Mode: ${state.permissionMode}
-
-Instructions:
-- Run policy limits checks.
-- Audit this event.`;
-        if (state.hasTradeIntent) {
-          text += `\n- Proposed order: ${state.tradeSide} ${state.tradeVolume} lot ${state.symbol}.`;
-          if (state.permissionMode === 'ask_permission') {
-            text += `\n- Request narrow permission for 'write_file' or CLI command execution to place order.`;
-          }
-        }
-      }
-      document.getElementById('promptText').textContent = text;
-    }
-
-    function highlightJSON(json) {
-      if (typeof json !== 'string') {
-        json = JSON.stringify(json, null, 2);
-      }
-      return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g, function (match) {
-        let cls = 'number';
-        if (/^"/.test(match)) {
-          if (/:$/.test(match)) {
-            cls = 'key';
-          } else {
-            cls = 'string';
-          }
-        } else if (/true|false/.test(match)) {
-          cls = 'boolean';
-        } else if (/null/.test(match)) {
-          cls = 'null';
-        }
-        return '<span class="json-' + cls + '">' + match + '</span>';
-      });
-    }
-
-    function switchTab(tabId) {
-      document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-      });
-      document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-      });
-
-      // Find trigger and active button
-      event.target.classList.add('active');
-      document.getElementById(tabId).classList.add('active');
-    }
-
-    function copyPrompt() {
-      const text = document.getElementById('promptText').textContent;
-      navigator.clipboard.writeText(text).then(() => {
-        const copyBtn = document.querySelector('.copy-btn');
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => {
-          copyBtn.textContent = 'Copy Prompt';
-        }, 1500);
-      });
-    }
-
-    // Initialize UI
-    updateState();
+    });
   </script>
 </body>
 </html>

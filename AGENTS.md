@@ -55,11 +55,13 @@ Point any MCP client at it to get typed tools: `status`, `account_info`,
   one returns `RISK_LIVE_GATE_BLOCKED`.
 - Demo and contest accounts bypass the live gate by design — but they are still
   live broker execution environments. Use tiny volume and explicit intent.
-- `mt5 alert watch` is wake/orchestration only in the first slice: it can emit
-  `wake.v1` envelopes, ask for permission, run dry-runs, write audit logs, and
-  queue MT5 push-relay messages, but it reads alert definitions as wake
-  candidates and does not create alerts, detect confirmed fired-alert history, or
-  send live orders.
+- `mt5 alert watch` is non-mutating decision/audit plumbing only in the first
+  slice: it can emit `wake.v1` envelopes, ask for permission, run dry-runs, write
+  audit logs, and return the decision envelope. It reads alert definitions as a
+  watch-list and does not create alerts, detect confirmed fired-alert history, or
+  send live orders. Agents that need real market-movement triggers should poll
+  live market/account state on their own schedule and then call the trading CLI
+  explicitly if policy and user permission allow it.
 
 ## Concurrency & latency
 

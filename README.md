@@ -154,13 +154,13 @@ mt5 --json order list-pending
 mt5 --json order dryrun AUDUSD buy --volume 0.01 --sl 0.7000
 ```
 
-Alert wakes are a policy-first way to turn MT5 alert definitions into agent
-work. The first slice emits `wake.v1` envelopes, writes JSONL audit records,
-dedupes repeated alerts, can run `order dryrun` from a configured trade
-template, and can queue an MT5 mobile-push relay message. It does **not** send
-live orders. It reads alert definitions as wake candidates; confirmed
-fired-alert capture and alert creation should use the MQL5 relay path in a
-later slice.
+Alert decision records are a policy-first way to turn MT5 alert definitions into
+an agent-readable watch-list. The reliable first slice emits `wake.v1` envelopes,
+writes JSONL audit records, dedupes repeated alert definitions, and can run
+`order dryrun` from a configured trade template. It does **not** send live
+orders, create alerts, or detect that an MT5 alert fired. Use the agent's own
+scheduler to poll live market/account state and compare it to the conditions
+read from `mt5 alert list`.
 
 ```bash
 mt5 --json alert watch --once
