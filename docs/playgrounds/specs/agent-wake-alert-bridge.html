@@ -235,6 +235,15 @@
     .status-banner.info { background: var(--info-bg); border: 1px solid var(--info); color: #ddd6fe; }
     .status-title { font-weight: 700; font-size: 15px; }
     .status-desc { font-size: 13.5px; }
+    .slice-note {
+      margin: -12px 0 24px;
+      padding: 12px 14px;
+      border-left: 4px solid var(--accent);
+      background: #eef6f3;
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 1.45;
+    }
     
     /* Code Viewer Tabs */
     .tabs {
@@ -376,7 +385,7 @@
   </style>
 </head>
 <body>
-  <!-- INTENT: Define the target architecture for MT5 alert wakes, agent handoff, permissioned trade execution, and MT5 mobile push notifications so future implementation does not bypass existing risk gates. -->
+  <!-- INTENT: Keep the current MT5 alert-wake slice and target architecture aligned so future implementation does not bypass existing risk gates. -->
   <main>
     <header>
       <h1>Agent Wake Alert Bridge</h1>
@@ -391,7 +400,7 @@
         <label>Configuration Presets</label>
         <div class="preset-container">
           <button class="preset-btn active" onclick="loadPreset('safe_demo')">Safe Demo Notify</button>
-          <button class="preset-btn" onclick="loadPreset('demo_trade')">Demo Auto-Trade</button>
+          <button class="preset-btn" onclick="loadPreset('demo_trade')">Demo Auto-Trade Blocked</button>
           <button class="preset-btn" onclick="loadPreset('real_ask')">Real Ask Approval</button>
           <button class="preset-btn" onclick="loadPreset('real_blocked')">Real Gate Blocked</button>
         </div>
@@ -436,7 +445,7 @@
             <option value="notify_only">notify_only (Log/Push Only)</option>
             <option value="ask_permission">ask_permission (Interactive approval)</option>
             <option value="auto_dryrun">auto_dryrun (Risk Check Only)</option>
-            <option value="auto_trade">auto_trade (Autonomous placement)</option>
+            <option value="auto_trade">auto_trade (Blocked in current slice)</option>
           </select>
         </div>
 
@@ -530,8 +539,11 @@
 
         <!-- Banner Alert Status -->
         <div class="status-banner info" id="statusBanner">
-          <div class="status-title" id="statusTitle">Simulation Loaded</div>
+          <div class="status-title" id="statusTitle">Current Slice Loaded</div>
           <div class="status-desc" id="statusDesc">Adjust the simulator controls on the left.</div>
+        </div>
+        <div class="slice-note">
+          Current shipped slice: <code>mt5 alert watch</code> observes alert records as wake candidates, writes audit/state files, queues push-relay requests, and blocks <code>auto_trade</code> with <code>WAKE_AUTONOMOUS_BLOCKED</code>. Confirmed fired-alert capture, alert creation, and live mutation are target architecture.
         </div>
 
         <!-- Code Previews -->
@@ -804,9 +816,9 @@
         title.textContent = 'DRY-RUN GATED';
         desc.textContent = 'Broker dry-run validation passed. Execution halted safely per auto_dryrun policy.';
         document.getElementById('step5Desc').textContent = 'Verification Only';
-      } else if (isReal) {
+      } else if (mode === 'auto_trade') {
         // Real money safety check
-        if (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive) {
+        if (isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive)) {
           banner.classList.add('error');
           title.textContent = 'RISK GATE BLOCKED';
           let missing = [];
@@ -816,30 +828,26 @@
           desc.textContent = `Blocked real account execution: missing ${missing.join(', ')}. Code: RISK_LIVE_GATE_BLOCKED`;
           document.getElementById('step5Desc').textContent = 'Execution Blocked';
         } else {
-          if (mode === 'ask_permission') {
-            banner.classList.add('warn');
-            title.textContent = 'WAITING FOR APPROVAL';
-            desc.textContent = 'Dry-run passed. Target agent woken. Waiting for user consent in transcript...';
-            document.getElementById('step5Desc').textContent = 'Awaiting User CLI Handoff';
-          } else if (mode === 'auto_trade') {
-            banner.classList.add('success');
-            title.textContent = 'SUCCESSFUL MUTATION';
-            desc.textContent = `Real order placed successfully: target ticket #${Math.floor(Math.random() * 800000) + 100000}.`;
-            document.getElementById('step5Desc').textContent = 'Position Created';
-          }
+          banner.classList.add('warn');
+          title.textContent = 'AUTONOMOUS MUTATION BLOCKED';
+          desc.textContent = 'Dry-run passed, then current mt5 alert watch stops with WAKE_AUTONOMOUS_BLOCKED. Live mutation remains future work.';
+          document.getElementById('step5Desc').textContent = 'WAKE_AUTONOMOUS_BLOCKED';
         }
       } else {
-        // Demo accounts
-        if (mode === 'ask_permission') {
+        if (isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive)) {
+          banner.classList.add('error');
+          title.textContent = 'RISK GATE BLOCKED';
+          let missing = [];
+          if (!state.gateCfgLive) missing.push('cfg.live');
+          if (!state.gateEnvLive) missing.push('MT5_LIVE=1');
+          if (!state.gateCliLive) missing.push('--live flag');
+          desc.textContent = `Blocked real account dry-run: missing ${missing.join(', ')}. Code: RISK_LIVE_GATE_BLOCKED`;
+          document.getElementById('step5Desc').textContent = 'Execution Blocked';
+        } else {
           banner.classList.add('warn');
           title.textContent = 'WAITING FOR APPROVAL';
-          desc.textContent = 'Demo dry-run passed. Target agent woken. Awaiting authorization...';
+          desc.textContent = 'Dry-run passed. Target agent woken. Awaiting authorization...';
           document.getElementById('step5Desc').textContent = 'Awaiting User CLI Handoff';
-        } else if (mode === 'auto_trade') {
-          banner.classList.add('success');
-          title.textContent = 'SUCCESSFUL MUTATION';
-          desc.textContent = `Demo order placed automatically: target ticket #${Math.floor(Math.random() * 800000) + 100000}.`;
-          document.getElementById('step5Desc').textContent = 'Demo Position Created';
         }
       }
     }
@@ -928,14 +936,27 @@
 
       // 4. Audit Log Record
       const isReal = state.accountClass === 'real';
+      const missingLiveGate = isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive);
       let outcomeDecision = "logged_only";
       if (state.hasTradeIntent) {
         if (state.permissionMode === 'notify_only') outcomeDecision = "ignored_intent";
         else if (state.permissionMode === 'auto_dryrun') outcomeDecision = "halted_at_dryrun";
-        else if (isReal && (!state.gateCfgLive || !state.gateEnvLive || !state.gateCliLive)) outcomeDecision = "blocked_by_safety_gate";
+        else if (missingLiveGate) outcomeDecision = "blocked_by_safety_gate";
         else if (state.permissionMode === 'ask_permission') outcomeDecision = "waiting_for_user_approval";
-        else outcomeDecision = "executed_order";
+        else outcomeDecision = "autonomous_blocked";
       }
+      const shouldDryrun = state.hasTradeIntent && state.permissionMode !== 'notify_only';
+      const dryrunRecord = shouldDryrun
+        ? missingLiveGate
+          ? {
+              ok: false,
+              error: {
+                code: "RISK_LIVE_GATE_BLOCKED",
+                message: "Live account dry-run requires cfg.live, MT5_LIVE=1, and --live."
+              }
+            }
+          : { ok: true, message: "Dry-run validation successful." }
+        : null;
 
       const auditJson = {
         schema: "wake_audit.v1",
@@ -943,11 +964,13 @@
         policy_id: `${state.symbol.toLowerCase()}-watch-policy`,
         permission_mode: state.permissionMode,
         decision: outcomeDecision,
-        dryrun: state.hasTradeIntent ? { ok: true, message: "Dry-run validation successful." } : null,
-        mutation: outcomeDecision === 'executed_order' ? {
-          ok: true,
-          ticket: 928471,
-          volume: state.tradeVolume
+        dryrun: dryrunRecord,
+        mutation: outcomeDecision === 'autonomous_blocked' ? {
+          ok: false,
+          error: {
+            code: "WAKE_AUTONOMOUS_BLOCKED",
+            message: "auto_trade is specified but live mutation is not implemented in this first slice."
+          }
         } : null,
         adapters: [
           { name: state.targetAgent.toLowerCase().replace(' ', '_'), ok: true },

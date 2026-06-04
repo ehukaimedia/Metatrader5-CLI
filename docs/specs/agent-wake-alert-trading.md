@@ -252,9 +252,9 @@ Policies are loaded from config and must be validated before the watcher starts.
 }
 ```
 
-Validation failures return `WAKE_POLICY_INVALID`. A matching wake with no policy
-returns `WAKE_POLICY_NOT_FOUND` and may still notify if a default notification
-policy exists.
+Validation failures return `WAKE_POLICY_INVALID`. In the first implementation
+slice, a matching wake with no explicit policy falls back to the safe
+notify-only default policy instead of failing the wake.
 
 ## Adapter Requirements
 
@@ -314,17 +314,23 @@ Two supported approaches:
 The relay approach is preferred for CLI-originated messages because it avoids
 writing the binary alert store and gives the project a testable queue contract.
 
-## Error Codes To Add
+## Error Codes
 
-- `WAKE_POLICY_INVALID`
-- `WAKE_POLICY_NOT_FOUND`
-- `WAKE_DEDUPE_REPLAY`
-- `WAKE_ADAPTER_FAILED`
-- `WAKE_PERMISSION_REQUIRED`
-- `WAKE_PERMISSION_EXPIRED`
-- `WAKE_AUTONOMOUS_BLOCKED`
+Implemented in the first wake slice:
+
 - `WAKE_AUDIT_WRITE_FAILED`
+- `WAKE_AUTONOMOUS_BLOCKED`
+- `WAKE_POLICY_INVALID`
+- `WAKE_STATE_READ_ERROR`
+- `WAKE_STATE_WRITE_FAILED`
 - `MT5_NOTIFICATION_FAILED`
+
+Reserved for future relay, adapter, and permission-store slices:
+
+- `WAKE_ADAPTER_FAILED`
+- `WAKE_DEDUPE_REPLAY`
+- `WAKE_PERMISSION_EXPIRED`
+- `WAKE_PERMISSION_REQUIRED`
 - `MT5_NOTIFICATION_RATE_LIMITED`
 - `MT5_NOTIFICATION_RELAY_UNAVAILABLE`
 

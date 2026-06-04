@@ -18,19 +18,19 @@ Playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-brid
 ## Phase 2 - Notification Adapters - Partially Complete
 
 - Add adapter interface with `notify(wake_event) -> envelope`.
-- Implement `webhook` and `mt5_push` adapters first.
+- Future: implement `webhook` and full relay-backed `mt5_push` adapters.
 - Added the MT5 push queue contract; the MQL5 relay template is still pending.
 - Added relay message validation for the 255 character MQL5 notification limit.
-- Tests: adapter failure envelopes, HMAC signing, queue writes, message length,
-  and rate-limit classification.
+- Tests already cover queue writes and message length. Future tests should cover
+  adapter failure envelopes, HMAC signing, and rate-limit classification.
 
 ## Phase 2.5 - Confirmed Alert Fire Relay - Pending
 
 - Add an MQL5 EA/service relay that records confirmed alert fire events and can
   create/update terminal alerts through validated terminal APIs.
 - Keep direct writes to MT5 binary alert storage out of scope.
-- Tests: relay queue contract, fired-event dedupe, alert creation validation, and
-  MT5 push notification handoff.
+- Future tests: relay queue contract, fired-event dedupe, alert creation
+  validation, and MT5 push notification handoff.
 
 ## Phase 3 - Agent Wake Adapters
 
@@ -38,7 +38,7 @@ Playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-brid
 - Add Claude Code adapter for CLI/session wake plus hook-safe handoff.
 - Add Antigravity adapter for scheduled task/hook handoff.
 - Keep adapter configuration explicit and disabled by default.
-- Tests: adapter command construction, disabled adapter behavior, payload
+- Future tests: adapter command construction, disabled adapter behavior, payload
   redaction, and failure isolation.
 
 ## Phase 4 - Permissioned Trade Execution - Partially Complete
@@ -49,9 +49,9 @@ Playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-brid
 - Require dry-run before mutation.
 - For real accounts, preserve the existing triple live gate and require daemon
   live intent.
-- Tests: ask blocks mutation, approval expiry, auto dry-run stops before
-  mutation, auto trade calls existing order/position functions only after dry-run,
-  and real-account live gate matrix.
+- Tests already cover ask-permission no-mutation behavior, auto dry-run stops,
+  and blocked auto-trade. Future tests should cover approval expiry, any live
+  mutation handoff, and the real-account live gate matrix.
 
 ## Phase 5 - MCP Surface Decision
 
