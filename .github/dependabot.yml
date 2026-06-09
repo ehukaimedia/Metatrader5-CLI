@@ -1,0 +1,22 @@
+# Keep dependencies and CI actions current.
+#
+# cooldown holds every update back until the new version has been public for
+# at least 7 days (the project's module-quarantine rule), so a fresh release
+# never lands in the tree on day one.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5

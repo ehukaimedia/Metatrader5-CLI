@@ -5,6 +5,10 @@ on:
     branches: [master]
   pull_request:
 
+# Least-privilege token: CI only reads the checkout.
+permissions:
+  contents: read
+
 jobs:
   lint:
     # Lint runs on Linux (fast): ruff needs only the source, not the
