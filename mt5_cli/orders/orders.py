@@ -802,8 +802,7 @@ def place_stop(
     Same shape as place_limit but uses the stop order types. Risk gate runs
     first via check_order (Guard 2 handles the live gate).
 
-    Note: expiry / ORDER_TIME_SPECIFIED is deferred. All stop orders use GTC.
-    # TODO: expiry support pending ORDER_TIME_SPECIFIED bridge widening.
+    Note: expiry / ORDER_TIME_SPECIFIED is not supported. All stop orders use GTC.
 
     Args:
         symbol: Instrument symbol.
@@ -888,9 +887,7 @@ def modify(
     - Open position → TRADE_ACTION_SLTP. Preserves existing sl/tp when
       caller passes None. price and expiry are ignored for positions.
     - Pending order → TRADE_ACTION_MODIFY. Preserves existing price/sl/tp
-      when caller passes None. expiry is deferred (GTC always).
-
-    # TODO: expiry support pending ORDER_TIME_SPECIFIED bridge widening.
+      when caller passes None. expiry is not supported (GTC always).
 
     Live gate uses _live_gate_check (same triple-lock semantics as
     cancel and check_order Guard 2).

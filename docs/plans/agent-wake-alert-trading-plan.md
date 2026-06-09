@@ -1,6 +1,6 @@
 # Agent Wake Alert Decision Plan
 
-Status: Ready for merge
+Status: Implemented (merged 2026-06-04, PR #3)
 Date: 2026-06-04
 Spec: [Agent Wake Alert Decision Spec](../specs/agent-wake-alert-trading.md)
 Playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-bridge.html)

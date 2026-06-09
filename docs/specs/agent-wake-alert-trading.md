@@ -1,6 +1,6 @@
 # Agent Wake Alert Decision Spec
 
-Status: Ready for merge
+Status: Implemented (merged 2026-06-04, PR #3)
 Date: 2026-06-04
 Owner: metatrader5-cli maintainers
 Related playground: [Agent Wake Alert Bridge](../playgrounds/specs/agent-wake-alert-bridge.html)
