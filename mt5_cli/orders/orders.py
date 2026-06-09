@@ -483,7 +483,7 @@ def place_limit(
 ) -> dict:
     """Place a limit pending order (TRADE_ACTION_PENDING, BUY_LIMIT / SELL_LIMIT).
 
-    Note: expiry/ORDER_TIME_SPECIFIED is deferred. All pending orders use GTC.
+    Note: expiry/ORDER_TIME_SPECIFIED is not supported. All pending orders use GTC.
 
     Args:
         symbol: Instrument symbol.
@@ -897,7 +897,7 @@ def modify(
         sl: New stop-loss price. None preserves existing.
         tp: New take-profit price. None preserves existing.
         price: New pending-order price. None preserves existing.
-        expiry: Deferred — accepted for signature stability but ignored.
+        expiry: Not supported — accepted for signature stability but ignored.
         cfg: Effective configuration dict (required for the live gate).
         is_live_intent: Must be True on a live account; combined with
             cfg["live"]=True and MT5_LIVE=1.
