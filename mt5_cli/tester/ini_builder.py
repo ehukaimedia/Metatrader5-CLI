@@ -33,6 +33,22 @@ def _modelling_code(modelling: str) -> int:
     return _MODELLING[modelling]
 
 
+# MT5 Strategy Tester order-execution delay (the "Delays" UI control). Per the
+# startup-configuration docs, ExecutionMode is 0 (normal/instant), -1 (random
+# delay), or a positive fixed millisecond delay capped at 600000.
+_EXECUTION_MODE_MIN = -1
+_EXECUTION_MODE_MAX = 600000
+
+
+def _validate_execution_mode(execution_mode: int) -> int:
+    if not (_EXECUTION_MODE_MIN <= execution_mode <= _EXECUTION_MODE_MAX):
+        raise ValueError(
+            f"ExecutionMode {execution_mode!r} out of range. "
+            f"Use -1 (random) or 0..{_EXECUTION_MODE_MAX} ms."
+        )
+    return execution_mode
+
+
 def is_known_modelling(modelling: str) -> bool:
     return modelling in _MODELLING
 
@@ -54,6 +70,7 @@ def build_ea_ini(
     currency: str = "USD",
     leverage: int = 50,
     optimization: int = 0,
+    execution_mode: int = 0,
     forward: str | None = None,
     visual: bool = False,
     report_path: Path | str | None = None,
@@ -66,6 +83,8 @@ def build_ea_ini(
     `optimization` is the MT5 Optimization code (0 = single run, 1 =
     complete, 2 = genetic, 4 = math). `forward` is the YYYY-MM-DD date
     where forward-test starts (only meaningful with optimization > 0).
+    `execution_mode` is the MT5 order-execution delay: 0 (instant), -1
+    (random), or a fixed millisecond delay up to 600000.
     """
     lines = [
         "[Tester]",
@@ -79,6 +98,7 @@ def build_ea_ini(
         f"Currency={currency}",
         f"Leverage=1:{leverage}",
         f"Optimization={optimization}",
+        f"ExecutionMode={_validate_execution_mode(execution_mode)}",
         f"Visual={1 if visual else 0}",
         "UseLocal=1",
         "UseRemote=0",

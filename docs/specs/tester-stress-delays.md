@@ -1,6 +1,6 @@
 # Tester Stress & Delays Spec
 
-Status: Proposed
+Status: Implemented (PR #7)
 Date: 2026-06-10
 Owner: metatrader5-cli maintainers
 Related playground: [Tester Stress & Delays](../playgrounds/specs/tester-stress-delays.html)

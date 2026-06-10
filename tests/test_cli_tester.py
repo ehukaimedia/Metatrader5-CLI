@@ -282,6 +282,87 @@ def test_tester_ea_optimize_threads_set_file(monkeypatch, cli):
     assert captured["params"] == ()
 
 
+def test_tester_ea_stress_threads_parsed_delays(monkeypatch, cli):
+    runner, main = cli
+    import mt5.cli as cli_mod
+
+    captured = {}
+
+    def fake_stress(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "data": {"schema": "stress.v1"}}
+
+    monkeypatch.setattr(cli_mod._tester_ea, "stress", fake_stress)
+
+    result = runner.invoke(
+        main,
+        [
+            "--json",
+            "tester",
+            "ea",
+            "stress",
+            "--expert",
+            "alpha",
+            "--symbol",
+            "AUDUSD",
+            "--tf",
+            "M5",
+            "--from",
+            "2024-01-01",
+            "--to",
+            "2024-06-30",
+            "--delays",
+            "0,100,500,random",
+        ],
+    )
+
+    assert json.loads(result.output)["ok"] is True
+    assert captured["delays"] == [0, 100, 500, -1]
+    assert captured["modelling"] == "real-ticks"
+    assert captured["timeout"] == 600
+
+
+def test_tester_ea_stress_invalid_delays_uses_envelope(monkeypatch, cli):
+    runner, main = cli
+    import mt5.cli as cli_mod
+
+    called = {"stress": False}
+
+    def fake_stress(**kwargs):
+        called["stress"] = True
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(cli_mod._tester_ea, "stress", fake_stress)
+
+    result = runner.invoke(
+        main,
+        [
+            "--json",
+            "tester",
+            "ea",
+            "stress",
+            "--expert",
+            "alpha",
+            "--symbol",
+            "AUDUSD",
+            "--tf",
+            "M5",
+            "--from",
+            "2024-01-01",
+            "--to",
+            "2024-06-30",
+            "--delays",
+            "0,junk",
+        ],
+    )
+
+    payload = json.loads(result.output)
+    assert result.exit_code == 0
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "INVALID_DELAYS"
+    assert called["stress"] is False
+
+
 def test_tester_indicator_visual_threads_options(monkeypatch, cli):
     runner, main = cli
     import mt5.cli as cli_mod
