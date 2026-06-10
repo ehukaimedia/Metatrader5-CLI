@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tester Stress &amp; Delays</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2933;
+      --muted: #5b6773;
+      --bg: #f6f4ef;
+      --panel: #ffffff;
+      --line: #d8d2c4;
+      --teal: #0f766e;
+      --teal-soft: #d8f3ef;
+      --amber: #b7791f;
+      --amber-soft: #fff1d6;
+      --red: #b42318;
+      --red-soft: #ffe4df;
+      --shadow: 0 18px 45px rgba(31, 41, 51, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    header {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 780px;
+      font-size: clamp(2rem, 5vw, 4.4rem);
+      line-height: 1;
+    }
+
+    h2 {
+      font-size: 1.35rem;
+      margin-bottom: 12px;
+    }
+
+    h3 {
+      font-size: 1rem;
+      margin-bottom: 6px;
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border-radius: 8px;
+      background: #17212b;
+      color: #f7fafc;
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .eyebrow {
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .lede {
+      max-width: 880px;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+
+    .band {
+      margin-top: 18px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .intent {
+      border-left: 6px solid var(--teal);
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .tile {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .tile.bad {
+      background: var(--red-soft);
+      border-color: var(--red);
+    }
+
+    .tile.good {
+      background: var(--teal-soft);
+      border-color: var(--teal);
+    }
+
+    .anchor {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    th,
+    td {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--bg);
+    }
+
+    .calc-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .calc-grid label {
+      display: block;
+      margin: 10px 0 4px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .calc-grid input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .verdict {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 1.05rem;
+    }
+
+    .verdict.robust {
+      background: var(--teal-soft);
+      border-color: var(--teal);
+    }
+
+    .verdict.degraded {
+      background: var(--amber-soft);
+      border-color: var(--amber);
+    }
+
+    .verdict.fragile {
+      background: var(--red-soft);
+      border-color: var(--red);
+    }
+
+    .verdict.ungraded {
+      background: var(--bg);
+    }
+
+    .verdict strong {
+      font-size: 1.3rem;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 4px 0;
+    }
+
+    @media (max-width: 820px) {
+      .cols,
+      .calc-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+<!-- INTENT: Decide and freeze the contract for making `mt5 tester ea stress` apply real
+     execution-delay stress (MT5 ExecutionMode key), run a delay ladder, and emit a
+     deterministic robustness score with verdict bands agents can gate on. Anti-pattern
+     prevented: stress metadata stamped onto an unstressed run — an envelope field that
+     claims a property the run does not have — and agents/traders trusting ideal-execution
+     backtest ROI that evaporates under retail latency. -->
+<main>
+  <header>
+    <span class="eyebrow">Spec playground &middot; Proposed 2026-06-10</span>
+    <h1>Tester Stress &amp; Delays</h1>
+    <p class="lede">
+      Make <code>mt5 tester ea stress</code> earn its name: wire MT5's native
+      <code>ExecutionMode</code> delay emulation into the INI layer, run a delay ladder
+      (ideal &rarr; fixed latencies &rarr; random), and grade the result with a
+      deterministic robustness score an agent can gate on.
+    </p>
+  </header>
+
+  <section class="band intent">
+    <h2>Intent</h2>
+    <p>
+      <strong>Decision this informs:</strong> the public contract for execution-realism
+      stress testing — INI key, ladder normalization, scoring formula, verdict bands,
+      envelope shape, and error codes — before any implementation lands.
+    </p>
+    <p style="margin-top:8px">
+      <strong>Anti-pattern this prevents:</strong> <code>ea.stress()</code> today runs an
+      ideal-execution backtest and stamps <code>stress_delay_ms</code> on the envelope.
+      The one field that claims stress is the one thing the run does not apply. An honest
+      envelope never asserts a property the run does not have.
+    </p>
+    <span class="anchor">mt5_cli/tester/ea.py:285-306 &middot; tests/test_tester_ea.py:332-348</span>
+  </section>
+
+  <section class="band">
+    <h2>Current vs target</h2>
+    <div class="cols">
+      <div class="tile bad">
+        <h3>Current — stress in name only</h3>
+        <ul>
+          <li><code>stress(delays_ms=50)</code> calls <code>single()</code> unmodified, then tags <code>stress_delay_ms: 50</code>.</li>
+          <li><code>build_ea_ini()</code> never emits <code>ExecutionMode</code>; every run executes instantly.</li>
+          <li>CLI flag <code>--delays-ms</code> suggests latency that is never simulated.</li>
+        </ul>
+        <span class="anchor">mt5_cli/tester/ini_builder.py:70-96 (no ExecutionMode line)<br>mt5_cli/tester/ea.py:285-306 (metadata-only)<br>mt5/cli.py:1455-1465 (--delays-ms)</span>
+      </div>
+      <div class="tile good">
+        <h3>Target — a graded delay ladder</h3>
+        <ul>
+          <li><code>build_ea_ini(execution_mode=...)</code> emits a validated <code>ExecutionMode</code> key.</li>
+          <li><code>single(delay_ms=...)</code> threads the value through; metadata records what was written.</li>
+          <li><code>stress(delays=[0,100,500,-1])</code> runs one full tester pass per rung, serially, then scores worst-case profit retention.</li>
+          <li>CLI: <code>--delays 0,100,500,random</code>; envelope: <code>stress.v1</code>.</li>
+        </ul>
+        <span class="anchor">Layering precedent: mt5_cli/tester/ea.py:17 (_OPT_MODES name&rarr;code map)<br>Stats source: mt5_cli/tester/results.py:184-256</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>The INI key (verified against MetaQuotes docs)</h2>
+    <p class="lede" style="font-size:0.95rem">
+      The Strategy Tester UI labels the control &ldquo;Delays&rdquo;; the startup-config key is
+      <code>ExecutionMode</code>. Source: metatrader5.com/en/terminal/help/start_advanced/start,
+      checked 2026-06-10.
+    </p>
+    <table style="margin-top:12px">
+      <tr><th>INI value</th><th>Meaning</th><th>CLI token</th></tr>
+      <tr><td><code>ExecutionMode=0</code></td><td>Normal (instant) execution — the baseline rung, always run</td><td><code>0</code></td></tr>
+      <tr><td><code>ExecutionMode=N</code> (1..600000)</td><td>Fixed order-execution delay of N milliseconds</td><td><code>N</code></td></tr>
+      <tr><td><code>ExecutionMode=-1</code></td><td>Random delay in order execution</td><td><code>random</code></td></tr>
+      <tr><td>anything else</td><td>Rejected: <code>ValueError</code> in the INI layer, <code>INVALID_DELAYS</code> envelope at the CLI</td><td>&mdash;</td></tr>
+    </table>
+    <p style="margin-top:10px; color:var(--muted); font-size:0.9rem">
+      Ladder normalization: dedupe &middot; baseline <code>0</code> auto-included &middot;
+      order is <code>0</code>, fixed delays ascending, <code>random</code> last &middot;
+      default ladder <code>0,100,500,random</code>.
+    </p>
+  </section>
+
+  <section class="band">
+    <h2>Robustness score — explore the contract</h2>
+    <p class="lede" style="font-size:0.95rem">
+      <code>retention = stressed net profit / baseline net profit</code>;
+      <code>score = clamp(min(retention), 0, 1)</code> rounded to 4 dp. Worst case, not mean:
+      the score is a gate, and a catastrophic rung must not be averaged away. Edit the
+      numbers to see how the verdict moves.
+    </p>
+    <div class="calc-grid" style="margin-top:12px">
+      <div>
+        <label for="base">Baseline net profit (delay 0 ms)</label>
+        <input id="base" type="number" value="4180" step="10">
+        <label for="d100">Net profit at 100 ms</label>
+        <input id="d100" type="number" value="3990" step="10">
+        <label for="d500">Net profit at 500 ms</label>
+        <input id="d500" type="number" value="3805" step="10">
+        <label for="drand">Net profit at random delay</label>
+        <input id="drand" type="number" value="3520" step="10">
+      </div>
+      <div>
+        <table>
+          <tr><th>Rung</th><th>Retention</th></tr>
+          <tr><td>100 ms</td><td id="r100">&mdash;</td></tr>
+          <tr><td>500 ms</td><td id="r500">&mdash;</td></tr>
+          <tr><td>random</td><td id="rrand">&mdash;</td></tr>
+        </table>
+        <div class="verdict ungraded" id="verdict">
+          <strong id="score">&mdash;</strong>
+          <span id="band"></span>
+          <div id="note" style="font-size:0.85rem; color:var(--muted); margin-top:4px"></div>
+        </div>
+        <table style="margin-top:14px">
+          <tr><th>Band</th><th>Score</th><th>Agent action</th></tr>
+          <tr><td>robust</td><td>&ge; 0.85</td><td>edge survives retail execution; proceed</td></tr>
+          <tr><td>degraded</td><td>&ge; 0.50</td><td>re-examine entries/exits sensitive to latency</td></tr>
+          <tr><td>fragile</td><td>&lt; 0.50</td><td>do not fund; the backtest edge is execution-borrowed</td></tr>
+          <tr><td>ungraded</td><td>null</td><td>baseline &le; 0 or no stressed rung succeeded; nothing to anchor retention</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Envelope: <code>stress.v1</code></h2>
+    <pre>{
+  "ok": true,
+  "data": {
+    "schema": "stress.v1",
+    "expert": "alpha", "symbol": "AUDUSD", "timeframe": "M5",
+    "from": "2024-01-01", "to": "2024-06-30",
+    "modelling": "real-ticks",
+    "delays": [0, 100, 500, -1],
+    "scenarios": [
+      {"delay_ms": 0,   "envelope": { "ok": true, "data": { "run_id": "...", "stats": {} } }},
+      {"delay_ms": 100, "envelope": {}},
+      {"delay_ms": 500, "envelope": {}},
+      {"delay_ms": -1,  "envelope": {}}
+    ],
+    "robustness": {
+      "score": 0.91,
+      "verdict": "robust",
+      "baseline_net_profit": 4180.0,
+      "incomplete": false,
+      "per_delay": [
+        {"delay_ms": 100, "net_profit": 3990.5, "retention": 0.9547,
+         "profit_factor": 1.71, "max_drawdown_pct": 8.2,
+         "total_trades": 212, "win_rate": 0.56}
+      ]
+    }
+  }
+}</pre>
+    <p style="margin-top:8px; color:var(--muted); font-size:0.9rem">
+      Failure semantics: baseline fails &rarr; <code>STRESS_BASELINE_FAILED</code>, nothing
+      else runs. A stressed rung fails &rarr; its fail envelope ships in
+      <code>scenarios</code>, scoring uses the successes, <code>incomplete: true</code>.
+      Schema-version style follows <code>wake.v1</code> (mt5_cli/wake/wake.py:342).
+    </p>
+  </section>
+
+  <section class="band">
+    <h2>Spec seed</h2>
+    <div class="cols">
+      <div class="tile">
+        <h3>Ownership boundaries</h3>
+        <ul>
+          <li><code>ini_builder.py</code> owns raw MT5 codes and validation (<code>execution_mode</code>).</li>
+          <li>New <code>mt5_cli/tester/stress.py</code> owns token parsing, ladder normalization, scoring — pure, stdlib-only.</li>
+          <li><code>ea.py</code> owns orchestration: serial rungs, failure semantics, envelope assembly.</li>
+          <li><code>mt5/cli.py</code> stays a thin flag-parsing wrapper (CONTRIBUTING architecture rule).</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Public interfaces</h3>
+        <ul>
+          <li><code>build_ea_ini(..., execution_mode: int = 0)</code></li>
+          <li><code>single(..., delay_ms: int = 0)</code></li>
+          <li><code>stress(..., delays: list[int] | None = None)</code> &rarr; <code>stress.v1</code></li>
+          <li><code>mt5 tester ea stress --delays 0,100,500,random</code></li>
+          <li>Errors: <code>INVALID_DELAYS</code>, <code>STRESS_BASELINE_FAILED</code> (registered in <code>mt5_cli/errors.py</code>)</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Build sequence</h3>
+        <ul>
+          <li>1 &mdash; INI layer + tests</li>
+          <li>2 &mdash; pure stress module + tests</li>
+          <li>3 &mdash; orchestration; delete the stub-locking test in the same commit</li>
+          <li>4 &mdash; CLI flag + error registry</li>
+          <li>5 &mdash; README / AGENTS / CHANGELOG; flip spec &amp; plan status</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Non-goals</h3>
+        <ul>
+          <li>Stressed-optimization ranking (<code>optimize()</code> untouched this slice)</li>
+          <li>Spread/slippage/requote modeling beyond MT5's native emulation</li>
+          <li>Multi-symbol stress; indicator-test changes; new MCP surface</li>
+          <li>Any trading strategy, signal, or market opinion</li>
+        </ul>
+      </div>
+    </div>
+    <p style="margin-top:12px; color:var(--muted); font-size:0.9rem">
+      Breaking change carried by the seed: <code>delays_ms</code> / <code>--delays-ms</code>
+      are removed, not aliased — the old surface recorded stress it never applied, and an
+      alias would preserve the lie. Full contract:
+      <code>docs/specs/tester-stress-delays.md</code>; phases:
+      <code>docs/plans/tester-stress-delays-plan.md</code>.
+    </p>
+  </section>
+</main>
+<script>
+  (function () {
+    var inputs = {
+      base: document.getElementById('base'),
+      d100: document.getElementById('d100'),
+      d500: document.getElementById('d500'),
+      drand: document.getElementById('drand')
+    };
+    var cells = {
+      d100: document.getElementById('r100'),
+      d500: document.getElementById('r500'),
+      drand: document.getElementById('rrand')
+    };
+    var verdictBox = document.getElementById('verdict');
+    var scoreEl = document.getElementById('score');
+    var bandEl = document.getElementById('band');
+    var noteEl = document.getElementById('note');
+
+    function recalc() {
+      var base = parseFloat(inputs.base.value);
+      var rungs = ['d100', 'd500', 'drand'];
+      var retentions = [];
+      rungs.forEach(function (key) {
+        var value = parseFloat(inputs[key].value);
+        if (!isFinite(base) || base <= 0 || !isFinite(value)) {
+          cells[key].textContent = '—';
+          return;
+        }
+        var retention = value / base;
+        retentions.push(retention);
+        cells[key].textContent = retention.toFixed(4);
+      });
+
+      verdictBox.className = 'verdict ungraded';
+      if (!isFinite(base) || base <= 0) {
+        scoreEl.textContent = 'ungraded';
+        bandEl.textContent = '';
+        noteEl.textContent = 'Baseline net profit ≤ 0: a losing baseline cannot anchor retention, so the envelope says so instead of inventing a number.';
+        return;
+      }
+      if (!retentions.length) {
+        scoreEl.textContent = 'ungraded';
+        bandEl.textContent = '';
+        noteEl.textContent = 'No stressed rung available to score.';
+        return;
+      }
+      var worst = Math.min.apply(null, retentions);
+      var score = Math.min(1, Math.max(0, worst));
+      score = Math.round(score * 10000) / 10000;
+      var band = score >= 0.85 ? 'robust' : score >= 0.5 ? 'degraded' : 'fragile';
+      verdictBox.className = 'verdict ' + band;
+      scoreEl.textContent = score.toFixed(4);
+      bandEl.textContent = ' → ' + band;
+      noteEl.textContent = 'score = clamp(min(retention), 0, 1); worst rung decides because the score is a gate.';
+    }
+
+    Object.keys(inputs).forEach(function (key) {
+      inputs[key].addEventListener('input', recalc);
+    });
+    recalc();
+  })();
+</script>
+</body>
+</html>

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Proposed the tester stress & delays execution-realism architecture: wiring
+  MT5's native `ExecutionMode` delay emulation into the tester INI layer, a
+  delay-ladder stress matrix, and a deterministic robustness score with
+  verdict bands agents can gate on (spec, plan, and playground only; no
+  behavior change yet).
 - Proposed the alert-seeded trading decision architecture, including permission
   modes for notification-only, ask-before-trade, and dry-run flows.
 - Added `mt5 alert watch` for bounded MT5 alert wake envelopes, policy matching,
