@@ -72,6 +72,25 @@ Point any MCP client at it to get typed tools: `status`, `account_info`,
   MCP server (one long-lived process) or import the library directly
   (`from mt5_cli.market import info`) instead of spawning a process per call.
 
+## Strategy Tester robustness (`stress.v1`)
+
+`mt5 tester ea stress` runs an EA across an execution-delay ladder (MT5's native
+`ExecutionMode`: `0` ideal, fixed millisecond delays, and `random`) and returns a
+`stress.v1` envelope. Gate on `data.robustness` rather than parsing per-rung stats:
+
+- `robustness.score` — worst-case profit retention versus the ideal baseline,
+  clamped to `[0, 1]`, or `null` when ungraded.
+- `robustness.verdict` — `robust` (≥ 0.85), `degraded` (≥ 0.50), `fragile`
+  (< 0.50), or `ungraded` (no positive baseline, or no stressed rung succeeded).
+- `robustness.incomplete` — `true` when any stressed rung failed or lacked
+  gradeable stats (a missing `net_profit`).
+- `data.scenarios[]` — one `{delay_ms, envelope}` per rung for drill-down.
+
+If the ideal baseline run fails the whole command fails with
+`STRESS_BASELINE_FAILED` and the baseline envelope under `error.data.baseline`.
+A `fragile` verdict means the backtest's edge depended on execution conditions a
+retail broker will not provide.
+
 ## Error codes you should handle
 
 | Code | Meaning | Retryable? |
@@ -84,6 +103,8 @@ Point any MCP client at it to get typed tools: `status`, `account_info`,
 | `MT5_TICKET_NOT_FOUND` | No such order/position ticket | no |
 | `RISK_LIVE_GATE_BLOCKED` | Live gate not fully armed | no — arm all three gates |
 | `RISK_*` (other) | A risk guard blocked the order | no — adjust the order |
+| `INVALID_DELAYS` | Bad `--delays` token (not `random` or `0..600000`) | no — fix the ladder |
+| `STRESS_BASELINE_FAILED` | Stress baseline run failed (see `error.data.baseline`) | maybe — inspect the baseline |
 | `MT5_INTERNAL_ERROR` | Unexpected internal error | maybe |
 
 Run `mt5 <group> --help` for exact options of any command.

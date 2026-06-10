@@ -90,6 +90,8 @@ ERROR_CODES: dict[str, str] = {
     "RUN_NOT_FOUND": "No tester run with the given id.",
     "UNKNOWN_MODELLING": "Unknown modelling mode.",
     "UNKNOWN_OPT_MODE": "Unknown optimization mode.",
+    "STRESS_BASELINE_FAILED": "The ideal-execution baseline run failed; no robustness score is possible.",
+    "INVALID_DELAYS": "A delay must be 'random' or an integer 0..600000 ms.",
     # --- Terminal discovery ---
     "TERMINAL_ALREADY_RUNNING": "terminal64.exe is already running; close it for a batch launch.",
     "TERMINAL_NOT_FOUND": "terminal64.exe could not be located.",

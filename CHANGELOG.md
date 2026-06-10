@@ -9,8 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `mt5 tester ea stress` now runs a real execution-delay ladder using MT5's
+  native `ExecutionMode` setting (ideal, fixed millisecond delays, and random),
+  caches each rung under its own `results/<run-id>/`, and returns a `stress.v1`
+  envelope with a deterministic robustness score (`robust` / `degraded` /
+  `fragile` / `ungraded`) — the worst-case profit retention versus the ideal
+  baseline. New `--delays` flag accepts comma-separated millisecond integers
+  and/or `random`.
+- `build_ea_ini(execution_mode=...)` and `tester.ea.single(delay_ms=...)` thread
+  the order-execution delay through the INI layer; new `mt5_cli.tester.stress`
+  module owns delay parsing, ladder normalization, and scoring.
 - Proposed the alert-seeded trading decision architecture, including permission
   modes for notification-only, ask-before-trade, and dry-run flows.
+
+### Changed
+
+- **Breaking:** `mt5 tester ea stress` replaces the `--delays-ms` flag (and the
+  `tester.ea.stress(delays_ms=...)` library argument) with `--delays` /
+  `delays=[...]`. The old flag recorded a `stress_delay_ms` field on an
+  otherwise ideal-execution run without ever applying the delay; it is removed
+  rather than aliased so the envelope no longer claims stress it did not run.
 - Added `mt5 alert watch` for bounded MT5 alert wake envelopes, policy matching,
   dedupe state, JSONL audit records, and dry-run decisions. The first slice reads
   alert definitions as a watch-list only; it does not detect fired alerts, create

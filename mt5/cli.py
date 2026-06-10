@@ -75,6 +75,7 @@ from mt5_cli.tester import (
     ea as _tester_ea,
     indicator as _tester_indicator,
     results as _tester_results,
+    stress as _tester_stress,
 )
 
 
@@ -1458,11 +1459,45 @@ def tester_ea_scanner(
 @click.option("--tf", "timeframe", required=True)
 @click.option("--from", "from_date", required=True)
 @click.option("--to", "to_date", required=True)
-@click.option("--delays-ms", default=50, type=int)
+@click.option("--delays", default="0,100,500,random",
+              help="Comma-separated delay ladder: ms integers and/or 'random'.")
+@click.option(
+    "--modelling",
+    default="real-ticks",
+    type=click.Choice(["real-ticks", "every-tick", "ohlc-1m", "open-only", "math"]),
+)
+@click.option("--timeout", default=600, type=int)
 @click.pass_context
-def tester_ea_stress(ctx: click.Context, **kwargs) -> None:
-    """Run an EA stress backtest."""
-    emit(_tester_ea.stress(**kwargs), ctx.obj["json"])
+def tester_ea_stress(
+    ctx: click.Context,
+    expert: str,
+    symbol: str,
+    timeframe: str,
+    from_date: str,
+    to_date: str,
+    delays: str,
+    modelling: str,
+    timeout: int,
+) -> None:
+    """Run an EA execution-delay stress ladder and grade robustness."""
+    try:
+        parsed_delays = _tester_stress.parse_delays(delays)
+    except ValueError as exc:
+        emit(fail("INVALID_DELAYS", str(exc)), ctx.obj["json"])
+        return
+    emit(
+        _tester_ea.stress(
+            expert=expert,
+            symbol=symbol,
+            timeframe=timeframe,
+            from_date=from_date,
+            to_date=to_date,
+            delays=parsed_delays,
+            modelling=modelling,
+            timeout=timeout,
+        ),
+        ctx.obj["json"],
+    )
 
 
 @tester_group.group("indicator")

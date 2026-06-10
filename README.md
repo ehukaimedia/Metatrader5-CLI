@@ -257,9 +257,26 @@ mt5 --json tester ea optimize \
   --param Risk=1.0 \
   --param FastPeriod=9,5,1,21
 
+mt5 --json tester ea stress \
+  --expert my_strategy \
+  --symbol AUDUSD \
+  --tf M5 \
+  --from 2024-01-01 \
+  --to 2024-06-30 \
+  --delays 0,100,500,random
+
 mt5 --json tester list
 mt5 --json tester show <run-id>
 ```
+
+`tester ea stress` runs the same EA across an execution-delay ladder — ideal
+fills, fixed latencies, and MT5's randomized delay — using the native
+`ExecutionMode` tester setting. Each rung is a full backtest cached under its own
+`results/<run-id>/`. The `stress.v1` envelope grades execution robustness as the
+worst-case profit retention versus the ideal baseline: `robustness.verdict` is
+`robust` (score ≥ 0.85), `degraded` (≥ 0.50), `fragile` (< 0.50), or `ungraded`
+(no positive baseline to measure against). Delays are comma-separated
+millisecond integers and/or `random`; the ideal baseline `0` is always included.
 
 Tester reports are copied into the user's `results/<run-id>/` snapshot when MT5
 produces them.

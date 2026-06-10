@@ -56,6 +56,53 @@ def test_build_ea_ini_with_optimization_and_forward():
     assert "ForwardDate=2024.04.01" in text
 
 
+def test_build_ea_ini_defaults_execution_mode_to_zero():
+    """Every run emits ExecutionMode; the default 0 = the tester's instant fills."""
+    text = ini_builder.build_ea_ini(
+        expert="alpha", symbol="EURUSD", timeframe="H1",
+        from_date="2024-01-01", to_date="2024-06-30",
+    )
+    assert "ExecutionMode=0" in text
+
+
+def test_build_ea_ini_emits_random_and_fixed_execution_mode():
+    """-1 = random delay, a positive integer = fixed millisecond delay."""
+    random_text = ini_builder.build_ea_ini(
+        expert="alpha", symbol="EURUSD", timeframe="H1",
+        from_date="2024-01-01", to_date="2024-06-30",
+        execution_mode=-1,
+    )
+    assert "ExecutionMode=-1" in random_text
+
+    fixed_text = ini_builder.build_ea_ini(
+        expert="alpha", symbol="EURUSD", timeframe="H1",
+        from_date="2024-01-01", to_date="2024-06-30",
+        execution_mode=250,
+    )
+    assert "ExecutionMode=250" in fixed_text
+
+
+def test_build_ea_ini_accepts_max_execution_mode():
+    """600000 ms is the documented ceiling and must be accepted."""
+    text = ini_builder.build_ea_ini(
+        expert="alpha", symbol="EURUSD", timeframe="H1",
+        from_date="2024-01-01", to_date="2024-06-30",
+        execution_mode=600000,
+    )
+    assert "ExecutionMode=600000" in text
+
+
+def test_build_ea_ini_rejects_out_of_range_execution_mode():
+    """Below -1 or above 600000 is not a valid MT5 ExecutionMode."""
+    for bad in (-2, 600001):
+        with pytest.raises(ValueError):
+            ini_builder.build_ea_ini(
+                expert="alpha", symbol="EURUSD", timeframe="H1",
+                from_date="2024-01-01", to_date="2024-06-30",
+                execution_mode=bad,
+            )
+
+
 def test_build_ea_ini_with_set_file_includes_just_basename(tmp_path):
     """ExpertParameters takes the .set basename, not the full path."""
     set_file = tmp_path / "presets" / "alpha.AUDUSD.M5.set"
