@@ -276,7 +276,8 @@ fills, fixed latencies, and MT5's randomized delay — using the native
 worst-case profit retention versus the ideal baseline: `robustness.verdict` is
 `robust` (score ≥ 0.85), `degraded` (≥ 0.50), `fragile` (< 0.50), or `ungraded`
 (no positive baseline to measure against). Delays are comma-separated
-millisecond integers and/or `random`; the ideal baseline `0` is always included.
+millisecond integers from `0` to `600000` and/or `random`; the ideal baseline
+`0` is always included.
 
 Tester reports are copied into the user's `results/<run-id>/` snapshot when MT5
 produces them.
