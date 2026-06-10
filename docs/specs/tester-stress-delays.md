@@ -41,8 +41,15 @@ collapses was curve-fit to execution conditions the trader will never get.
 - MT5 startup-configuration docs
   (metatrader5.com/en/terminal/help/start_advanced/start, verified
   2026-06-10): `ExecutionMode` — `0` normal, `-1` random delay in order
-  execution, `>0` fixed delay in milliseconds, maximum `600000`. The Strategy
-  Tester UI labels this control "Delays".
+  execution, `>0` fixed delay in milliseconds, maximum `600000`.
+- MT5 Strategy Tester help (metatrader5.com/en/terminal/help/algotrading/testing,
+  verified 2026-06-10): the matching UI control emulates network delays with
+  No Delay, Random Delay (a 0–9 second value picked per order), and Fixed
+  Delay options.
+- Envelope contract: `mt5_cli/reports/envelope.py:12-16` — failure detail
+  lives under `error.data`, frozen by `tests/test_envelope_contract.py`.
+- Run-id source: `mt5_cli/tester/cache.py:17-38` — second-resolution UTC
+  timestamps, and `run_dir()` reuses an existing directory of the same name.
 
 ## Durable Wedge
 
@@ -96,7 +103,14 @@ Five parts, same layering as the existing tester stack:
 4. `ea.stress(..., delays: list[int] | None = None)` normalizes the ladder,
    runs one `single()` per delay serially (the launcher contract forbids
    parallel terminals), aggregates per-scenario envelopes, and attaches the
-   robustness block.
+   robustness block. Each rung gets a collision-safe run id by folding the
+   delay token into the expert component —
+   `make_run_id(f"stress-{token}-{expert}", symbol, timeframe)` with token
+   `0`, `100`, `random`, etc. — following the `opt-{mode}-` prefix precedent
+   (`mt5_cli/tester/ea.py:173`). Run ids are otherwise second-resolution and
+   `run_dir()` reuses an existing directory (`mt5_cli/tester/cache.py:17-38`),
+   so without the token two same-second rungs would share `tester.ini` and
+   report paths and corrupt the scenario evidence.
 5. CLI `mt5 tester ea stress --delays 0,100,500,random` parses tokens and
    emits the envelope. `--delays-ms` is removed.
 
@@ -130,8 +144,11 @@ With baseline = the `delay_ms=0` scenario:
 
 Failure semantics:
 
-- Baseline run fails → the whole command fails with `STRESS_BASELINE_FAILED`
-  (inner envelope under `data.baseline`); no stressed scenarios run.
+- Baseline run fails → the whole command fails with `STRESS_BASELINE_FAILED`;
+  the failed baseline envelope ships under `error.data.baseline`, matching the
+  frozen failure shape `{"ok": false, "error": {"code", "message", "data"}}`
+  (`mt5_cli/reports/envelope.py:12-16`, locked by
+  `tests/test_envelope_contract.py`). No stressed scenarios run.
 - A stressed scenario fails → remaining scenarios still run; the failed
   envelope ships in `scenarios`; scoring uses the successes;
   `robustness.incomplete = true`.
@@ -151,26 +168,27 @@ Failure semantics:
     "modelling": "real-ticks",
     "delays": [0, 100, 500, -1],
     "scenarios": [
-      {"delay_ms": 0, "envelope": {"ok": true, "data": {"run_id": "...", "stats": {}}}},
+      {"delay_ms": 0,
+       "envelope": {"ok": true, "data": {"run_id": "2026-06-10T07-00-00_stress-0-alpha_AUDUSD_M5", "stats": {}}}},
       {"delay_ms": 100, "envelope": {}},
       {"delay_ms": 500, "envelope": {}},
       {"delay_ms": -1, "envelope": {}}
     ],
     "robustness": {
-      "score": 0.91,
+      "score": 0.9103,
       "verdict": "robust",
       "baseline_net_profit": 4180.0,
       "incomplete": false,
       "per_delay": [
-        {
-          "delay_ms": 100,
-          "net_profit": 3990.5,
-          "retention": 0.9547,
-          "profit_factor": 1.71,
-          "max_drawdown_pct": 8.2,
-          "total_trades": 212,
-          "win_rate": 0.56
-        }
+        {"delay_ms": 100, "net_profit": 3990.5, "retention": 0.9547,
+         "profit_factor": 1.71, "max_drawdown_pct": 8.2,
+         "total_trades": 212, "win_rate": 0.56},
+        {"delay_ms": 500, "net_profit": 3920.3, "retention": 0.9379,
+         "profit_factor": 1.66, "max_drawdown_pct": 8.9,
+         "total_trades": 209, "win_rate": 0.55},
+        {"delay_ms": -1, "net_profit": 3804.9, "retention": 0.9103,
+         "profit_factor": 1.62, "max_drawdown_pct": 9.4,
+         "total_trades": 205, "win_rate": 0.54}
       ]
     }
   }
@@ -215,8 +233,8 @@ INI layer:
 
 1. `build_ea_ini()` default emits `ExecutionMode=0`.
 2. `execution_mode=-1` and `execution_mode=250` emit those exact lines.
-3. `execution_mode=-2` and `execution_mode=600001` raise `ValueError`
-   (negative/corruption path).
+3. Boundaries: `execution_mode=600000` is accepted; `execution_mode=-2` and
+   `execution_mode=600001` raise `ValueError` (negative/corruption path).
 
 Pure stress module:
 
@@ -227,8 +245,12 @@ Pure stress module:
 6. Scoring: worst-case retention drives the score; clamps at both ends;
    rounds to 4 decimal places.
 7. Ungraded when baseline `net_profit` ≤ 0 or missing; ungraded when no
-   stressed scenario succeeded.
-8. `incomplete=true` when a stressed scenario fails but others score.
+   stressed scenario exists or succeeded — including a ladder of only `0`,
+   which still runs the baseline and returns `score: null`,
+   `verdict: "ungraded"`.
+8. Partial failure: `incomplete=true` when a stressed scenario fails but
+   others score. All stressed scenarios failing yields `score: null`,
+   `verdict: "ungraded"`, `incomplete: true`.
 
 Orchestration:
 
@@ -236,14 +258,21 @@ Orchestration:
    `delay_ms` into run metadata.
 10. `stress()` runs exactly one `single()` per normalized delay, serially, and
     assembles `stress.v1`.
-11. Baseline failure returns `STRESS_BASELINE_FAILED` and runs no stressed
-    scenarios.
+11. Per-rung run ids are unique even when rungs start within the same
+    second-resolution timestamp: the delay token appears in each run id
+    (`stress-{token}-{expert}`), and no two rungs of one ladder share a run
+    dir.
+12. Baseline failure returns the exact frozen failure shape:
+    `ok: false`, `error.code: "STRESS_BASELINE_FAILED"`, the failed baseline
+    envelope under `error.data.baseline` — and runs no stressed scenarios.
+13. `timeout` applies per scenario, not across the ladder: each `single()`
+    call receives the full configured timeout.
 
 CLI:
 
-12. `--delays` happy-path parsing, and an `INVALID_DELAYS` fail envelope on a
+14. `--delays` happy-path parsing, and an `INVALID_DELAYS` fail envelope on a
     bad token.
-13. New error codes are registered (the existing registry test covers this
+15. New error codes are registered (the existing registry test covers this
     once they are added).
 
 Removes `tests/test_tester_ea.py:332-348` (`test_stress_adds_delay_metadata`)

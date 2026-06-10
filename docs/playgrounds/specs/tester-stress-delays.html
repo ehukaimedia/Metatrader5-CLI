@@ -293,15 +293,17 @@
   <section class="band">
     <h2>The INI key (verified against MetaQuotes docs)</h2>
     <p class="lede" style="font-size:0.95rem">
-      The Strategy Tester UI labels the control &ldquo;Delays&rdquo;; the startup-config key is
-      <code>ExecutionMode</code>. Source: metatrader5.com/en/terminal/help/start_advanced/start,
-      checked 2026-06-10.
+      The startup-config key is <code>ExecutionMode</code>
+      (metatrader5.com/en/terminal/help/start_advanced/start, checked 2026-06-10). The
+      Strategy Tester help documents the matching UI control: network-delay emulation with
+      No Delay, Random Delay, and Fixed Delay options
+      (metatrader5.com/en/terminal/help/algotrading/testing, checked 2026-06-10).
     </p>
     <table style="margin-top:12px">
       <tr><th>INI value</th><th>Meaning</th><th>CLI token</th></tr>
       <tr><td><code>ExecutionMode=0</code></td><td>Normal (instant) execution — the baseline rung, always run</td><td><code>0</code></td></tr>
       <tr><td><code>ExecutionMode=N</code> (1..600000)</td><td>Fixed order-execution delay of N milliseconds</td><td><code>N</code></td></tr>
-      <tr><td><code>ExecutionMode=-1</code></td><td>Random delay in order execution</td><td><code>random</code></td></tr>
+      <tr><td><code>ExecutionMode=-1</code></td><td>Random delay in order execution (per the tester help, a 0&ndash;9&nbsp;second value picked per order)</td><td><code>random</code></td></tr>
       <tr><td>anything else</td><td>Rejected: <code>ValueError</code> in the INI layer, <code>INVALID_DELAYS</code> envelope at the CLI</td><td>&mdash;</td></tr>
     </table>
     <p style="margin-top:10px; color:var(--muted); font-size:0.9rem">
@@ -322,13 +324,13 @@
     <div class="calc-grid" style="margin-top:12px">
       <div>
         <label for="base">Baseline net profit (delay 0 ms)</label>
-        <input id="base" type="number" value="4180" step="10">
+        <input id="base" type="number" value="4180" step="0.1">
         <label for="d100">Net profit at 100 ms</label>
-        <input id="d100" type="number" value="3990" step="10">
+        <input id="d100" type="number" value="3990.5" step="0.1">
         <label for="d500">Net profit at 500 ms</label>
-        <input id="d500" type="number" value="3805" step="10">
+        <input id="d500" type="number" value="3920.3" step="0.1">
         <label for="drand">Net profit at random delay</label>
-        <input id="drand" type="number" value="3520" step="10">
+        <input id="drand" type="number" value="3804.9" step="0.1">
       </div>
       <div>
         <table>
@@ -364,29 +366,40 @@
     "modelling": "real-ticks",
     "delays": [0, 100, 500, -1],
     "scenarios": [
-      {"delay_ms": 0,   "envelope": { "ok": true, "data": { "run_id": "...", "stats": {} } }},
+      {"delay_ms": 0,   "envelope": { "ok": true, "data": {
+        "run_id": "2026-06-10T07-00-00_stress-0-alpha_AUDUSD_M5", "stats": {} } }},
       {"delay_ms": 100, "envelope": {}},
       {"delay_ms": 500, "envelope": {}},
       {"delay_ms": -1,  "envelope": {}}
     ],
     "robustness": {
-      "score": 0.91,
+      "score": 0.9103,
       "verdict": "robust",
       "baseline_net_profit": 4180.0,
       "incomplete": false,
       "per_delay": [
         {"delay_ms": 100, "net_profit": 3990.5, "retention": 0.9547,
          "profit_factor": 1.71, "max_drawdown_pct": 8.2,
-         "total_trades": 212, "win_rate": 0.56}
+         "total_trades": 212, "win_rate": 0.56},
+        {"delay_ms": 500, "net_profit": 3920.3, "retention": 0.9379,
+         "profit_factor": 1.66, "max_drawdown_pct": 8.9,
+         "total_trades": 209, "win_rate": 0.55},
+        {"delay_ms": -1,  "net_profit": 3804.9, "retention": 0.9103,
+         "profit_factor": 1.62, "max_drawdown_pct": 9.4,
+         "total_trades": 205, "win_rate": 0.54}
       ]
     }
   }
 }</pre>
     <p style="margin-top:8px; color:var(--muted); font-size:0.9rem">
-      Failure semantics: baseline fails &rarr; <code>STRESS_BASELINE_FAILED</code>, nothing
-      else runs. A stressed rung fails &rarr; its fail envelope ships in
-      <code>scenarios</code>, scoring uses the successes, <code>incomplete: true</code>.
-      Schema-version style follows <code>wake.v1</code> (mt5_cli/wake/wake.py:342).
+      Failure semantics: baseline fails &rarr; <code>STRESS_BASELINE_FAILED</code> with the
+      failed baseline envelope under <code>error.data.baseline</code> (the frozen failure
+      shape, mt5_cli/reports/envelope.py:12-16), nothing else runs. A stressed rung fails
+      &rarr; its fail envelope ships in <code>scenarios</code>, scoring uses the successes,
+      <code>incomplete: true</code>. Per-rung run ids fold the delay token into the id
+      (<code>stress-{token}-{expert}</code>) so same-second rungs never share a run dir
+      (mt5_cli/tester/cache.py:17-38). Schema-version style follows <code>wake.v1</code>
+      (mt5_cli/wake/wake.py:342).
     </p>
   </section>
 
@@ -398,7 +411,7 @@
         <ul>
           <li><code>ini_builder.py</code> owns raw MT5 codes and validation (<code>execution_mode</code>).</li>
           <li>New <code>mt5_cli/tester/stress.py</code> owns token parsing, ladder normalization, scoring — pure, stdlib-only.</li>
-          <li><code>ea.py</code> owns orchestration: serial rungs, failure semantics, envelope assembly.</li>
+          <li><code>ea.py</code> owns orchestration: serial rungs, collision-safe per-rung run ids (<code>stress-{token}-{expert}</code>), failure semantics, envelope assembly.</li>
           <li><code>mt5/cli.py</code> stays a thin flag-parsing wrapper (CONTRIBUTING architecture rule).</li>
         </ul>
       </div>

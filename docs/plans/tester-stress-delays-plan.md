@@ -38,19 +38,21 @@ Each phase is independently committable and leaves the suite green.
 
 ### Phase 3 — Orchestration
 
-- Tests first (`tests/test_tester_ea.py`): acceptance tests 9–11 with a
+- Tests first (`tests/test_tester_ea.py`): acceptance tests 9–13 with a
   monkeypatched `single`/launcher, following the existing patterns in that
   file. Delete `test_stress_adds_delay_metadata` (lines 332–348) in the same
   commit that changes the behavior it locks in.
 - Implement `delay_ms: int = 0` on `ea.single()` (threaded to
   `build_ea_ini(execution_mode=...)`, recorded in run metadata) and rewrite
-  `ea.stress()` to the ladder contract: serial scenario runs,
-  `STRESS_BASELINE_FAILED` short-circuit, per-scenario envelopes, robustness
+  `ea.stress()` to the ladder contract: serial scenario runs, collision-safe
+  per-rung run ids (`stress-{token}-{expert}` prefix, spec Architecture
+  part 4), `STRESS_BASELINE_FAILED` short-circuit with the failed baseline
+  envelope under `error.data.baseline`, per-scenario envelopes, robustness
   block, `schema: "stress.v1"`.
 
 ### Phase 4 — CLI and error registry
 
-- Tests first (`tests/test_cli.py`): acceptance tests 12–13.
+- Tests first (`tests/test_cli.py`): acceptance tests 14–15.
 - Replace `--delays-ms` with `--delays` on `mt5/cli.py` (`tester ea stress`,
   lines 1455–1465); add `--modelling` and `--timeout` options mirroring the
   library signature.
