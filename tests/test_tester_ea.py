@@ -499,6 +499,26 @@ def test_stress_baseline_failure_short_circuits(monkeypatch, tmp_path):
     assert calls == [0]  # no stressed rungs ran
 
 
+def test_stress_rejects_invalid_delays_without_running(monkeypatch, tmp_path):
+    """A direct library caller cannot bypass the -1 / 0..600000 ladder contract."""
+    calls = []
+    monkeypatch.setattr(ea, "single", lambda **kwargs: calls.append(kwargs["delay_ms"]))
+
+    for bad in ([-2], [600001], []):
+        out = ea.stress(
+            expert="alpha",
+            symbol="AUDUSD",
+            timeframe="M5",
+            from_date="2024-01-01",
+            to_date="2024-06-30",
+            delays=bad,
+            results_root=tmp_path,
+        )
+        assert out["ok"] is False
+        assert out["error"]["code"] == "INVALID_DELAYS"
+    assert calls == []  # no rung ran for any invalid ladder
+
+
 def test_stress_partial_failure_marks_incomplete(monkeypatch, tmp_path):
     def fake_single(**kwargs):
         if kwargs["delay_ms"] == 500:

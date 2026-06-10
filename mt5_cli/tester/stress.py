@@ -23,12 +23,28 @@ _RANDOM = -1
 _MAX_FIXED_MS = 600000
 
 
+def _validate_ladder_value(value: int) -> int:
+    """Enforce the single delay contract: -1 (random) or a 0..600000 ms integer.
+
+    This is the one gate both the string path (`parse_delays`) and the typed
+    library path (`normalize_ladder`) run through, so a direct
+    `ea.stress(delays=[...])` caller cannot bypass the range the CLI enforces.
+    """
+    if value != _RANDOM and not (0 <= value <= _MAX_FIXED_MS):
+        raise ValueError(
+            f"Invalid delay {value}. Use 'random' (-1) or an integer "
+            f"0..{_MAX_FIXED_MS} ms."
+        )
+    return value
+
+
 def parse_delays(spec: str) -> list[int]:
     """Parse ``"0,100,500,random"`` into ExecutionMode values ``[0, 100, 500, -1]``.
 
     Tokens are non-negative millisecond integers or ``random``. A literal
-    negative, a non-numeric token, or a value above the 600000 ms ceiling
-    raises ValueError — ``random`` is the only way to request -1.
+    negative, a non-numeric token, a value above the 600000 ms ceiling, or a
+    no-token spec raises ValueError — ``random`` is the only way to request -1,
+    and a stress run needs at least one rung.
     """
     delays: list[int] = []
     for raw in spec.split(","):
@@ -45,22 +61,30 @@ def parse_delays(spec: str) -> list[int]:
                 f"Invalid delay {token!r}. Use 'random' or an integer "
                 f"0..{_MAX_FIXED_MS} ms."
             ) from None
-        if not (0 <= value <= _MAX_FIXED_MS):
+        if value < 0:
             raise ValueError(
-                f"Delay {value} out of range. Use 'random' or an integer "
-                f"0..{_MAX_FIXED_MS} ms."
+                f"Invalid delay {token!r}. Use 'random' for a random delay, "
+                f"not a negative number."
             )
-        delays.append(value)
+        delays.append(_validate_ladder_value(value))
+    if not delays:
+        raise ValueError("No delays given. Provide at least one rung, e.g. '0,100,random'.")
     return delays
 
 
 def normalize_ladder(delays: list[int]) -> list[int]:
     """Dedupe and order a ladder: baseline 0 first, fixed delays ascending, random last.
 
-    The ideal-execution baseline (0) is always present — it anchors every
-    retention ratio — so it is prepended when missing. The order is
+    Every value is validated against the -1 / 0..600000 contract, and an empty
+    ladder is rejected — the typed library path gets the same guarantees as the
+    CLI. The ideal-execution baseline (0) is always present (it anchors every
+    retention ratio), so it is prepended when missing. The order is
     deterministic so the resulting envelope is too.
     """
+    if not delays:
+        raise ValueError("No delays given. Provide at least one rung, e.g. [0, 100, -1].")
+    for value in delays:
+        _validate_ladder_value(value)
     unique = set(delays)
     unique.add(0)
     fixed = sorted(d for d in unique if d >= 0)

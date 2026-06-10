@@ -33,6 +33,13 @@ def test_parse_delays_rejects_raw_negative_token():
         stress.parse_delays("-1")
 
 
+def test_parse_delays_rejects_empty_input():
+    """A stress run needs at least one rung; no-token input is invalid."""
+    for spec in ("", "   ", ","):
+        with pytest.raises(ValueError):
+            stress.parse_delays(spec)
+
+
 # --- normalize_ladder -------------------------------------------------------
 
 def test_normalize_ladder_dedupes_and_orders():
@@ -49,6 +56,18 @@ def test_normalize_ladder_keeps_lone_baseline():
 
 def test_normalize_ladder_puts_random_last():
     assert stress.normalize_ladder([-1, 300, 0, 50]) == [0, 50, 300, -1]
+
+
+def test_normalize_ladder_rejects_out_of_range_values():
+    """The library path must enforce the same -1 / 0..600000 contract as the CLI."""
+    for bad in ([-2], [600001]):
+        with pytest.raises(ValueError):
+            stress.normalize_ladder(bad)
+
+
+def test_normalize_ladder_rejects_empty_ladder():
+    with pytest.raises(ValueError):
+        stress.normalize_ladder([])
 
 
 # --- score ------------------------------------------------------------------

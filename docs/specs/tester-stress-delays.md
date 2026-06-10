@@ -117,12 +117,17 @@ Five parts, same layering as the existing tester stack:
 ### Ladder contract
 
 - Tokens: non-negative integers (milliseconds) or `random` (maps to `-1`).
-- Validation: each value must be `-1` or `0..600000`; anything else fails with
-  `INVALID_DELAYS`.
+- Validation: each value must be `-1` or `0..600000`, and the ladder must be
+  non-empty; anything else fails with `INVALID_DELAYS`. Validation runs in the
+  shared `normalize_ladder` gate, so the typed library path
+  (`ea.stress(delays=[...])`) is held to the same contract as the CLI string
+  path — a direct importer cannot bypass it (the same layering rule as
+  core-layer risk).
 - Normalization: dedupe; the ideal-execution baseline `0` is always included
   (prepended when missing); order is `0` first, fixed delays ascending,
   `random` last. Deterministic order, deterministic envelope.
-- Default ladder: `0,100,500,random`.
+- Default ladder: `0,100,500,random` (used when `delays` is omitted; an
+  explicit empty ladder is rejected, not defaulted).
 
 ### Robustness scoring contract
 
@@ -238,10 +243,12 @@ INI layer:
 
 Pure stress module:
 
-4. Token parsing: `"0,100,500,random"` → `[0, 100, 500, -1]`; `"junk"` and
-   `700000` are rejected.
+4. Token parsing: `"0,100,500,random"` → `[0, 100, 500, -1]`; `"junk"`,
+   `700000`, a raw `-1` token, and no-token input (`""`, `"   "`, `","`) are
+   rejected.
 5. Normalization: dedupes, auto-includes the `0` baseline, deterministic order
-   with `random` last.
+   with `random` last; rejects out-of-range values (`-2`, `600001`) and an
+   empty ladder, so the library path is validated, not just the CLI string.
 6. Scoring: worst-case retention drives the score; clamps at both ends;
    rounds to 4 decimal places.
 7. Ungraded when baseline `net_profit` ≤ 0 or missing; ungraded when no
@@ -267,12 +274,16 @@ Orchestration:
     envelope under `error.data.baseline` — and runs no stressed scenarios.
 13. `timeout` applies per scenario, not across the ladder: each `single()`
     call receives the full configured timeout.
+14. Direct library validation: `stress(delays=[-2])`, `stress(delays=[600001])`,
+    and `stress(delays=[])` each return an `INVALID_DELAYS` envelope and run no
+    `single()` rung.
 
 CLI:
 
-14. `--delays` happy-path parsing, and an `INVALID_DELAYS` fail envelope on a
-    bad token.
-15. New error codes are registered (the existing registry test covers this
+15. `--delays` happy-path parsing, an `INVALID_DELAYS` fail envelope on a bad
+    token, and an `INVALID_DELAYS` envelope on no-token input (`--delays ""`)
+    without dispatching into the library.
+16. New error codes are registered (the existing registry test covers this
     once they are added).
 
 Removes `tests/test_tester_ea.py:332-348` (`test_stress_adds_delay_metadata`)

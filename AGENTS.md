@@ -82,7 +82,8 @@ Point any MCP client at it to get typed tools: `status`, `account_info`,
   clamped to `[0, 1]`, or `null` when ungraded.
 - `robustness.verdict` — `robust` (≥ 0.85), `degraded` (≥ 0.50), `fragile`
   (< 0.50), or `ungraded` (no positive baseline, or no stressed rung succeeded).
-- `robustness.incomplete` — `true` when a stressed rung failed but others scored.
+- `robustness.incomplete` — `true` when any stressed rung failed or lacked
+  gradeable stats (a missing `net_profit`).
 - `data.scenarios[]` — one `{delay_ms, envelope}` per rung for drill-down.
 
 If the ideal baseline run fails the whole command fails with

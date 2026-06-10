@@ -363,6 +363,44 @@ def test_tester_ea_stress_invalid_delays_uses_envelope(monkeypatch, cli):
     assert called["stress"] is False
 
 
+def test_tester_ea_stress_empty_delays_uses_envelope(monkeypatch, cli):
+    runner, main = cli
+    import mt5.cli as cli_mod
+
+    called = {"stress": False}
+    monkeypatch.setattr(
+        cli_mod._tester_ea, "stress",
+        lambda **kwargs: called.__setitem__("stress", True) or {"ok": True, "data": {}},
+    )
+
+    result = runner.invoke(
+        main,
+        [
+            "--json",
+            "tester",
+            "ea",
+            "stress",
+            "--expert",
+            "alpha",
+            "--symbol",
+            "AUDUSD",
+            "--tf",
+            "M5",
+            "--from",
+            "2024-01-01",
+            "--to",
+            "2024-06-30",
+            "--delays",
+            "",
+        ],
+    )
+
+    payload = json.loads(result.output)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "INVALID_DELAYS"
+    assert called["stress"] is False
+
+
 def test_tester_indicator_visual_threads_options(monkeypatch, cli):
     runner, main = cli
     import mt5.cli as cli_mod

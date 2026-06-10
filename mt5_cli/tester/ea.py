@@ -321,7 +321,12 @@ def stress(
     against; if it fails there is nothing to anchor a score, so the whole
     command fails with `STRESS_BASELINE_FAILED`.
     """
-    ladder = _stress.normalize_ladder(delays if delays is not None else _DEFAULT_DELAYS)
+    try:
+        ladder = _stress.normalize_ladder(
+            delays if delays is not None else _DEFAULT_DELAYS
+        )
+    except ValueError as exc:
+        return fail("INVALID_DELAYS", str(exc))
 
     scenarios: list[dict] = []
     baseline_net_profit: float | None = None

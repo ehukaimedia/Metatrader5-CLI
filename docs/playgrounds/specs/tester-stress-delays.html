@@ -304,7 +304,7 @@
       <tr><td><code>ExecutionMode=0</code></td><td>Normal (instant) execution — the baseline rung, always run</td><td><code>0</code></td></tr>
       <tr><td><code>ExecutionMode=N</code> (1..600000)</td><td>Fixed order-execution delay of N milliseconds</td><td><code>N</code></td></tr>
       <tr><td><code>ExecutionMode=-1</code></td><td>Random delay in order execution (per the tester help, a 0&ndash;9&nbsp;second value picked per order)</td><td><code>random</code></td></tr>
-      <tr><td>anything else</td><td>Rejected: <code>ValueError</code> in the INI layer, <code>INVALID_DELAYS</code> envelope at the CLI</td><td>&mdash;</td></tr>
+      <tr><td>anything else / empty</td><td>Rejected: <code>ValueError</code> in the INI layer, <code>INVALID_DELAYS</code> envelope on both the CLI and the typed <code>ea.stress(delays=[...])</code> library path</td><td>&mdash;</td></tr>
     </table>
     <p style="margin-top:10px; color:var(--muted); font-size:0.9rem">
       Ladder normalization: dedupe &middot; baseline <code>0</code> auto-included &middot;
