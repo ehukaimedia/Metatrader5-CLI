@@ -56,8 +56,10 @@ from mt5_cli.chart import (
     find_window as _chart_find_window,
     list_charts as _chart_list,
     new_chart as _chart_new,
+    set_zoom as _chart_set_zoom,
     switch_tf as _chart_switch_tf,
     symbol as _chart_symbol,
+    zoom as _chart_zoom,
 )
 from mt5_cli.config import load as _config_load
 from mt5_cli.config import mask_secrets as _config_mask
@@ -1085,6 +1087,59 @@ def chart_close_cmd(ctx: click.Context, chart_id: int, substring: str) -> None:
 def chart_cycle_cmd(ctx: click.Context, direction: str, substring: str) -> None:
     """Activate the next/prev chart in MDI tab order."""
     emit(_chart_cycle(direction=direction, window_substring=substring),
+         ctx.obj["json"])
+
+
+@chart.group("zoom")
+def chart_zoom_group() -> None:
+    """Zoom chart density before screenshots."""
+
+
+@chart_zoom_group.command("in")
+@click.option("--steps", type=int, default=1, help="Number of zoom-in steps.")
+@click.option("--substring", default="MT5")
+@click.option("--chart-id", type=int, default=None)
+@click.pass_context
+def chart_zoom_in_cmd(
+    ctx: click.Context,
+    steps: int,
+    substring: str,
+    chart_id: int | None,
+) -> None:
+    """Zoom the active/requested chart in."""
+    emit(_chart_zoom("in", steps=steps, window_substring=substring, chart_id=chart_id),
+         ctx.obj["json"])
+
+
+@chart_zoom_group.command("out")
+@click.option("--steps", type=int, default=1, help="Number of zoom-out steps.")
+@click.option("--substring", default="MT5")
+@click.option("--chart-id", type=int, default=None)
+@click.pass_context
+def chart_zoom_out_cmd(
+    ctx: click.Context,
+    steps: int,
+    substring: str,
+    chart_id: int | None,
+) -> None:
+    """Zoom the active/requested chart out."""
+    emit(_chart_zoom("out", steps=steps, window_substring=substring, chart_id=chart_id),
+         ctx.obj["json"])
+
+
+@chart_zoom_group.command("set")
+@click.argument("level", type=int)
+@click.option("--substring", default="MT5")
+@click.option("--chart-id", type=int, default=None)
+@click.pass_context
+def chart_zoom_set_cmd(
+    ctx: click.Context,
+    level: int,
+    substring: str,
+    chart_id: int | None,
+) -> None:
+    """Request a deterministic chart zoom level (0..5)."""
+    emit(_chart_set_zoom(level, window_substring=substring, chart_id=chart_id),
          ctx.obj["json"])
 
 

@@ -28,6 +28,8 @@ Parse the envelope; never branch on the exit code or read stderr.
 mt5 --json status
 mt5 --json market info EURUSD
 mt5 --json rates fetch USDJPY H1 --bars 100
+mt5 --json chart zoom set 3
+mt5 --json screenshot take --window MT5
 mt5 --json order dryrun EURUSD buy --volume 0.01 --sl 1.1600
 mt5 --json position list
 mt5 --json alert watch --once
@@ -72,6 +74,23 @@ Point any MCP client at it to get typed tools: `status`, `account_info`,
   MCP server (one long-lived process) or import the library directly
   (`from mt5_cli.market import info`) instead of spawning a process per call.
 
+## Screenshot preparation
+
+`mt5 screenshot take` captures visible MT5 window pixels through the OS
+screenshot path; it does not drive MT5's built-in "Save As Picture" dialog.
+To improve chart density before a capture, compose chart zoom with screenshot:
+
+```bash
+mt5 --json chart zoom in --steps 2
+mt5 --json chart zoom out --steps 1
+mt5 --json chart zoom set 3
+mt5 --json screenshot take --window MT5
+```
+
+Zoom envelopes report the requested action and target chart, not verified MT5
+scale readback. The Win32 path sends keyboard zoom input (`+` / `-`) and cannot
+read the terminal's internal `CHART_SCALE` through the Python SDK.
+
 ## Strategy Tester robustness (`stress.v1`)
 
 `mt5 tester ea stress` runs an EA across an execution-delay ladder (MT5's native
@@ -103,6 +122,7 @@ retail broker will not provide.
 | `MT5_TICKET_NOT_FOUND` | No such order/position ticket | no |
 | `RISK_LIVE_GATE_BLOCKED` | Live gate not fully armed | no — arm all three gates |
 | `RISK_*` (other) | A risk guard blocked the order | no — adjust the order |
+| `CHART_INVALID_ZOOM` | Bad chart zoom direction, steps, or level | no — fix the call |
 | `INVALID_DELAYS` | Bad `--delays` token (not `random` or `0..600000`) | no — fix the ladder |
 | `STRESS_BASELINE_FAILED` | Stress baseline run failed (see `error.data.baseline`) | maybe — inspect the baseline |
 | `MT5_INTERNAL_ERROR` | Unexpected internal error | maybe |

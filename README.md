@@ -67,6 +67,7 @@ mt5 --json rates fetch USDJPY H1 --bars 10
 mt5 --json order dryrun EURUSD buy --volume 0.01 --sl 1.1600
 mt5 --json position list
 mt5 --json chart list
+mt5 --json chart zoom set 3
 mt5 --json screenshot take
 ```
 
@@ -170,6 +171,18 @@ mt5 --json alert watch --policy-path wake-policy.json --audit-path wake-audit.js
 **Screenshot privacy:** `mt5 screenshot take` captures the MT5 window as-is,
 which can include your account balance, equity, and broker login number. Review
 captures before sharing them with an agent, an LLM, or a public issue.
+
+For chart-density cleanup before capture, use the chart zoom controls first:
+
+```bash
+mt5 --json chart zoom in --steps 2
+mt5 --json chart zoom out --steps 1
+mt5 --json chart zoom set 3
+mt5 --json screenshot take --window MT5
+```
+
+`mt5 screenshot take` captures visible pixels with the OS screenshot path; it
+does not use MT5's built-in "Save As Picture" dialog.
 
 ## Configuration
 
@@ -294,7 +307,7 @@ produces them.
 | `position` | List, close, move stop loss, break-even |
 | `history` | Orders, deals, stats |
 | `alert` | List MT5 terminal alerts and emit wake decisions |
-| `chart` | MT5 chart/window control |
+| `chart` | MT5 chart/window control, including zoom for screenshot preparation |
 | `screenshot` | Capture and annotate MT5 screenshots |
 | `config` | Show effective config and retcode help |
 | `describe` | Machine catalog of commands + error codes (for agents) |
