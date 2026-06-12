@@ -54,6 +54,37 @@ def fake_pywin32(monkeypatch):
     _purge_chart_cache()
 
 
+def _wire_mt5_window_with_charts(win32gui, charts: dict[int, str], active_hwnd: int | None = None):
+    parent_hwnd = 1000
+
+    def fake_enum_windows(cb, _extra):
+        cb(parent_hwnd, None)
+
+    titles = {parent_hwnd: "MetaTrader 5", **charts}
+    win32gui.EnumWindows.side_effect = fake_enum_windows
+    win32gui.GetWindowText.side_effect = lambda hwnd: titles.get(hwnd, "")
+    win32gui.GetClassName.side_effect = lambda hwnd: (
+        "MetaQuotes::MetaTrader::Frame"
+        if hwnd == parent_hwnd
+        else "AfxFrameOrView140s"
+        if hwnd in charts
+        else ""
+    )
+
+    def fake_enum_children(parent, cb, _extra):
+        if parent == parent_hwnd:
+            for chart_hwnd in charts:
+                cb(chart_hwnd, None)
+
+    win32gui.EnumChildWindows.side_effect = fake_enum_children
+    if active_hwnd is not None:
+        win32gui.GetForegroundWindow.return_value = active_hwnd
+        win32gui.GetParent.side_effect = lambda hwnd: (
+            parent_hwnd if hwnd == active_hwnd else 0
+        )
+    return parent_hwnd
+
+
 # ---------------------------------------------------------------------------
 # Pure helpers (no Win32 needed)
 # ---------------------------------------------------------------------------
@@ -245,6 +276,125 @@ def test_switch_tf_fails_when_window_missing(fake_pywin32):
     env = switch_tf("M15")
     assert env["ok"] is False
     assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# zoom / set_zoom - screenshot-prep chart density controls
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("direction", ["sideways", None])
+def test_zoom_rejects_invalid_direction(fake_pywin32, direction):
+    from mt5_cli.chart import zoom
+    env = zoom(direction)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_INVALID_ZOOM"
+
+
+@pytest.mark.parametrize("steps", [0, 21])
+def test_zoom_rejects_invalid_steps(fake_pywin32, steps):
+    from mt5_cli.chart import zoom
+    env = zoom("in", steps=steps)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_INVALID_ZOOM"
+
+
+def test_zoom_fails_when_window_missing(fake_pywin32):
+    from mt5_cli.chart import zoom
+    env = zoom("in")
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_WINDOW_NOT_FOUND"
+
+
+def test_zoom_fails_when_no_charts_open(fake_pywin32):
+    win32gui, _, _ = fake_pywin32
+    _wire_mt5_window_with_charts(win32gui, {})
+
+    from mt5_cli.chart import zoom
+    env = zoom("in", settle_seconds=0)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_NO_CHARTS_OPEN"
+
+
+def test_zoom_in_posts_plus_keys_to_active_chart(fake_pywin32, monkeypatch):
+    win32gui, _, _ = fake_pywin32
+    _wire_mt5_window_with_charts(win32gui, {2500: "[USDJPY,M15]"}, active_hwnd=2500)
+
+    import importlib
+    chart_mod = importlib.import_module("mt5_cli.chart.chart")
+    monkeypatch.setattr(chart_mod.time, "sleep", lambda *_args, **_kwargs: None)
+
+    env = chart_mod.zoom("in", steps=2, settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["hwnd"] == 2500
+    assert env["data"]["direction"] == "in"
+    assert env["data"]["verified"] is False
+
+    keydowns = [
+        call for call in win32gui.PostMessage.call_args_list
+        if call.args[0] == 2500 and call.args[1] == chart_mod.WM_KEYDOWN
+    ]
+    keyups = [
+        call for call in win32gui.PostMessage.call_args_list
+        if call.args[0] == 2500 and call.args[1] == chart_mod.WM_KEYUP
+    ]
+    assert [call.args[2] for call in keydowns] == [chart_mod.VK_ADD, chart_mod.VK_ADD]
+    assert [call.args[2] for call in keyups] == [chart_mod.VK_ADD, chart_mod.VK_ADD]
+
+
+def test_zoom_out_targets_requested_chart_id(fake_pywin32, monkeypatch):
+    win32gui, _, _ = fake_pywin32
+    _wire_mt5_window_with_charts(
+        win32gui,
+        {2500: "[USDJPY,M15]", 2600: "[EURUSD,H1]"},
+        active_hwnd=2500,
+    )
+
+    import importlib
+    chart_mod = importlib.import_module("mt5_cli.chart.chart")
+    monkeypatch.setattr(chart_mod.time, "sleep", lambda *_args, **_kwargs: None)
+
+    env = chart_mod.zoom("out", steps=1, chart_id=2600, settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["hwnd"] == 2600
+
+    keydowns = [
+        call for call in win32gui.PostMessage.call_args_list
+        if call.args[0] == 2600 and call.args[1] == chart_mod.WM_KEYDOWN
+    ]
+    assert [call.args[2] for call in keydowns] == [chart_mod.VK_SUBTRACT]
+
+
+def test_set_zoom_posts_reset_then_level_keys(fake_pywin32, monkeypatch):
+    win32gui, _, _ = fake_pywin32
+    _wire_mt5_window_with_charts(win32gui, {2500: "[USDJPY,M15]"}, active_hwnd=2500)
+
+    import importlib
+    chart_mod = importlib.import_module("mt5_cli.chart.chart")
+    monkeypatch.setattr(chart_mod.time, "sleep", lambda *_args, **_kwargs: None)
+
+    env = chart_mod.set_zoom(3, settle_seconds=0)
+    assert env["ok"] is True
+    assert env["data"]["requested_level"] == 3
+    assert env["data"]["reset_steps"] == 6
+    assert env["data"]["in_steps"] == 3
+    assert env["data"]["verified"] is False
+
+    keydowns = [
+        call for call in win32gui.PostMessage.call_args_list
+        if call.args[0] == 2500 and call.args[1] == chart_mod.WM_KEYDOWN
+    ]
+    assert [call.args[2] for call in keydowns] == (
+        [chart_mod.VK_SUBTRACT] * 6 + [chart_mod.VK_ADD] * 3
+    )
+
+
+@pytest.mark.parametrize("level", [-1, 6])
+def test_set_zoom_rejects_out_of_range(fake_pywin32, level):
+    from mt5_cli.chart import set_zoom
+    env = set_zoom(level)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "CHART_INVALID_ZOOM"
 
 
 # ---------------------------------------------------------------------------

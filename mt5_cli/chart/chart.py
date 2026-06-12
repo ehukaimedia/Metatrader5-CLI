@@ -19,6 +19,8 @@ Public surface (re-exported from `mt5_cli.chart.__init__`):
 - current_title(window_substring="MT5", chart_id=None) -> envelope
 - activate_chart(hwnd, parent_hwnd=None, settle_seconds=0.1) -> bool
 - switch_tf(tf, window_substring="MT5", settle_seconds=0.5, chart_id=None) -> envelope
+- zoom(direction="in", steps=1, window_substring="MT5", chart_id=None) -> envelope
+- set_zoom(level, window_substring="MT5", chart_id=None) -> envelope
 - symbol(symbol_name, ...) -> envelope
 - ensure_chart(symbol_name, timeframe="M15", ...) -> envelope
 """
@@ -62,6 +64,8 @@ WM_CLOSE = 0x0010
 WM_MDIACTIVATE = 0x0222
 WM_MDIGETACTIVE = 0x0229
 VK_RETURN = 0x0D
+VK_ADD = 0x6B
+VK_SUBTRACT = 0x6D
 VK_END = 0x23
 SW_RESTORE = 9
 TB_BUTTONCOUNT = 0x0418
@@ -76,6 +80,10 @@ PROCESS_VM_WRITE = 0x0020
 MEM_COMMIT = 0x1000
 MEM_RELEASE = 0x8000
 PAGE_READWRITE = 0x04
+ZOOM_MAX_STEPS = 20
+ZOOM_LEVEL_MIN = 0
+ZOOM_LEVEL_MAX = 5
+ZOOM_RESET_STEPS = ZOOM_LEVEL_MAX + 1
 
 
 @dataclass(frozen=True)
@@ -624,8 +632,159 @@ def _send_text(hwnd: int, text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# switch_tf / symbol / ensure_chart (top-level primitives)
+# zoom / switch_tf / symbol / ensure_chart (top-level primitives)
 # ---------------------------------------------------------------------------
+
+
+def _resolve_zoom_target(
+    window_substring: str,
+    chart_id: int | None,
+) -> tuple[WindowMatch | None, ChartWindow | None, dict | None]:
+    match = find_window(window_substring)
+    if not match:
+        return None, None, fail(
+            "CHART_WINDOW_NOT_FOUND",
+            f"No MT5 window matched '{window_substring}'.",
+        )
+
+    try:
+        target_chart = _active_or_first_chart(match.hwnd, chart_id=chart_id)
+        detected_charts = [] if target_chart else enumerate_chart_children(match.hwnd)
+    except Exception as exc:  # noqa: BLE001
+        return match, None, fail(
+            "CHART_WINDOW_NOT_FOUND",
+            f"Could not enumerate chart children: {exc!r}",
+        )
+
+    if chart_id is not None and target_chart is None:
+        return match, None, fail(
+            "CHART_ID_NOT_FOUND",
+            f"No MT5 child chart matched hwnd {chart_id}. Detected charts: "
+            f"{_format_detected_charts(detected_charts)}",
+        )
+    if target_chart is None:
+        return match, None, fail(
+            "CHART_NO_CHARTS_OPEN",
+            "No MT5 chart windows are open. Open or activate a chart before zooming.",
+        )
+
+    activate_chart(target_chart.hwnd, match.hwnd, settle_seconds=0)
+    return match, target_chart, None
+
+
+def _validate_zoom_steps(steps: int) -> int:
+    try:
+        count = int(steps)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("steps must be an integer.") from exc
+    if count < 1 or count > ZOOM_MAX_STEPS:
+        raise ValueError(f"steps must be in 1..{ZOOM_MAX_STEPS}.")
+    return count
+
+
+def _validate_zoom_level(level: int) -> int:
+    try:
+        requested_level = int(level)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("level must be an integer.") from exc
+    if requested_level < ZOOM_LEVEL_MIN or requested_level > ZOOM_LEVEL_MAX:
+        raise ValueError(f"level must be in {ZOOM_LEVEL_MIN}..{ZOOM_LEVEL_MAX}.")
+    return requested_level
+
+
+def _post_zoom_keys(hwnd: int, direction: str, steps: int) -> None:
+    vk = VK_ADD if direction == "in" else VK_SUBTRACT
+    for _ in range(steps):
+        _press_key(hwnd, vk)
+
+
+def zoom(
+    direction: str = "in",
+    steps: int = 1,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.2,
+    chart_id: int | None = None,
+) -> dict:
+    """Zoom the active or requested MT5 chart in/out through keyboard shortcuts.
+
+    MT5 does not expose chart zoom readback through this Win32 path, so the
+    envelope reports the action requested and the chart targeted, not a verified
+    final scale.
+    """
+    normalized_direction = str(direction).lower()
+    if normalized_direction not in {"in", "out"}:
+        return fail(
+            "CHART_INVALID_ZOOM",
+            f"direction must be 'in' or 'out', got {direction!r}.",
+        )
+    try:
+        count = _validate_zoom_steps(steps)
+    except ValueError as exc:
+        return fail("CHART_INVALID_ZOOM", str(exc))
+
+    match, target_chart, error = _resolve_zoom_target(window_substring, chart_id)
+    if error is not None:
+        return error
+    assert match is not None
+    assert target_chart is not None
+
+    _post_zoom_keys(target_chart.hwnd, normalized_direction, count)
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+
+    return ok({
+        "direction": normalized_direction,
+        "steps": count,
+        "hwnd": target_chart.hwnd,
+        "chart_id": target_chart.hwnd,
+        "parent_hwnd": match.hwnd,
+        "title": target_chart.title,
+        "method": "keyboard",
+        "verified": False,
+    })
+
+
+def set_zoom(
+    level: int,
+    window_substring: str = "MT5",
+    settle_seconds: float = 0.2,
+    chart_id: int | None = None,
+) -> dict:
+    """Request a deterministic MT5 chart zoom level in the platform's 0..5 range.
+
+    The implementation floors the chart scale by sending enough zoom-out
+    keypresses, then sends `level` zoom-in keypresses. Like zoom(), this reports
+    the requested action without claiming readback verification.
+    """
+    try:
+        requested_level = _validate_zoom_level(level)
+    except ValueError as exc:
+        return fail("CHART_INVALID_ZOOM", str(exc))
+
+    match, target_chart, error = _resolve_zoom_target(window_substring, chart_id)
+    if error is not None:
+        return error
+    assert match is not None
+    assert target_chart is not None
+
+    _post_zoom_keys(target_chart.hwnd, "out", ZOOM_RESET_STEPS)
+    if requested_level:
+        _post_zoom_keys(target_chart.hwnd, "in", requested_level)
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+
+    return ok({
+        "requested_level": requested_level,
+        "reset_direction": "out",
+        "reset_steps": ZOOM_RESET_STEPS,
+        "in_steps": requested_level,
+        "hwnd": target_chart.hwnd,
+        "chart_id": target_chart.hwnd,
+        "parent_hwnd": match.hwnd,
+        "title": target_chart.title,
+        "method": "keyboard-reset-then-in",
+        "verified": False,
+    })
 
 
 def switch_tf(

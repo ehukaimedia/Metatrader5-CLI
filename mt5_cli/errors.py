@@ -60,6 +60,7 @@ ERROR_CODES: dict[str, str] = {
     "CHART_VERIFY_FAILED": "A chart action could not be verified.",
     "CHART_SYMBOL_VERIFY_FAILED": "The chart symbol change could not be verified.",
     "CHART_TIMEFRAME_VERIFY_FAILED": "The chart timeframe change could not be verified.",
+    "CHART_INVALID_ZOOM": "Invalid chart zoom direction, step count, or level.",
     # --- Navigator tree (EA attach) ---
     "NAV_TREE_NOT_FOUND": "The Navigator panel/tree was not found (open View > Navigator).",
     "NAV_EA_NOT_FOUND": "The EA was not found in the Navigator tree.",

@@ -1014,6 +1014,50 @@ def test_chart_cycle_threads_direction(runner, monkeypatch):
     assert captured["kwargs"]["direction"] == "prev"
 
 
+def test_chart_zoom_in_threads_steps_and_target(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod, "_chart_zoom",
+          {"ok": True, "data": {"steps": 2}}, captured)
+    cli_runner.invoke(
+        main,
+        [
+            "--json", "chart", "zoom", "in",
+            "--steps", "2",
+            "--chart-id", "2500",
+            "--substring", "Trading.com",
+        ],
+    )
+    assert captured["args"] == ("in",)
+    assert captured["kwargs"]["steps"] == 2
+    assert captured["kwargs"]["chart_id"] == 2500
+    assert captured["kwargs"]["window_substring"] == "Trading.com"
+
+
+def test_chart_zoom_out_threads_steps(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod, "_chart_zoom",
+          {"ok": True, "data": {"steps": 3}}, captured)
+    cli_runner.invoke(main, ["--json", "chart", "zoom", "out", "--steps", "3"])
+    assert captured["args"] == ("out",)
+    assert captured["kwargs"]["steps"] == 3
+
+
+def test_chart_zoom_set_threads_level(runner, monkeypatch):
+    cli_runner, main, mp = runner
+    import mt5.cli as cli_mod
+    captured = {}
+    _stub(mp, cli_mod, "_chart_set_zoom",
+          {"ok": True, "data": {"requested_level": 4}}, captured)
+    cli_runner.invoke(main, ["--json", "chart", "zoom", "set", "4",
+                             "--chart-id", "2600"])
+    assert captured["args"] == (4,)
+    assert captured["kwargs"]["chart_id"] == 2600
+
+
 def test_chart_close_passes_chart_id(runner, monkeypatch):
     cli_runner, main, mp = runner
     import mt5.cli as cli_mod

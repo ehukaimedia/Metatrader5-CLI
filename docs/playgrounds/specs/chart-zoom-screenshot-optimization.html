@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chart Zoom Screenshot Optimization</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #191d24;
+      --panel-2: #212733;
+      --ink: #eef2f8;
+      --muted: #a8b3c4;
+      --line: #344052;
+      --green: #56c28b;
+      --blue: #6da8ff;
+      --amber: #f0ba5f;
+      --red: #ff7c7c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 30px 18px 42px;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(2rem, 5vw, 3.8rem); line-height: 1.02; }
+    h2 { font-size: 1.25rem; margin-bottom: 12px; }
+    h3 { font-size: 1rem; margin-bottom: 6px; }
+    code, pre, textarea { font-family: Consolas, "Courier New", monospace; }
+    pre, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0d1016;
+      color: var(--ink);
+    }
+    pre { overflow: auto; padding: 14px; }
+    textarea { min-height: 116px; padding: 12px; resize: vertical; }
+    .eyebrow {
+      color: var(--green);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .lede {
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 1.02rem;
+      margin-top: 10px;
+    }
+    .band {
+      margin-top: 18px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .intent { border-left: 5px solid var(--green); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .tile {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+    }
+    .anchor {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-family: Consolas, "Courier New", monospace;
+    }
+    label {
+      display: block;
+      margin: 10px 0 4px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    select, input, button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #10151f;
+      color: var(--ink);
+      padding: 8px 10px;
+      font: inherit;
+    }
+    input, select { width: 100%; }
+    button {
+      cursor: pointer;
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #08111f;
+      font-weight: 700;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .step {
+      min-height: 92px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #121821;
+    }
+    .step strong { color: var(--green); }
+    .warn { color: var(--amber); }
+    ul { margin: 0; padding-left: 19px; }
+    li { margin: 4px 0; }
+    @media (max-width: 780px) {
+      .grid, .flow { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<!-- INTENT: Freeze the contract for chart zoom as a screenshot-preparation primitive.
+     Anti-pattern prevented: pretending MT5's Save As Picture dialog controls the
+     current mss-based screenshot command, or reporting an unverified chart scale
+     as if it had been read back from MT5. -->
+<main>
+  <header>
+    <div class="eyebrow">Spec playground - implemented 2026-06-12</div>
+    <h1>Chart Zoom Screenshot Optimization</h1>
+    <p class="lede">
+      Add chart zoom to the CLI so agents can change visible candle density before
+      capturing the MT5 window. Screenshot capture stays pixel-based; MT5's Save As
+      Picture dialog is a separate exporter, not part of this slice.
+    </p>
+  </header>
+
+  <section class="band intent">
+    <h2>Intent</h2>
+    <p>
+      <strong>Decision this informs:</strong> expose zoom as low-level chart UI control
+      under <code>mt5 chart zoom</code>, then compose it with <code>mt5 screenshot take</code>.
+    </p>
+    <p class="lede">
+      <strong>Anti-pattern this prevents:</strong> tying screenshot behavior to MT5's
+      built-in Save As Picture dialog while the current implementation captures visible
+      pixels through <code>mss</code>.
+    </p>
+    <span class="anchor">mt5_cli/screenshot/screenshot.py:132-205 - mss capture path</span>
+  </section>
+
+  <section class="band">
+    <h2>Source Anchors</h2>
+    <div class="grid">
+      <div class="tile">
+        <h3>Chart command surface</h3>
+        <p><code>mt5/cli.py:989-1140</code> owns chart CLI routing. It should stay a thin wrapper.</p>
+      </div>
+      <div class="tile">
+        <h3>Chart UI library</h3>
+        <p><code>mt5_cli/chart/chart.py:619-783</code> resolves chart targets and sends keyboard/UI actions.</p>
+      </div>
+      <div class="tile">
+        <h3>Exported primitives</h3>
+        <p><code>mt5_cli/chart/__init__.py:24-29</code> is the agent-facing chart surface and must list zoom.</p>
+      </div>
+      <div class="tile">
+        <h3>Screenshot capture</h3>
+        <p><code>mt5_cli/screenshot/screenshot.py:132-205</code> captures a matched window or monitor, not chart data.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Command Explorer</h2>
+    <div class="grid">
+      <div class="tile">
+        <label for="mode">Zoom mode</label>
+        <select id="mode">
+          <option value="set">Set deterministic level</option>
+          <option value="in">Zoom in by steps</option>
+          <option value="out">Zoom out by steps</option>
+        </select>
+        <label for="value">Level or steps</label>
+        <input id="value" type="number" min="0" max="20" value="3">
+        <label for="chart">Chart id (optional)</label>
+        <input id="chart" placeholder="2500">
+        <label for="substring">Window substring</label>
+        <input id="substring" value="MT5">
+      </div>
+      <div class="tile">
+        <h3>Generated command</h3>
+        <pre id="command"></pre>
+        <h3>Prompt output</h3>
+        <textarea id="prompt" readonly></textarea>
+        <p style="margin-top:10px"><button id="copy">Copy prompt</button></p>
+        <p id="copied" class="lede" style="font-size:0.85rem"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Flow</h2>
+    <div class="flow">
+      <div class="step"><strong>1. Locate</strong><br>Find MT5 by title/class and resolve active or requested MDI child chart.</div>
+      <div class="step"><strong>2. Activate</strong><br>Bring that child chart to focus without changing the user's MDI layout.</div>
+      <div class="step"><strong>3. Send keys</strong><br><code>VK_ADD</code> zooms in; <code>VK_SUBTRACT</code> zooms out.</div>
+      <div class="step"><strong>4. Capture</strong><br>Call <code>mt5 screenshot take</code> after the chart scale is prepared.</div>
+    </div>
+    <p class="lede warn">
+      The envelope reports the requested action and target chart. It does not claim
+      verified scale readback because this Win32 path does not read MT5
+      <code>CHART_SCALE</code>.
+    </p>
+  </section>
+
+  <section class="band">
+    <h2>Spec Seed</h2>
+    <div class="grid">
+      <div class="tile">
+        <h3>Public interfaces</h3>
+        <ul>
+          <li><code>zoom(direction, steps, chart_id=None)</code></li>
+          <li><code>set_zoom(level, chart_id=None)</code></li>
+          <li><code>mt5 chart zoom in|out --steps N</code></li>
+          <li><code>mt5 chart zoom set LEVEL</code></li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Error paths</h3>
+        <ul>
+          <li><code>CHART_INVALID_ZOOM</code> for bad direction, steps, or level</li>
+          <li><code>CHART_WINDOW_NOT_FOUND</code> when MT5 is absent</li>
+          <li><code>CHART_ID_NOT_FOUND</code> for stale/foreign chart ids</li>
+          <li><code>CHART_NO_CHARTS_OPEN</code> when there is no chart child to target</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+  (function () {
+    var mode = document.getElementById('mode');
+    var value = document.getElementById('value');
+    var chart = document.getElementById('chart');
+    var substring = document.getElementById('substring');
+    var command = document.getElementById('command');
+    var prompt = document.getElementById('prompt');
+    var copy = document.getElementById('copy');
+    var copied = document.getElementById('copied');
+
+    function build() {
+      var m = mode.value;
+      var v = value.value || (m === 'set' ? '3' : '1');
+      var parts = ['mt5 --json chart zoom', m === 'set' ? 'set ' + v : m + ' --steps ' + v];
+      if (chart.value.trim()) parts.push('--chart-id ' + chart.value.trim());
+      if (substring.value.trim() && substring.value.trim() !== 'MT5') {
+        parts.push('--substring "' + substring.value.trim() + '"');
+      }
+      var cmd = parts.join(' ');
+      command.textContent = cmd + '\nmt5 --json screenshot take --window "' + (substring.value.trim() || 'MT5') + '"';
+      prompt.value = 'Prepare an MT5 chart screenshot by running `' + cmd + '`, then capture the visible terminal with `mt5 --json screenshot take`. Treat the zoom envelope as an action report, not verified MT5 scale readback.';
+    }
+
+    [mode, value, chart, substring].forEach(function (el) {
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+    copy.addEventListener('click', function () {
+      prompt.select();
+      document.execCommand('copy');
+      copied.textContent = 'Copied.';
+      setTimeout(function () { copied.textContent = ''; }, 1200);
+    });
+    build();
+  })();
+</script>
+</body>
+</html>

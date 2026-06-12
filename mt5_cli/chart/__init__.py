@@ -24,6 +24,7 @@ state programmatically:
   Opening    new_chart(symbol, timeframe=...)
   Closing    close_chart(chart_id)
   Cycling    cycle_chart(direction='next'|'prev')
+  Zoom       zoom(direction='in'|'out') / set_zoom(level=0..5)
   TF/symbol  switch_tf(tf, chart_id=...) / symbol(name, chart_id=...)
   Ensure     ensure_chart(symbol, timeframe=...) — additive (opens new
              when missing; preserves existing charts)
@@ -50,9 +51,11 @@ from .chart import (
     list_charts,
     normalize_timeframe,
     parse_chart_title,
+    set_zoom,
     switch_tf,
     symbol,
     title_has_symbol_tf,
+    zoom,
 )
 from .indicators_attach import attach
 from .new_chart import new_chart
@@ -71,9 +74,11 @@ __all__ = [
     "list_charts",
     "normalize_timeframe",
     "parse_chart_title",
+    "set_zoom",
     "switch_tf",
     "symbol",
     "title_has_symbol_tf",
+    "zoom",
     # GUI menu-poke primitives
     "attach",       # Insert > Indicators > Custom > <name>
     "attach_ea",    # Insert > Experts > <name>

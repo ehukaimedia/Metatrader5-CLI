@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `build_ea_ini(execution_mode=...)` and `tester.ea.single(delay_ms=...)` thread
   the order-execution delay through the INI layer; new `mt5_cli.tester.stress`
   module owns delay parsing, ladder normalization, and scoring.
+- `mt5 chart zoom in|out|set` controls MT5 chart zoom through Win32 keyboard
+  input so agents can tune chart density before `mt5 screenshot take`.
 - Proposed the alert-seeded trading decision architecture, including permission
   modes for notification-only, ask-before-trade, and dry-run flows.
 
