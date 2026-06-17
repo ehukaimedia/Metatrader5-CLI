@@ -1,14 +1,17 @@
 """Parse MT5 Strategy Tester output artifacts.
 
 The Strategy Tester writes report, journal, and optimization artifacts to disk.
-This module keeps parsing hermetic and stdlib-only; it does not import the
-MT5 Python bridge.
+This module keeps parsing hermetic and bridge-free (it does not import the MT5
+Python SDK); the optimization XML is parsed through defusedxml to block XXE and
+entity-expansion attacks.
 """
 from __future__ import annotations
 
 import csv
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # Element type only; parsing goes through defusedxml
+
+from defusedxml.ElementTree import parse as _safe_xml_parse
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -282,11 +285,64 @@ def parse_journal(path: Path | str) -> list[dict[str, Any]]:
     return events
 
 
+#: MT5 optimization reports are SpreadsheetML (Excel XML); this is its namespace.
+_SS = "{urn:schemas-microsoft-com:office:spreadsheet}"
+
+
+def _spreadsheet_row_values(row: ET.Element) -> list[str]:
+    """Positional cell text of a SpreadsheetML <Row>, honoring ss:Index gaps."""
+    values: list[str] = []
+    col = 0
+    for cell in row.findall(f"{_SS}Cell"):
+        idx = cell.get(f"{_SS}Index")
+        if idx is not None:
+            try:
+                col = int(idx) - 1
+            except ValueError:
+                pass
+        while len(values) < col:
+            values.append("")
+        data = cell.find(f"{_SS}Data")
+        values.append(data.text if (data is not None and data.text is not None) else "")
+        col += 1
+    return values
+
+
 def parse_optimization_xml(path: Path | str) -> list[dict[str, Any]]:
-    root = ET.parse(Path(path)).getroot()
-    passes: list[dict[str, Any]] = []
+    """Parse an MT5 optimization report into one dict per pass.
+
+    Modern MT5 writes a SpreadsheetML (Excel XML) workbook: a header row of
+    column names (e.g. ``Profit Factor``, ``Sharpe Ratio``, ``Trades``,
+    ``Profit``) followed by one row per pass, with the EA input parameters as
+    trailing columns. Falls back to a flat ``<pass>``-element shape for older or
+    hand-authored reports.
+    """
+    # defusedxml blocks XXE / entity-expansion ("billion laughs"); the report is a
+    # local MT5 artifact, but this is a public API that may be handed any path.
+    root = _safe_xml_parse(str(Path(path))).getroot()
+    table = root.find(f".//{_SS}Worksheet/{_SS}Table")
+    if table is not None:
+        rows = table.findall(f"{_SS}Row")
+        if len(rows) < 2:
+            return []
+        header = _spreadsheet_row_values(rows[0])
+        passes: list[dict[str, Any]] = []
+        for row in rows[1:]:
+            cells = _spreadsheet_row_values(row)
+            entry: dict[str, Any] = {}
+            for i, name in enumerate(header):
+                if not name:
+                    continue
+                raw = cells[i] if i < len(cells) else ""
+                entry[name] = _cast_scalar(raw) if raw != "" else None
+            if any(v is not None for v in entry.values()):  # skip blank trailing rows
+                passes.append(entry)
+        return passes
+
+    # Legacy / hand-authored <pass>-element shape.
+    passes = []
     for pass_node in root.findall("pass"):
-        entry: dict[str, Any] = {}
+        entry = {}
         for child in pass_node:
             entry[child.tag] = _cast_scalar(child.text or "")
         passes.append(entry)

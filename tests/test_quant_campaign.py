@@ -12,8 +12,8 @@ def _fake_opt(tmp_path):
             "run_id": "opt_run",
             "run_dir": str(tmp_path / "opt"),
             "optimization": [
-                {"FastPeriod": "9", "ProfitFactor": 1.2, "Trades": 400, "Sharpe": 0.9, "Profit": 200},
-                {"FastPeriod": "12", "ProfitFactor": 1.8, "Trades": 500, "Sharpe": 1.3, "Profit": 700},
+                {"FastPeriod": "9", "Profit Factor": 1.2, "Trades": 400, "Sharpe Ratio": 0.9, "Profit": 200},
+                {"FastPeriod": "12", "Profit Factor": 1.8, "Trades": 500, "Sharpe Ratio": 1.3, "Profit": 700},
             ],
         }}
     fake_optimize.calls = []
@@ -109,7 +109,7 @@ def test_optimize_failure_rejects_cell_not_campaign(monkeypatch, tmp_path):
 def test_no_winner_when_no_pass_clears_min_pf(monkeypatch, tmp_path):
     def fake_optimize(**kw):
         return {"ok": True, "data": {"run_dir": str(tmp_path / "opt"),
-                "optimization": [{"FastPeriod": "9", "ProfitFactor": 0.6, "Trades": 100}]}}
+                "optimization": [{"FastPeriod": "9", "Profit Factor": 0.6, "Trades": 100}]}}
     monkeypatch.setattr(campaign.ea, "optimize", fake_optimize)
     monkeypatch.setattr(campaign.ea, "single", lambda **k: {"ok": True, "data": {}})
     env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
@@ -117,9 +117,9 @@ def test_no_winner_when_no_pass_clears_min_pf(monkeypatch, tmp_path):
                        params=["FastPeriod=9,5,1,21"], min_pf=1.0, results_root=tmp_path)
     assert env["data"]["rejected"][0]["reason"] == "NO_WINNER"
     # all-NO_WINNER campaigns carry a diagnostic hint (loud, not silent), persisted
-    assert "hint" in env["data"] and "Task 0" in env["data"]["hint"]
+    assert "hint" in env["data"] and "profit-factor gate" in env["data"]["hint"]
     reloaded = store.get_campaign(env["data"]["campaign_id"], root=tmp_path)
-    assert "Task 0" in reloaded["data"]["hint"]
+    assert "profit-factor gate" in reloaded["data"]["hint"]
 
 
 def test_hint_absent_when_rejects_are_not_all_no_winner(monkeypatch, tmp_path):

@@ -6,13 +6,13 @@ Owner: metatrader5-cli maintainers
 Related playground: [Quant Workflow](../playgrounds/specs/quant-workflow.html)
 Related plan: [Quant Workflow Implementation Plan](../plans/quant-workflow-plan.md)
 
-> Implementation note: shipped v1 is explicit two-pass (the chosen default). The
-> passes parser's `Profit` / `ProfitFactor` / `Trades` column tags match the
-> repo's canonical `tests/fixtures/sample_optimization.xml` and are tested
-> against it; only `_SHARPE` is provisional (that fixture has no Sharpe column).
-> The one remaining gate (Task 0) is confirming real MT5 emits this
-> `<pass>`-with-children shape at all — if it differs, adjust the column
-> constants in `mt5_cli/quant/passes.py`.
+> Implementation note: shipped v1 is explicit two-pass (the chosen default).
+> **Task 0 is closed** — dog-fooding a live optimization confirmed MT5 writes a
+> SpreadsheetML report (`Workbook/Worksheet/Table/Row/Cell`), so
+> `results.parse_optimization_xml` parses that shape (via `defusedxml`) and
+> `passes.py` reads the real column headers `Profit Factor`, `Sharpe Ratio`,
+> `Trades`, `Profit`. `tests/fixtures/sample_optimization.xml` is a trimmed real
+> capture; the parsed-passes path was validated live (0 → 20 passes).
 
 ## Purpose
 
@@ -115,7 +115,8 @@ two concepts are split:
 - Stats source: `mt5_cli/tester/results.py:184-256` — `parse_html_report()`
   yields `net_profit`, `profit_factor`, `max_drawdown_pct`, `total_trades`,
   `win_rate`, `sharpe`, `expectancy`, `equity_curve`. Optimization passes:
-  `results.py:285` (`parse_optimization_xml`, a flat `<pass>` reader).
+  `results.py:285` (`parse_optimization_xml`, parses MT5 SpreadsheetML via
+  `defusedxml` — confirmed by dog-fooding).
 - Bridge isolation: `mt5_cli/tester/__init__.py:15-17` — the tester package must
   not import MetaTrader5; `quant` inherits this (import-boundary test).
 - Run cache: `mt5_cli/tester/cache.py:17-63`.
@@ -179,9 +180,9 @@ drives the tester through the filesystem only (import-boundary test).
    grammar). Rejects via one shared gate: `EMPTY_MATRIX`, `INVALID_SPLIT`,
    `INVALID_PARAM`.
 2. `passes.py` — pure: read the in-sample `optimization.xml` into one record per
-   pass carrying its **input parameters** and **in-sample metrics** (wraps
-   `results.parse_optimization_xml`, which is column-blind today). No forward
-   join in v1.
+   pass carrying its **input parameters** and **in-sample metrics** (via
+   `results.parse_optimization_xml`, which parses MT5's SpreadsheetML report).
+   No forward join in v1.
 3. `selection.py` — pure: `pick_winner(passes, *, min_pf)` returns the in-sample
    pass clearing `min_pf` with the best in-sample selector (default IS
    `profit_factor`); `gate_and_rank(cells, selection)` applies the FULL-trades
@@ -234,8 +235,8 @@ terminals):
 - **`--per-asset`** (default 2, clamped to ≥ 1): keep the top N per asset.
   Survivors beyond the cap are surfaced in `data.capped` (they passed the gates,
   just trimmed) rather than dropped. When every cell is `NO_WINNER`, `data.hint`
-  flags the likely cause (optimization column-name mismatch — see Task 0 — or a
-  too-strict `--min-pf`).
+  flags the likely cause (a too-strict `--min-pf`, or the EA's passes don't clear
+  it).
 
 ### Reject reasons vs error codes
 
@@ -452,19 +453,19 @@ Register in `mt5_cli/errors.py` (test-enforced):
 `NO_WINNER`, `MIN_TRADES`, `CELL_FAILED` are per-cell **reject reasons**, not root
 error codes.
 
-## Implementation risks (fixtures required before build)
+## Implementation risks (status)
 
-Close these against real MT5 artifacts before code is frozen:
-
-1. **Optimization input columns (hard).** `pick_winner` writes the winner's `.set`
-   from the optimization report's input-parameter columns, and `min_pf`/IS metrics
-   read from the same rows. Commit a real `optimization.xml` fixture proving the
-   input columns and the in-sample metrics (`profit_factor` at minimum) are
-   present and map to `render_set` names. If in-sample metrics are absent, add a
-   fallback explicit IS `single()` (a 4th launch) — decide in the plan.
+1. **Optimization report shape — CLOSED (dog-fooded).** A live optimization
+   confirmed MT5 writes a **SpreadsheetML** report whose columns include
+   `Profit Factor`, `Sharpe Ratio`, `Trades`, `Profit`, and the EA input
+   parameters. `results.parse_optimization_xml` parses that shape (via
+   `defusedxml`) and `pick_winner` reconstructs the winner `.set` from the
+   parameter columns. `tests/fixtures/sample_optimization.xml` is a trimmed real
+   capture, and the parsed-passes path was validated live (0 → 20 passes).
+   In-sample `profit_factor` is present, so the IS-`single` fallback is not needed.
 2. **Deferred-hybrid artifacts.** The `.forward` shape, back↔forward join key, and
-   partial-forward coverage are *not* a v1 risk (two-pass does not use them) — they
-   gate the deferred hybrid only.
+   partial-forward coverage remain unverified — they gate the deferred hybrid
+   only, not v1.
 
 ## Acceptance Tests
 

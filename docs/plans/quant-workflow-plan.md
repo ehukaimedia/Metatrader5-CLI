@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Implemented — PR #10 (under review). Built in 5 codex-gated checkpoints; full suite green. Task 0 (capture a real MT5 `optimization.xml`) remains the open operator gate; v1 is unit-tested against a synthetic, clearly-labeled fixture.
+**Status:** Implemented — PR #10 (under review). Built in 5 codex-gated checkpoints; full suite green. **Task 0 is CLOSED**: dog-fooding a live optimization confirmed MT5 emits a **SpreadsheetML** report (not the `<pass>`-children shape assumed below), so `parse_optimization_xml` + `tests/fixtures/sample_optimization.xml` were rewritten to match it and validated live (0 → 20 passes). The detailed Task-0 / passes steps below **predate the dogfood and are superseded** by the spec and the shipped code — keep the spec as the source of truth.
 
 **Goal:** Ship `mt5 quant` — a campaign that drives the native MT5 Strategy Tester across a symbol × timeframe matrix with explicit two-pass IS/OOS validation, configurable selection gates, ranked survivors, a `quant.v1` envelope, a dependency-free HTML report, and a static agent playbook.
 
@@ -62,6 +62,12 @@ The envelope is `quant.v1` exactly as in the spec's *Envelope* section.
 ---
 
 ## Task 0: Discharge the optimization-XML assumption (milestone 1)
+
+> **SUPERSEDED — do not follow the steps below.** Dog-fooding closed this gate:
+> real MT5 emits a **SpreadsheetML** report (not the `<pass>`-children shape these
+> steps assume), parsed by `results.parse_optimization_xml`; the real fixture is
+> `tests/fixtures/sample_optimization.xml`. The spec and shipped code are
+> authoritative; this section is kept only as a historical record.
 
 The whole feature rests on the optimization report exposing each pass's **input
 parameter columns** and **in-sample profit factor**. Prove it against a real MT5

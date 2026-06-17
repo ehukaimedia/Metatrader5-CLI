@@ -719,9 +719,10 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
       Scope &amp; placement: tool-true orchestration only, top-level <code>mt5 quant</code>
       group, explicit two-pass validation (hybrid deferred behind fixtures), and a quant
       agent playbook (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>) so an AI agent can operate
-      the loop as a quant. <strong>Open gate:</strong> the real MT5
-      <code>optimization.xml</code> capture (Task 0) &mdash; the passes parser uses provisional
-      column tag-names unit-tested against a synthetic fixture; confirm and adjust on real data.
+      the loop as a quant. <strong>Task 0 closed (dog-fooded):</strong> a live optimization
+      confirmed MT5 writes a SpreadsheetML report; <code>parse_optimization_xml</code> parses it
+      (via <code>defusedxml</code>) and the passes layer reads the real headers (Profit Factor,
+      Sharpe Ratio, Trades, Profit), validated against <code>tests/fixtures/sample_optimization.xml</code>.
     </p>
   </section>
 </main>

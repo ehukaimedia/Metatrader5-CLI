@@ -45,6 +45,9 @@ dependencies = [
     "Pillow>=10.0.0",
     "pygetwindow>=0.0.9",
     "pywin32>=306; platform_system == 'Windows'",
+    # tiny, pure-Python security shim for parsing MT5's optimization-report XML
+    # (XXE / entity-expansion hardening) — not part of the no-analytics-stack rule.
+    "defusedxml>=0.7",
 ]
 
 [project.optional-dependencies]

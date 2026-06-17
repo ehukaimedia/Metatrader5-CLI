@@ -1,18 +1,18 @@
 """Project a native in-sample optimization report into per-pass records.
 
-``results.parse_optimization_xml`` yields each ``<pass>``'s child tags as a flat
-dict (tag -> scalar). This module projects the columns the feature needs: the EA
-input parameters (by name) and the in-sample metrics. Pure / stdlib-only.
+``results.parse_optimization_xml`` yields one dict per optimization pass (from
+MT5's SpreadsheetML report — column header -> value). This module projects the
+columns the feature needs: the EA input parameters (by name) and the in-sample
+metrics. Pure / stdlib-only.
 
-Column tag names
-----------------
-``ProfitFactor``, ``Trades``, and ``Profit`` match the repo's canonical
-``tests/fixtures/sample_optimization.xml`` and the shape
-``results.parse_optimization_xml`` reads. ``Sharpe`` is provisional — the
-canonical fixture has no Sharpe column and real MT5 may name it differently, so
-in-sample sharpe is ``None`` until confirmed. The real report shape is verified
-in plan Task 0; if tag names differ, adjust the four constants below — the
-projection/selection logic is unchanged.
+Column names (verified against real MT5)
+----------------------------------------
+Captured by dog-fooding a live optimization (plan Task 0, now closed): MT5 writes
+a SpreadsheetML report whose pass columns are ``Profit Factor``, ``Sharpe Ratio``,
+``Trades``, ``Profit`` (net), ``Result`` (final balance), plus the EA input
+parameters. These are spreadsheet headers, so they contain spaces.
+``results.parse_optimization_xml`` parses that shape;
+``tests/fixtures/sample_optimization.xml`` is a trimmed real capture.
 """
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ from typing import Any
 
 from mt5_cli.tester import results
 
-#: ProfitFactor/Trades/Profit match tests/fixtures/sample_optimization.xml;
-#: Sharpe is provisional (absent there). Confirm against a real capture (Task 0).
-_PF = "ProfitFactor"
+#: Real MT5 optimization-report column headers (spreadsheet columns -> spaces),
+#: confirmed by a live capture. See tests/fixtures/sample_optimization.xml.
+_PF = "Profit Factor"
 _TRADES = "Trades"
-_SHARPE = "Sharpe"
+_SHARPE = "Sharpe Ratio"
 _NET = "Profit"
 
 

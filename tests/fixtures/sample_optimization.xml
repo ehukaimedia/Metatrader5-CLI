@@ -1,17 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<results>
-  <pass>
-    <Profit>1234.56</Profit>
-    <ProfitFactor>1.42</ProfitFactor>
-    <Trades>412</Trades>
-    <FastPeriod>9</FastPeriod>
-    <SlowPeriod>21</SlowPeriod>
-  </pass>
-  <pass>
-    <Profit>987.65</Profit>
-    <ProfitFactor>1.18</ProfitFactor>
-    <Trades>389</Trades>
-    <FastPeriod>5</FastPeriod>
-    <SlowPeriod>20</SlowPeriod>
-  </pass>
-</results>
+<?mso-application progid="Excel.Sheet"?>
+<!-- Trimmed REAL MT5 optimization report (SpreadsheetML), captured by dog-fooding
+     a genetic optimization of a 2-input EA on EURUSD H1. Header row of column
+     names, then one row per pass; EA inputs are trailing columns. -->
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+          xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Tester Optimizator Results">
+<Table>
+<Row>
+<Cell><Data ss:Type="String">Pass</Data></Cell>
+<Cell><Data ss:Type="String">Result</Data></Cell>
+<Cell><Data ss:Type="String">Profit</Data></Cell>
+<Cell><Data ss:Type="String">Expected Payoff</Data></Cell>
+<Cell><Data ss:Type="String">Profit Factor</Data></Cell>
+<Cell><Data ss:Type="String">Recovery Factor</Data></Cell>
+<Cell><Data ss:Type="String">Sharpe Ratio</Data></Cell>
+<Cell><Data ss:Type="String">Custom</Data></Cell>
+<Cell><Data ss:Type="String">Equity DD %</Data></Cell>
+<Cell><Data ss:Type="String">Trades</Data></Cell>
+<Cell><Data ss:Type="String">FastPeriod</Data></Cell>
+<Cell><Data ss:Type="String">SlowPeriod</Data></Cell>
+</Row>
+<Row>
+<Cell><Data ss:Type="Number">15</Data></Cell>
+<Cell><Data ss:Type="Number">11181.89</Data></Cell>
+<Cell><Data ss:Type="Number">1181.89</Data></Cell>
+<Cell><Data ss:Type="Number">24.120204</Data></Cell>
+<Cell><Data ss:Type="Number">2.817202</Data></Cell>
+<Cell><Data ss:Type="Number">4.116936</Data></Cell>
+<Cell><Data ss:Type="Number">3.971008</Data></Cell>
+<Cell><Data ss:Type="Number">0</Data></Cell>
+<Cell><Data ss:Type="Number">2.5802</Data></Cell>
+<Cell><Data ss:Type="Number">49</Data></Cell>
+<Cell><Data ss:Type="Number">5</Data></Cell>
+<Cell><Data ss:Type="Number">50</Data></Cell>
+</Row>
+<Row>
+<Cell><Data ss:Type="Number">14</Data></Cell>
+<Cell><Data ss:Type="Number">11108.05</Data></Cell>
+<Cell><Data ss:Type="Number">1108.05</Data></Cell>
+<Cell><Data ss:Type="Number">26.382143</Data></Cell>
+<Cell><Data ss:Type="Number">2.836831</Data></Cell>
+<Cell><Data ss:Type="Number">3.316820</Data></Cell>
+<Cell><Data ss:Type="Number">3.645952</Data></Cell>
+<Cell><Data ss:Type="Number">0</Data></Cell>
+<Cell><Data ss:Type="Number">2.9746</Data></Cell>
+<Cell><Data ss:Type="Number">42</Data></Cell>
+<Cell><Data ss:Type="Number">13</Data></Cell>
+<Cell><Data ss:Type="Number">40</Data></Cell>
+</Row>
+</Table>
+</Worksheet>
+</Workbook>

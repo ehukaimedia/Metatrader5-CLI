@@ -8,9 +8,11 @@ FIX = Path(__file__).parent / "fixtures"
 def test_parse_optimization_xml_returns_passes():
     passes = results.parse_optimization_xml(FIX / "sample_optimization.xml")
     assert len(passes) == 2
-    assert passes[0]["Profit"] == 1234.56
-    assert passes[0]["FastPeriod"] == 9
-    assert passes[1]["Trades"] == 389
+    assert passes[0]["Profit"] == 1181.89          # SpreadsheetML "Profit" column
+    assert passes[0]["Profit Factor"] == 2.817202  # spreadsheet headers carry spaces
+    assert passes[0]["Trades"] == 49
+    assert passes[0]["FastPeriod"] == 5             # EA input as a trailing column
+    assert passes[1]["Trades"] == 42
 
 
 def test_assemble_envelope_combines_html_journal_xml():
@@ -37,7 +39,7 @@ def test_assemble_envelope_includes_optimization():
         journal_path=None,
         optimization_path=FIX / "sample_optimization.xml",
     )
-    assert env["data"]["optimization"][0]["FastPeriod"] == 9
+    assert env["data"]["optimization"][0]["FastPeriod"] == 5
 
 
 def test_assemble_tolerates_missing_artifacts(tmp_path):

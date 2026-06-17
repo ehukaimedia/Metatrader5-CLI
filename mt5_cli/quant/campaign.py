@@ -60,7 +60,7 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
     if any(v is None for v in winner["params"].values()):
         return {**base, "reason": "CELL_FAILED",
                 "note": "winning pass is missing optimized parameter columns "
-                        "(confirm the optimization report exposes them; see plan Task 0)",
+                        "(confirm the optimization report includes the requested input columns)",
                 "child_runs": child_runs}
 
     set_path = Path(opt["data"]["run_dir"]) / f"{expert}.{symbol}.{tf}.set"
@@ -152,9 +152,8 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
     }
     if not graded["ranked"] and rejected and all(r.get("reason") == "NO_WINNER" for r in rejected):
         data["hint"] = ("Every cell was NO_WINNER — no optimization pass cleared the in-sample "
-                        "profit-factor gate. If you expected winners, confirm the optimization "
-                        "report's column names match mt5_cli/quant/passes.py (plan Task 0) and/or "
-                        "lower --min-pf.")
+                        "profit-factor gate. Lower --min-pf, widen the parameter grid, or check "
+                        "the EA produces profitable in-sample passes.")
     # Populate artifacts (paths under the actual results_root) BEFORE persisting,
     # so a reloaded manifest carries them. The manifest always exists; the report
     # only when html is on.
