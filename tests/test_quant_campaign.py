@@ -58,12 +58,34 @@ def test_three_launches_per_cell_with_correct_windows(monkeypatch, tmp_path):
     assert winner["symbol"] == "EURUSD"
     assert winner["is"]["profit_factor"] == 1.8        # best in-sample PF, not full_net
     assert winner["validated"] is True
-    # campaign wrote the winner's .set + a manifest + report
-    assert (tmp_path / "opt" / "demo.EURUSD.H1.set").exists()
+    # campaign wrote the winner's .set (distinct from the optimize range set) + manifest + report
+    assert (tmp_path / "opt" / "winner.demo.EURUSD.H1.set").exists()
     assert env["data"]["artifacts"]["manifest"].endswith("manifest.json")
     # artifacts are persisted in the manifest (so `quant show` reloads them)
     reloaded = store.get_campaign(env["data"]["campaign_id"], root=tmp_path)
     assert "artifacts" in reloaded["data"] and reloaded["data"]["artifacts"]["manifest"]
+
+
+def test_winner_set_does_not_clobber_optimize_range_set(monkeypatch, tmp_path):
+    # ea.optimize(params=...) writes the RANGE set at <run_dir>/<expert>.<symbol>.<tf>.set
+    # and that run's tester.ini references it; the campaign must write the winner's FIXED
+    # set to a DISTINCT path so the optimize child artifact stays intact.
+    opt_dir = tmp_path / "opt"
+    opt_dir.mkdir()
+    range_set = opt_dir / "demo.EURUSD.H1.set"
+    range_set.write_text("FastPeriod=9||5||1||21||Y\n", encoding="utf-8")  # range-shaped
+    original = range_set.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], results_root=tmp_path)
+    assert env["ok"] is True
+    assert range_set.read_text(encoding="utf-8") == original  # optimize range set untouched
+    winner_set = opt_dir / "winner.demo.EURUSD.H1.set"
+    assert winner_set.exists()
+    assert env["data"]["ranked"][0]["set_file"].endswith("winner.demo.EURUSD.H1.set")
 
 
 def test_empty_matrix_returns_code_and_no_launch(monkeypatch, tmp_path):

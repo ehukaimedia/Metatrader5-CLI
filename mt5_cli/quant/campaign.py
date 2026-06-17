@@ -63,7 +63,12 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
                         "(confirm the optimization report includes the requested input columns)",
                 "child_runs": child_runs}
 
-    set_path = Path(opt["data"]["run_dir"]) / f"{expert}.{symbol}.{tf}.set"
+    # Write the winner's FIXED parameters to a distinct file. ea.optimize(params=...)
+    # already wrote the optimization RANGE set at <run_dir>/<expert>.<symbol>.<tf>.set
+    # and that run's tester.ini references it; reusing the same name would overwrite
+    # the optimize child's artifact with single-pass values that no longer match the
+    # search it ran. The `winner.` prefix keeps both intact, side by side.
+    set_path = Path(opt["data"]["run_dir"]) / f"winner.{expert}.{symbol}.{tf}.set"
     ini_builder.write_set(set_path, [f"{k}={v}" for k, v in winner["params"].items()])
 
     # Phase-specific run labels so OOS and FULL never collide on a second-resolution

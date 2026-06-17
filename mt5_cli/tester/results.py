@@ -308,6 +308,23 @@ def _spreadsheet_row_values(row: ET.Element) -> list[str]:
     return values
 
 
+def _results_table(root: ET.Element) -> ET.Element | None:
+    """The optimization-results ``<Table>``.
+
+    MT5 names the optimization worksheet ``Tester Optimizator Results`` (its own
+    spelling). Select it by name so an added or leading worksheet (e.g. a
+    forward-optimization sheet) can never silently divert parsing to the wrong
+    table; fall back to the first worksheet's table for older or hand-trimmed
+    reports that omit the name.
+    """
+    for ws in root.findall(f".//{_SS}Worksheet"):
+        if ws.get(f"{_SS}Name") == "Tester Optimizator Results":
+            table = ws.find(f"{_SS}Table")
+            if table is not None:
+                return table
+    return root.find(f".//{_SS}Worksheet/{_SS}Table")
+
+
 def parse_optimization_xml(path: Path | str) -> list[dict[str, Any]]:
     """Parse an MT5 optimization report into one dict per pass.
 
@@ -320,7 +337,7 @@ def parse_optimization_xml(path: Path | str) -> list[dict[str, Any]]:
     # defusedxml blocks XXE / entity-expansion ("billion laughs"); the report is a
     # local MT5 artifact, but this is a public API that may be handed any path.
     root = _safe_xml_parse(str(Path(path))).getroot()
-    table = root.find(f".//{_SS}Worksheet/{_SS}Table")
+    table = _results_table(root)
     if table is not None:
         rows = table.findall(f"{_SS}Row")
         if len(rows) < 2:

@@ -570,13 +570,13 @@
     "rank_caveat": null,
     "ranked": [
       { "rank": 1, "symbol": "XAUUSD", "timeframe": "H1", "side": "long",
-        "validated": true, "set_file": "results/&lt;child&gt;/alpha.XAUUSD.H1.set",
+        "validated": true, "set_file": "results/&lt;child&gt;/winner.alpha.XAUUSD.H1.set",
         "run_id": "2026-06-16T19-41-10_alpha_XAUUSD_H1",
         "full": { "trades": 804, "net_profit": 55198.59, "profit_factor": 2.02 },
         "is":   { "trades": 609, "profit_factor": 2.10, "sharpe": 1.91 },
         "oos":  { "trades": 195, "profit_factor": 2.02, "sharpe": 1.79 } },
       { "rank": 2, "symbol": "EURUSD", "timeframe": "H1", "side": "long",
-        "validated": true, "set_file": "results/&lt;child&gt;/alpha.EURUSD.H1.set",
+        "validated": true, "set_file": "results/&lt;child&gt;/winner.alpha.EURUSD.H1.set",
         "run_id": "2026-06-16T19-42-30_alpha_EURUSD_H1",
         "full": { "trades": 977, "net_profit": 13486.76, "profit_factor": 1.66 },
         "is":   { "trades": 743, "profit_factor": 1.68, "sharpe": 1.48 },
@@ -626,7 +626,7 @@ mt5 --json quant show &lt;campaign-id&gt;
 
 # new flag this feature adds, so the winner's set can be stressed:
 mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
-  --from 2022-01-01 --to 2024-12-31 --set-file results/&lt;child&gt;/alpha.XAUUSD.H1.set</pre>
+  --from 2022-01-01 --to 2024-12-31 --set-file results/&lt;child&gt;/winner.alpha.XAUUSD.H1.set</pre>
     <ul style="margin-top:10px">
       <li>Exit code stays <code>0</code>; callers parse the envelope's <code>ok</code> boolean (repo-wide rule).</li>
       <li><code>run</code> is CLI-only (launches a terminal, long-running). <code>list</code>/<code>show</code> are read-only and MCP-safe &mdash; matching how tester <em>runs</em> are not exposed over MCP.</li>

@@ -29,6 +29,8 @@ indicator calculations, signal logic, or market opinions.
   indicators.
 - Run MT5's native Strategy Tester from a CLI envelope and parse results into
   JSON.
+- Run multi-asset two-pass (in-sample/out-of-sample) optimization campaigns with
+  `mt5 quant run` and rank the survivors (`--dry-run` plans the launch cost first).
 
 Every command supports `--json`. CLI invocations exit with status code `0`; the
 result envelope's `ok` field carries success or failure.

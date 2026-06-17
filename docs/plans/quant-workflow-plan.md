@@ -56,7 +56,7 @@ The envelope is `quant.v1` exactly as in the spec's *Envelope* section.
 - Modify `mt5_cli/errors.py` — register 4 root error codes.
 - Modify `mt5_cli/tester/ea.py` — thread `set_file` into `stress()`.
 - Modify `mt5/cli.py` — `quant` group (`run`/`list`/`show`) + `tester ea stress --set-file`.
-- Create `tests/fixtures/quant/optimization_is.xml` — real captured MT5 optimization report.
+- Capture a real MT5 optimization report fixture (shipped as `tests/fixtures/sample_optimization.xml` — SpreadsheetML; see closed Task 0).
 - Create `tests/test_quant_matrix.py`, `test_quant_passes.py`, `test_quant_selection.py`, `test_quant_report.py`, `test_quant_store.py`, `test_quant_campaign.py`, `test_quant_cli.py`, `test_quant_playbook.py`.
 - Modify `mt5_cli/tester/tests/...` (or repo test home) — stress `--set-file` coverage.
 - Modify `README.md`, `AGENTS.md`, `CHANGELOG.md`, and the `describe` catalog source.
@@ -71,40 +71,15 @@ The envelope is `quant.v1` exactly as in the spec's *Envelope* section.
 > `tests/fixtures/sample_optimization.xml`. The spec and shipped code are
 > authoritative; this section is kept only as a historical record.
 
-The whole feature rests on the optimization report exposing each pass's **input
-parameter columns** and **in-sample profit factor**. Prove it against a real MT5
-artifact before building on it. (Spec: *Implementation risks #1*.)
-
-**Files:**
-- Create: `tests/fixtures/quant/optimization_is.xml` (captured, committed)
-- Create: `tests/fixtures/quant/README.md` (how it was captured)
-
-- [ ] **Step 1: Capture a real optimization report (operator, manual)**
-
-On a Windows box with MT5 + a compiled demo EA exposing ≥2 `input`s, run a small genetic optimization and copy the produced `optimization.xml` to the fixture path:
-
-```bash
-mt5 --json tester ea optimize --expert demo --symbol EURUSD --tf H1 \
-  --from 2023-01-01 --to 2023-06-30 --mode genetic \
-  --param FastPeriod=9,5,1,21 --param SlowPeriod=21,10,5,60
-# copy results/<run-id>/optimization.xml -> tests/fixtures/quant/optimization_is.xml
-```
-
-- [ ] **Step 2: Inspect the columns and record the decision**
-
-Open the fixture and confirm, per `<pass>`: (a) the input parameters appear as named child elements (e.g. `FastPeriod`, `SlowPeriod`), and (b) an in-sample profit-factor column exists (MT5 commonly labels it `Profit Factor`). Write findings into `tests/fixtures/quant/README.md`, including the exact column tag names.
-
-- [ ] **Step 3: Branch the contract on what the fixture shows**
-
-  - **If params + Profit Factor are present** → proceed with Tasks 3–4 as written; record the exact tag-name map.
-  - **If in-sample PF is absent** → the gate/winner needs it: add a 4th launch per cell (an explicit IS `single` on `[from, split−1d]`) in Task 7, and `passes.read` reads only parameters; selection then reads IS PF from that IS `single`'s parsed stats. Note this in `README.md` and adjust Task 3/7 accordingly.
-
-- [ ] **Step 4: Commit the fixture + decision**
-
-```bash
-git add tests/fixtures/quant/optimization_is.xml tests/fixtures/quant/README.md
-git commit -m "test: capture real MT5 optimization.xml fixture for quant winner selection"
-```
+**Historical outcome (gate closed):** the assumption that the report exposes each
+pass's input-parameter columns and in-sample profit factor held, but the *shape*
+did not — real MT5 emits SpreadsheetML (Excel XML 2003), not `<pass>` children.
+`results.parse_optimization_xml` parses that grid (via `defusedxml`); the captured
+fixture lives at `tests/fixtures/sample_optimization.xml` (not the
+`tests/fixtures/quant/` path the original steps named, which was removed). The
+in-sample profit-factor column (`Profit Factor`) is present, so the planned 4th
+IS-`single` fallback was unnecessary. See the spec's *Per-cell two-pass flow* and
+*Selection & ranking contract* for the authoritative behavior.
 
 ---
 
@@ -268,11 +243,17 @@ def parse_params(specs: list[str]) -> list[str]:
 
 ## Task 3: `passes.py` — read IS optimization passes
 
+> **SUPERSEDED — do not follow the steps below.** Like Task 0, these predate the
+> dogfood. The shipped `passes.py` reads the SpreadsheetML columns `Profit Factor`,
+> `Sharpe Ratio`, `Trades`, `Profit` from `results.parse_optimization_xml`; the test
+> uses `tests/fixtures/sample_optimization.xml` (the `tests/fixtures/quant/` paths
+> below were removed). The spec and shipped code are authoritative.
+
 **Files:**
 - Create: `mt5_cli/quant/passes.py`
-- Test: `tests/test_quant_passes.py` (uses the Task 0 fixture)
+- Test: `tests/test_quant_passes.py` (uses the captured fixture)
 
-> Use the exact column tag names recorded in `tests/fixtures/quant/README.md`. The map below is the expected default; adjust the right-hand keys to the fixture if MT5 labels differ.
+> Use the exact column names from the captured fixture. The map below is the original expected default; adjust the right-hand keys to the fixture if MT5 labels differ.
 
 - [ ] **Step 1: Write the failing test against the real fixture**
 
