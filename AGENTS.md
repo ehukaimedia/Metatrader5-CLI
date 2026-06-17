@@ -124,6 +124,10 @@ out-of-sample and full) and returns a `quant.v1` envelope. Consume `data.ranked`
 - `data.rejected[]` carries a per-cell `reason`: `NO_WINNER` (no pass cleared the
   in-sample gate), `MIN_TRADES` (too few full-sample trades), or `CELL_FAILED`
   (a tester launch failed; the fail envelope is embedded).
+- `data.capped[]` lists survivors trimmed by `--per-asset` (they passed the gates,
+  just beyond the per-asset cap) — surfaced, not silently dropped.
+- `data.hint` appears only when every cell is `NO_WINNER`, pointing at the likely
+  cause (an optimization column-name mismatch, or too-strict `--min-pf`).
 - `data.child_run_ids` lists every tester run the campaign produced (also visible
   to `tester list`); `data.artifacts` points at the report + manifest.
 

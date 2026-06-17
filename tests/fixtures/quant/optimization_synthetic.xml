@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SYNTHETIC fixture for unit-testing the passes/selection LOGIC. This is NOT a
-     real MT5 capture. It matches results.parse_optimization_xml's expected
-     <pass>-with-child-tags shape using the provisional tag names in
-     mt5_cli/quant/passes.py. Plan Task 0 replaces/validates this against a real
-     optimization.xml; if MT5's real tag names differ, update passes.py's column
-     constants and re-point the real fixture. See README.md in this dir. -->
-<optimization>
+     real MT5 capture. Tags mirror the repo's canonical sample_optimization.xml
+     (Profit / ProfitFactor / Trades + input params) plus a Sharpe column to
+     exercise the provisional _SHARPE path. Plan Task 0 validates against a real
+     optimization.xml; adjust passes.py's column constants if they differ. -->
+<results>
   <pass>
     <FastPeriod>9</FastPeriod>
     <SlowPeriod>21</SlowPeriod>
     <ProfitFactor>1.20</ProfitFactor>
     <Trades>420</Trades>
     <Sharpe>0.9</Sharpe>
-    <Result>300</Result>
+    <Profit>300</Profit>
   </pass>
   <pass>
     <FastPeriod>12</FastPeriod>
@@ -20,7 +19,7 @@
     <ProfitFactor>1.85</ProfitFactor>
     <Trades>510</Trades>
     <Sharpe>1.4</Sharpe>
-    <Result>820</Result>
+    <Profit>820</Profit>
   </pass>
   <pass>
     <FastPeriod>5</FastPeriod>
@@ -28,6 +27,6 @@
     <ProfitFactor>0.80</ProfitFactor>
     <Trades>200</Trades>
     <Sharpe>-0.2</Sharpe>
-    <Result>-150</Result>
+    <Profit>-150</Profit>
   </pass>
-</optimization>
+</results>

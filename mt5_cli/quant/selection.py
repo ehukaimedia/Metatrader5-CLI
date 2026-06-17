@@ -66,6 +66,7 @@ def gate_and_rank(cells: list[dict[str, Any]], *, min_trades: int, oos_min_pf: f
     survivors.sort(key=_sort_key, reverse=True)
 
     ranked: list[dict[str, Any]] = []
+    capped: list[dict[str, Any]] = []
     per_asset_count: dict[str, int] = {}
     for c in survivors:
         n = per_asset_count.get(c["symbol"], 0) + 1
@@ -73,9 +74,14 @@ def gate_and_rank(cells: list[dict[str, Any]], *, min_trades: int, oos_min_pf: f
         if n <= per_asset:
             c["rank"] = len(ranked) + 1
             ranked.append(c)
+        else:
+            # passed every gate but trimmed by --per-asset; surfaced (not dropped
+            # silently, not "rejected") so the campaign output stays complete.
+            capped.append({"symbol": c["symbol"], "timeframe": c["timeframe"]})
 
     return {
         "ranked": ranked,
         "rejected": rejected,
+        "capped": capped,
         "rank_caveat": "oos_metric_can_reflect_asset_drift" if rank_by in _OOS_KEYS else None,
     }

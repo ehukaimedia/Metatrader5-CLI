@@ -106,6 +106,7 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
         return fail("INVALID_PARAM", str(exc))
     if rank_by not in _RANK_BY:
         return fail("INVALID_RANK_BY", "--rank-by must be one of full_net, oos_sharpe, oos_pf.")
+    per_asset = max(1, per_asset)  # 0/negative is nonsensical; keep at least the top 1
 
     matrix_field = {
         "symbols": list(dict.fromkeys(s.strip() for s in symbols if s and s.strip())),
@@ -136,7 +137,7 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
     graded = selection.gate_and_rank(assembled, min_trades=min_trades, oos_min_pf=oos_min_pf,
                                      rank_by=rank_by, per_asset=per_asset)
     rejected = cell_rejected + graded["rejected"]
-    if not graded["ranked"] and not rejected:
+    if not graded["ranked"] and not rejected and not graded["capped"]:
         return fail("NO_RESULTS", "No cell produced a ranked or rejected record.")
 
     cid = store.make_campaign_id(label or expert)
@@ -147,8 +148,13 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
         "selection": {"min_trades": min_trades, "min_pf": min_pf, "oos_min_pf": oos_min_pf,
                       "rank_by": rank_by, "per_asset": per_asset},
         "rank_caveat": graded["rank_caveat"], "ranked": graded["ranked"], "rejected": rejected,
-        "child_run_ids": child_run_ids,
+        "capped": graded["capped"], "child_run_ids": child_run_ids,
     }
+    if not graded["ranked"] and rejected and all(r.get("reason") == "NO_WINNER" for r in rejected):
+        data["hint"] = ("Every cell was NO_WINNER — no optimization pass cleared the in-sample "
+                        "profit-factor gate. If you expected winners, confirm the optimization "
+                        "report's column names match mt5_cli/quant/passes.py (plan Task 0) and/or "
+                        "lower --min-pf.")
     # Populate artifacts (paths under the actual results_root) BEFORE persisting,
     # so a reloaded manifest carries them. The manifest always exists; the report
     # only when html is on.

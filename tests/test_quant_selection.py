@@ -56,6 +56,8 @@ def test_per_asset_cap_trims_extra_survivors():
     out = selection.gate_and_rank(cells, min_trades=300, oos_min_pf=1.0,
                                   rank_by="full_net", per_asset=2)
     assert [c["full"]["net_profit"] for c in out["ranked"]] == [90000.0, 80000.0]
+    # the trimmed survivor is surfaced as capped, not silently dropped
+    assert out["capped"] == [{"symbol": "GOLD", "timeframe": "H1"}]
 
 
 def test_none_metric_sorts_last_without_typeerror():

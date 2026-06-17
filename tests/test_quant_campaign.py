@@ -12,8 +12,8 @@ def _fake_opt(tmp_path):
             "run_id": "opt_run",
             "run_dir": str(tmp_path / "opt"),
             "optimization": [
-                {"FastPeriod": "9", "ProfitFactor": 1.2, "Trades": 400, "Sharpe": 0.9, "Result": 200},
-                {"FastPeriod": "12", "ProfitFactor": 1.8, "Trades": 500, "Sharpe": 1.3, "Result": 700},
+                {"FastPeriod": "9", "ProfitFactor": 1.2, "Trades": 400, "Sharpe": 0.9, "Profit": 200},
+                {"FastPeriod": "12", "ProfitFactor": 1.8, "Trades": 500, "Sharpe": 1.3, "Profit": 700},
             ],
         }}
     fake_optimize.calls = []
@@ -116,6 +116,23 @@ def test_no_winner_when_no_pass_clears_min_pf(monkeypatch, tmp_path):
                        from_date="2022-01-01", to_date="2024-12-31", split="0.70",
                        params=["FastPeriod=9,5,1,21"], min_pf=1.0, results_root=tmp_path)
     assert env["data"]["rejected"][0]["reason"] == "NO_WINNER"
+    # all-NO_WINNER campaigns carry a diagnostic hint (loud, not silent), persisted
+    assert "hint" in env["data"] and "Task 0" in env["data"]["hint"]
+    reloaded = store.get_campaign(env["data"]["campaign_id"], root=tmp_path)
+    assert "Task 0" in reloaded["data"]["hint"]
+
+
+def test_hint_absent_when_rejects_are_not_all_no_winner(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    # a winner is found but FULL trades (400) < min_trades -> MIN_TRADES, ranked empty;
+    # the reject is not NO_WINNER, so no hint
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], min_trades=500, results_root=tmp_path)
+    assert env["data"]["ranked"] == []
+    assert env["data"]["rejected"][0]["reason"] == "MIN_TRADES"
+    assert "hint" not in env["data"]
 
 
 def test_oos_single_failure_rejects_cell(monkeypatch, tmp_path):
@@ -130,13 +147,34 @@ def test_oos_single_failure_rejects_cell(monkeypatch, tmp_path):
     assert env["data"]["ranked"] == []
 
 
-def test_no_results_when_every_survivor_is_capped(monkeypatch, tmp_path):
+def test_per_asset_zero_clamps_to_one(monkeypatch, tmp_path):
     monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
     monkeypatch.setattr(campaign.ea, "single", _fake_single())
-    # per_asset=0 caps every survivor and nothing is rejected -> no record at all
     env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
                        from_date="2022-01-01", to_date="2024-12-31", split="0.70",
                        params=["FastPeriod=9,5,1,21"], per_asset=0, results_root=tmp_path)
+    assert env["ok"] is True and len(env["data"]["ranked"]) == 1  # clamped to keep the top 1
+
+
+def test_capped_survivors_are_surfaced(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    # two H1+H2 cells for one symbol, per_asset=1 -> one ranked, one surfaced as capped
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1", "H2"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], per_asset=1, results_root=tmp_path)
+    assert len(env["data"]["ranked"]) == 1
+    assert env["data"]["capped"] == [{"symbol": "EURUSD", "timeframe": "H2"}]
+
+
+def test_no_results_guard_when_no_records(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    monkeypatch.setattr(campaign.selection, "gate_and_rank",
+                        lambda *a, **k: {"ranked": [], "rejected": [], "capped": [], "rank_caveat": None})
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], results_root=tmp_path)
     assert env["ok"] is False and env["error"]["code"] == "NO_RESULTS"
 
 

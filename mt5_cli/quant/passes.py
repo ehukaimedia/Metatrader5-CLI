@@ -4,13 +4,15 @@
 dict (tag -> scalar). This module projects the columns the feature needs: the EA
 input parameters (by name) and the in-sample metrics. Pure / stdlib-only.
 
-PROVISIONAL column tag names
-----------------------------
-The metric tag names below are the *expected* MT5 optimization-report columns,
-but they are unverified against a real artifact. Task 0 of the plan captures a
-real ``optimization.xml``; if MT5's tag names differ, adjust these four
-constants — nothing else changes. The projection/selection logic is what the
-tests pin down; the exact tag strings are a one-line map.
+Column tag names
+----------------
+``ProfitFactor``, ``Trades``, and ``Profit`` match the repo's canonical
+``tests/fixtures/sample_optimization.xml`` and the shape
+``results.parse_optimization_xml`` reads. ``Sharpe`` is provisional — the
+canonical fixture has no Sharpe column and real MT5 may name it differently, so
+in-sample sharpe is ``None`` until confirmed. The real report shape is verified
+in plan Task 0; if tag names differ, adjust the four constants below — the
+projection/selection logic is unchanged.
 """
 from __future__ import annotations
 
@@ -19,11 +21,12 @@ from typing import Any
 
 from mt5_cli.tester import results
 
-#: PROVISIONAL — confirm against a captured optimization.xml (plan Task 0).
+#: ProfitFactor/Trades/Profit match tests/fixtures/sample_optimization.xml;
+#: Sharpe is provisional (absent there). Confirm against a real capture (Task 0).
 _PF = "ProfitFactor"
 _TRADES = "Trades"
 _SHARPE = "Sharpe"
-_NET = "Result"
+_NET = "Profit"
 
 
 def _as_float(value: Any) -> float | None:

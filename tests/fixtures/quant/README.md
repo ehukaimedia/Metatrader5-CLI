@@ -3,9 +3,12 @@
 ## `optimization_synthetic.xml` — synthetic, NOT a real capture
 
 Hand-authored to unit-test the parser/projection/selection **logic** in
-`mt5_cli/quant/passes.py` and `selection.py`. It uses the provisional column tag
-names declared in `passes.py` (`ProfitFactor`, `Trades`, `Sharpe`, `Result`) and
-the `<pass>`-with-child-tags shape that `results.parse_optimization_xml` reads.
+`mt5_cli/quant/passes.py` and `selection.py`. Its tags mirror the repo's canonical
+`tests/fixtures/sample_optimization.xml` — `Profit`, `ProfitFactor`, `Trades`, and
+the input params — plus a `Sharpe` column to exercise the one provisional constant
+(`_SHARPE`; the canonical fixture has no Sharpe). Same `<pass>`-with-child-tags
+shape that `results.parse_optimization_xml` reads. `passes.read` is also tested
+directly against `sample_optimization.xml` (see `tests/test_quant_passes.py`).
 
 ## The open gate (plan Task 0)
 

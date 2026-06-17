@@ -7,10 +7,12 @@ Related playground: [Quant Workflow](../playgrounds/specs/quant-workflow.html)
 Related plan: [Quant Workflow Implementation Plan](../plans/quant-workflow-plan.md)
 
 > Implementation note: shipped v1 is explicit two-pass (the chosen default). The
-> one remaining gate is the real-MT5 `optimization.xml` capture (Task 0): the
-> passes parser uses provisional column tag-names, unit-tested against a
-> synthetic fixture; confirm the real report's columns and adjust
-> `mt5_cli/quant/passes.py` if they differ.
+> passes parser's `Profit` / `ProfitFactor` / `Trades` column tags match the
+> repo's canonical `tests/fixtures/sample_optimization.xml` and are tested
+> against it; only `_SHARPE` is provisional (that fixture has no Sharpe column).
+> The one remaining gate (Task 0) is confirming real MT5 emits this
+> `<pass>`-with-children shape at all — if it differs, adjust the column
+> constants in `mt5_cli/quant/passes.py`.
 
 ## Purpose
 
@@ -229,7 +231,11 @@ terminals):
 - **`--rank-by`** (over assembled cells): default `full_net`; `oos_sharpe` /
   `oos_pf` are opt-in and set `rank_caveat`. Ranking orders candidates; it never
   certifies edge — the `validated` flag and the agent's asset-drift check do.
-- **`--per-asset`** (default 2): keep the top N per asset.
+- **`--per-asset`** (default 2, clamped to ≥ 1): keep the top N per asset.
+  Survivors beyond the cap are surfaced in `data.capped` (they passed the gates,
+  just trimmed) rather than dropped. When every cell is `NO_WINNER`, `data.hint`
+  flags the likely cause (optimization column-name mismatch — see Task 0 — or a
+  too-strict `--min-pf`).
 
 ### Reject reasons vs error codes
 
