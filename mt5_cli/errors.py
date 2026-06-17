@@ -93,6 +93,12 @@ ERROR_CODES: dict[str, str] = {
     "UNKNOWN_OPT_MODE": "Unknown optimization mode.",
     "STRESS_BASELINE_FAILED": "The ideal-execution baseline run failed; no robustness score is possible.",
     "INVALID_DELAYS": "A delay must be 'random' or an integer 0..600000 ms.",
+    # --- Quant campaign ---
+    "EMPTY_MATRIX": "A quant campaign needs at least one symbol and one timeframe.",
+    "INVALID_SPLIT": "--split must be a 0<f<1 fraction or a YYYY-MM-DD date.",
+    "INVALID_PARAM": "--param must be NAME=value or NAME=value,start,step,stop.",
+    "INVALID_RANK_BY": "--rank-by must be one of full_net, oos_sharpe, oos_pf.",
+    "NO_RESULTS": "No cell produced a ranked or rejected record.",
     # --- Terminal discovery ---
     "TERMINAL_ALREADY_RUNNING": "terminal64.exe is already running; close it for a batch launch.",
     "TERMINAL_NOT_FOUND": "terminal64.exe could not be located.",

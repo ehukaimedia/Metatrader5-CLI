@@ -34,6 +34,7 @@ from mt5_cli import history as _history_mod
 from mt5_cli import market as _market_mod
 from mt5_cli import orders as _orders_mod
 from mt5_cli import positions as _positions_mod
+from mt5_cli import quant as _quant
 from mt5_cli import rates as _rates_mod
 from mt5_cli import wake as _wake_mod
 from mt5_cli.bridge import connect as _bridge_connect
@@ -1521,6 +1522,8 @@ def tester_ea_scanner(
     default="real-ticks",
     type=click.Choice(["real-ticks", "every-tick", "ohlc-1m", "open-only", "math"]),
 )
+@click.option("--set-file", default=None, type=click.Path(dir_okay=False),
+              help="Stress a specific parameter .set (e.g. a quant winner) instead of EA defaults.")
 @click.option("--timeout", default=600, type=int)
 @click.pass_context
 def tester_ea_stress(
@@ -1532,6 +1535,7 @@ def tester_ea_stress(
     to_date: str,
     delays: str,
     modelling: str,
+    set_file: str | None,
     timeout: int,
 ) -> None:
     """Run an EA execution-delay stress ladder and grade robustness."""
@@ -1548,6 +1552,7 @@ def tester_ea_stress(
             from_date=from_date,
             to_date=to_date,
             delays=parsed_delays,
+            set_file=set_file,
             modelling=modelling,
             timeout=timeout,
         ),
@@ -1605,6 +1610,70 @@ def tester_show(ctx: click.Context, run_id: str) -> None:
     except Exception as exc:  # noqa: BLE001
         env = fail("TESTER_PARSE_ERROR", f"Could not parse run {run_id!r}: {exc}")
     emit(env, ctx.obj["json"])
+
+
+# ---------------------------------------------------------------------------
+# quant  (multi-asset two-pass optimization campaign)
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def quant() -> None:
+    """Run quant research campaigns over the native Strategy Tester."""
+
+
+@quant.command("run")
+@click.option("--expert", required=True)
+@click.option("--symbols", required=True, help="Comma-separated symbols, e.g. EURUSD,XAUUSD")
+@click.option("--tf", "timeframes", required=True, help="Comma-separated timeframes, e.g. H1,H2")
+@click.option("--from", "from_date", required=True)
+@click.option("--to", "to_date", required=True)
+@click.option("--split", required=True, help="IS/OOS boundary: 0<f<1 fraction or YYYY-MM-DD.")
+@click.option("--param", "params", multiple=True,
+              help="EA optimization range Name=value,start,step,stop (repeatable).")
+@click.option("--mode", default="genetic", type=click.Choice(["genetic", "complete"]))
+@click.option("--min-trades", default=300, type=int)
+@click.option("--min-pf", default=1.0, type=float)
+@click.option("--min-is-trades", "min_is_trades", default=None, type=int,
+              help="Min in-sample trades for a pass to win selection (default: --min-trades).")
+@click.option("--oos-min-pf", default=1.0, type=float)
+@click.option("--rank-by", default="full_net",
+              help="full_net (default), oos_sharpe, or oos_pf.")
+@click.option("--per-asset", default=2, type=int)
+@click.option("--modelling", default="ohlc-1m",
+              type=click.Choice(["real-ticks", "every-tick", "ohlc-1m", "open-only", "math"]))
+@click.option("--html/--no-html", default=True)
+@click.option("--dry-run", is_flag=True, default=False)
+@click.option("--timeout", default=1800, type=int)
+@click.pass_context
+def quant_run(ctx: click.Context, symbols: str, timeframes: str, **kwargs) -> None:
+    """Run a symbol x timeframe optimization campaign and rank survivors."""
+    parsed_symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+    parsed_tfs = [t.strip() for t in timeframes.split(",") if t.strip()]
+    emit(
+        _quant.campaign.run(symbols=parsed_symbols, timeframes=parsed_tfs,
+                            params=list(kwargs.pop("params")), **kwargs),
+        ctx.obj["json"],
+    )
+
+
+@quant.command("list")
+@click.pass_context
+def quant_list(ctx: click.Context) -> None:
+    """List recent quant campaigns."""
+    emit(ok(_quant.list_campaigns()), ctx.obj["json"])
+
+
+@quant.command("show")
+@click.argument("campaign_id")
+@click.pass_context
+def quant_show(ctx: click.Context, campaign_id: str) -> None:
+    """Show a stored quant campaign manifest."""
+    found = _quant.get_campaign(campaign_id)
+    if not found:
+        emit(fail("RUN_NOT_FOUND", f"No campaign {campaign_id!r}"), ctx.obj["json"])
+        return
+    emit(ok(found["data"]), ctx.obj["json"])
 
 
 # ---------------------------------------------------------------------------

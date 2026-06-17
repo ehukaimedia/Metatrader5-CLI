@@ -309,11 +309,15 @@ def stress(
     from_date: str,
     to_date: str,
     delays: list[int] | None = None,
+    set_file: Path | str | None = None,
     modelling: str = "real-ticks",
     results_root: Path | str = "results",
     timeout: int = 600,
 ) -> dict:
     """Run a delay ladder and grade execution robustness.
+
+    `set_file` stresses a specific parameter set (e.g. a quant campaign winner)
+    rather than the EA's compiled defaults; it is threaded into every rung.
 
     Each rung is one full backtest under a different MT5 ExecutionMode, run
     serially (the launcher contract forbids parallel terminals). The ideal
@@ -341,6 +345,7 @@ def stress(
             to_date=to_date,
             modelling=modelling,
             delay_ms=delay_ms,
+            set_file=set_file,
             run_label=f"stress-{_delay_token(delay_ms)}-{expert}",
             results_root=results_root,
             timeout=timeout,
