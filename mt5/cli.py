@@ -1521,6 +1521,8 @@ def tester_ea_scanner(
     default="real-ticks",
     type=click.Choice(["real-ticks", "every-tick", "ohlc-1m", "open-only", "math"]),
 )
+@click.option("--set-file", default=None, type=click.Path(dir_okay=False),
+              help="Stress a specific parameter .set (e.g. a quant winner) instead of EA defaults.")
 @click.option("--timeout", default=600, type=int)
 @click.pass_context
 def tester_ea_stress(
@@ -1532,6 +1534,7 @@ def tester_ea_stress(
     to_date: str,
     delays: str,
     modelling: str,
+    set_file: str | None,
     timeout: int,
 ) -> None:
     """Run an EA execution-delay stress ladder and grade robustness."""
@@ -1548,6 +1551,7 @@ def tester_ea_stress(
             from_date=from_date,
             to_date=to_date,
             delays=parsed_delays,
+            set_file=set_file,
             modelling=modelling,
             timeout=timeout,
         ),

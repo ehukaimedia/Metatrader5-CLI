@@ -6,6 +6,8 @@ gates, ranked survivors, and a dependency-free report.
 
 Bridge isolation: like ``mt5_cli.tester``, this package MUST NOT import the
 MetaTrader5 Python SDK — it composes the filesystem-only tester primitives.
-Public campaign/list/get helpers are wired up in ``campaign``/``store`` and
-re-exported once those land.
 """
+from . import campaign
+from .store import get_campaign, list_campaigns
+
+__all__ = ["campaign", "get_campaign", "list_campaigns"]

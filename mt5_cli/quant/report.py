@@ -11,7 +11,11 @@ from typing import Any
 
 
 def _svg(curve: list[dict[str, Any]], width: int = 480, height: int = 120) -> str:
-    pts = [p.get("balance") for p in curve if p.get("balance") is not None]
+    pts: list[float] = []
+    for p in curve:
+        b = p.get("balance")
+        if isinstance(b, (int, float)):
+            pts.append(float(b))
     if len(pts) < 2:
         # Degenerate curve (real backtests have many points): still emit a
         # <polyline> so every card has a uniform structure — one point draws a
