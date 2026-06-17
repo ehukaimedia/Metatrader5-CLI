@@ -143,6 +143,8 @@ campaign more valuable, not less.
 ## Non-Goals
 
 - **The forward-optimization hybrid is deferred** (see below) — not v1.
+- **Portfolio / cross-strategy correlation selection is deferred** (see below) —
+  v1 ranks each strategy standalone, not by marginal contribution to a book.
 - No Python EDA engine; no Python backtester; no Python→MQL5 translation. MT5 is
   the only engine; the EA is the only alpha.
 - No campaign-internal benchmark. The asset-drift check is an agent step using
@@ -354,6 +356,10 @@ command the build lacks.
      tracks its IS beats a higher-ranked entry that only shines OOS.
    - *Overfitting.* Wide grids plus genetic search find lucky corners; fewer,
      economically meaningful parameters win.
+   - *Correlation to your book.* If you already run strategies, a high-Sharpe
+     candidate that duplicates one you hold adds little — judge by marginal
+     contribution and prefer low-correlation additions ("frozen alpha"), not the
+     standalone rank alone.
 7. **Stress the winner.** Test execution realism on the winner's actual set:
    `mt5 --json tester ea stress --expert <name> --symbol <sym> --tf <tf> --from ... --to ... --set-file <winner.set>`.
    Require `robustness.verdict` of `robust` (or at least `degraded`).
@@ -399,6 +405,26 @@ shapes:
 
 Promote the hybrid only once the `.forward` shape, join key, partial-coverage
 behavior, and `ForwardMode=4` emission are proven by committed fixtures.
+
+## Deferred: portfolio / marginal-alpha selection
+
+A later, separate feature — **not v1**, recorded so the idea is not lost
+(source: "Leverage Points: The Real Edge in Quant Trading"). Once a trader runs a
+*library* of validated strategies, the highest-leverage move is not another
+standalone backtest but choosing which strategies to run *together*:
+
+- Compute a cross-strategy **correlation matrix** (Pearson/Spearman) over the
+  per-run trade-return series the tester already emits.
+- Rank candidates by their **marginal Sharpe contribution** to an existing live
+  book given that correlation — a strategy that is strong *and* low-correlation
+  to what you already run ("frozen alpha") improves the book with no new logic.
+- Emit a before/after portfolio comparison and a ranked selection log.
+
+This is **heavy-numeric** (correlation, covariance, bootstrap) — the same
+territory as the excluded EDA engine — so it ships behind the optional `[quant]`
+extra or stays an agent-side computation over `quant.v1` outputs, never in the
+tool-only core. `quant.v1` is the upstream that produces its inputs (validated
+standalone strategies); this is the downstream that assembles them into a book.
 
 ## Error Codes
 

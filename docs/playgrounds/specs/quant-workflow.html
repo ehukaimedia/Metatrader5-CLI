@@ -650,6 +650,7 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
         <li><strong>Multiple testing:</strong> a big matrix &times; genetic search invites a lucky survivor; report how many cells and param combinations you tried, and don't treat rank-1 as validated.</li>
         <li><strong>Statistical weight:</strong> treat ~300 trades as a floor, not proof (clustering and one regime shrink the effective sample).</li>
         <li><strong>IS&harr;OOS consistency &amp; overfitting:</strong> a <code>validated</code> entry whose OOS tracks its in-sample beats one that only shines OOS; fewer, meaningful params beat wide grids.</li>
+        <li><strong>Correlation to your book:</strong> a high-Sharpe candidate that duplicates a strategy you already run is not new alpha &mdash; prefer low-correlation additions (deferred portfolio feature).</li>
       </ul>
     </div>
     <div class="caveat" style="border-color:var(--teal); border-left-color:var(--teal); background:var(--teal-soft)">
@@ -705,6 +706,7 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
           <li>No Python EDA engine (return distribution, weekday&times;hour heatmap, autocorrelation) &mdash; that needs numpy/pandas the charter excludes.</li>
           <li>No Python vectorized backtester and no Python&rarr;MQL5 translation &mdash; MT5 stays the only engine; the EA stays the only alpha.</li>
           <li>The forward-optimization hybrid is <strong>deferred behind fixtures</strong> (a later 2-launch optimization) &mdash; not v1.</li>
+          <li>Portfolio / cross-strategy correlation selection (marginal-Sharpe &ldquo;frozen alpha&rdquo;) is <strong>deferred</strong> &mdash; v1 ranks standalone, not by contribution to a book.</li>
           <li>No walk-forward beyond the single in/out-of-sample split; no multi-data-feed / news (CPI/FOMC/NFP) testing.</li>
           <li>No campaign resume in v1 (each child run is cached, so resume can come later).</li>
           <li>No trading strategy, signal generation, indicator math, or market opinion.</li>
