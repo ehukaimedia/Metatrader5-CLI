@@ -80,8 +80,12 @@ by `full_net`, because `full_net` does not exist until the FULL re-run. So the
 two concepts are split:
 
 - **Winner selection** (step 2, in-sample, pre-FULL): among passes whose
-  in-sample `profit_factor` clears `--min-pf`, `pick_winner` takes the best by an
-  **in-sample** selector — default in-sample `profit_factor`. (A configurable
+  in-sample `profit_factor` clears `--min-pf` **and** whose in-sample trade count
+  clears `--min-is-trades` (default `--min-trades`), `pick_winner` takes the best
+  by an **in-sample** selector — default in-sample `profit_factor`. The in-sample
+  trade floor stops a sparse, overfit pass from being crowned; and because the
+  FULL window contains the in-sample window, a floor equal to `--min-trades` also
+  keeps the winner from later tripping the FULL `MIN_TRADES` gate. (A configurable
   `--winner-by` is deliberately deferred; YAGNI.)
 - **Cell ranking** (after all cells assemble, post-FULL): `--rank-by` orders the
   finished cells by a metric that now exists — default `full_net`; `oos_sharpe`
@@ -140,9 +144,9 @@ campaign more valuable, not less.
 - Expand a `symbols × timeframes` matrix and drive each cell through the explicit
   two-pass validation (optimize IS → pick winner → `single` OOS → `single` FULL).
 - Separate winner selection (in-sample selector) from cell ranking (`--rank-by`).
-- Apply deterministic gates (min FULL trades, min in-sample PF) and a ranking
-  metric; record rejects with reasons; mark survivors `validated` against an OOS
-  PF floor without letting OOS be the default rank key.
+- Apply deterministic gates (min in-sample PF and trades at selection, min FULL
+  trades after) and a ranking metric; record rejects with reasons; mark survivors
+  `validated` against an OOS PF floor without letting OOS be the default rank key.
 - Return one `quant.v1` envelope, a dependency-free HTML report, and a re-loadable
   `manifest.json`; keep child runs cached under `results/`.
 - Add `set_file` support to `tester ea stress` so the playbook can stress the
@@ -183,10 +187,11 @@ drives the tester through the filesystem only (import-boundary test).
    pass carrying its **input parameters** and **in-sample metrics** (via
    `results.parse_optimization_xml`, which parses MT5's SpreadsheetML report).
    No forward join in v1.
-3. `selection.py` — pure: `pick_winner(passes, *, min_pf)` returns the in-sample
-   pass clearing `min_pf` with the best in-sample selector (default IS
-   `profit_factor`); `gate_and_rank(cells, selection)` applies the FULL-trades
-   gate, ranks by `--rank-by`, caps per asset, records rejects.
+3. `selection.py` — pure: `pick_winner(passes, *, min_pf, min_is_trades)` returns
+   the in-sample pass clearing `min_pf` and the in-sample trade floor, with the
+   best in-sample selector (default IS `profit_factor`); `gate_and_rank(cells,
+   selection)` applies the FULL-trades gate, ranks by `--rank-by`, caps per asset,
+   records rejects.
 4. `report.py` — pure: render HTML from assembled cells — ranked table,
    per-strategy IS/OOS/FULL card, inline-SVG equity curve with the split marker,
    links to each child `report.html`. No matplotlib, no pandas.
@@ -212,8 +217,8 @@ terminals):
 
 1. `ea.optimize(mode="genetic", params=…, from=FROM, to=SPLIT−1d)` → in-sample
    `optimization.xml`. **launch 1.**
-2. `passes.read()` + `selection.pick_winner(passes, min_pf=…)` → the winning
-   parameter set → `.set`. (pure)
+2. `passes.read()` + `selection.pick_winner(passes, min_pf=…, min_is_trades=…)` →
+   the winning parameter set → `.set`. (pure)
 3. `ea.single(set_file=winner.set, from=SPLIT, to=TO)` → OOS metrics. **launch 2.**
 4. `ea.single(set_file=winner.set, from=FROM, to=TO)` → FULL metrics + continuous
    equity. **launch 3.**
@@ -223,8 +228,12 @@ terminals):
 ### Selection & ranking contract
 
 - **Winner selector** (step 2): among in-sample passes with `profit_factor` ≥
-  `--min-pf` (default 1.0), the best by in-sample `profit_factor`. No qualifying
-  pass → the cell is rejected `NO_WINNER`.
+  `--min-pf` (default 1.0) **and** in-sample trades ≥ `--min-is-trades` (default
+  `--min-trades`), the best by in-sample `profit_factor`. No qualifying pass → the
+  cell is rejected `NO_WINNER`. The in-sample trade floor stops a sparse, overfit
+  pass winning; defaulting it to `--min-trades` means the winner already clears
+  the FULL-trades gate (FULL ⊇ IS), so `MIN_TRADES` only fires if the two floors
+  are deliberately decoupled.
 - **FULL-trades gate:** winner's FULL `total_trades` ≥ `--min-trades` (default
   300), else reject `MIN_TRADES`.
 - **`validated` flag:** OOS `profit_factor` ≥ `--oos-min-pf` (default 1.0). Not a
@@ -235,15 +244,15 @@ terminals):
 - **`--per-asset`** (default 2, clamped to ≥ 1): keep the top N per asset.
   Survivors beyond the cap are surfaced in `data.capped` (they passed the gates,
   just trimmed) rather than dropped. When every cell is `NO_WINNER`, `data.hint`
-  flags the likely cause (a too-strict `--min-pf`, or the EA's passes don't clear
-  it).
+  flags the likely cause (a too-strict `--min-pf` / `--min-is-trades`, or the EA's
+  passes don't clear them).
 
 ### Reject reasons vs error codes
 
 - **Per-cell reject reasons** (entries in `rejected[]`, campaign continues):
-  `NO_WINNER` (no in-sample pass cleared the gate), `MIN_TRADES` (winner's FULL
-  trades below floor), `CELL_FAILED` (a native launch failed; fail envelope
-  embedded).
+  `NO_WINNER` (no in-sample pass cleared the PF + in-sample-trades gates),
+  `MIN_TRADES` (winner's FULL trades below floor), `CELL_FAILED` (a native launch
+  failed; fail envelope embedded).
 - **Root command errors** (`ok:false`, frozen `{ok,error}` shape): input
   validation only — `EMPTY_MATRIX`, `INVALID_SPLIT`, `INVALID_PARAM`,
   `INVALID_RANK_BY` — plus the degenerate "no cell yielded any record" case.
@@ -262,8 +271,8 @@ Every `ranked[]` entry carries `full`, `is`, and `oos` blocks.
     "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
     "from": "2022-01-01", "to": "2024-12-31",
     "split": "2024-02-06",
-    "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
-                   "rank_by": "full_net", "per_asset": 2 },
+    "selection": { "min_trades": 300, "min_pf": 1.0, "min_is_trades": 300,
+                   "oos_min_pf": 1.0, "rank_by": "full_net", "per_asset": 2 },
     "rank_caveat": null,
     "ranked": [
       { "rank": 1, "symbol": "XAUUSD", "timeframe": "H1", "side": "long",
@@ -300,7 +309,7 @@ Every `ranked[]` entry carries `full`, `is`, and `oos` blocks.
 mt5 quant run --expert <EA> --symbols A,B,C --tf H1,H2 \
   --from YYYY-MM-DD --to YYYY-MM-DD --split <fraction|YYYY-MM-DD> \
   [--param NAME=value,start,step,stop ...] [--mode genetic|complete] \
-  [--min-trades 300] [--min-pf 1.0] [--oos-min-pf 1.0] \
+  [--min-trades 300] [--min-pf 1.0] [--min-is-trades <n>] [--oos-min-pf 1.0] \
   [--rank-by full_net|oos_sharpe|oos_pf] [--per-asset 2] \
   [--modelling ohlc-1m] [--no-html] [--dry-run] [--timeout 1800]
 
@@ -485,9 +494,10 @@ Passes + selection (pure, fixtures — risk 1):
 5. `passes.read()` yields one record per pass with input parameters and in-sample
    metrics; the winner's parameters round-trip through `render_set` into a `.set`
    MT5 would accept.
-6. `pick_winner` ignores passes failing in-sample `min_pf` and returns the best
-   remaining by **in-sample** `profit_factor`; no qualifying pass → `NO_WINNER`.
-   It does **not** consult `full_net` (which does not exist at selection time).
+6. `pick_winner` ignores passes failing in-sample `min_pf` or the in-sample trade
+   floor (`min_is_trades`, default `min_trades`) and returns the best remaining by
+   **in-sample** `profit_factor`; no qualifying pass → `NO_WINNER`. It does **not**
+   consult `full_net` (which does not exist at selection time).
 7. `gate_and_rank`: FULL trades < `min_trades` → `MIN_TRADES`; default `rank_by`
    is `full_net` with `rank_caveat` null; an `oos_*` key sets `rank_caveat`;
    `--per-asset` caps; `validated` follows OOS PF and a `validated: false`

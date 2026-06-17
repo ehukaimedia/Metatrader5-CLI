@@ -116,10 +116,11 @@ def test_no_winner_when_no_pass_clears_min_pf(monkeypatch, tmp_path):
                        from_date="2022-01-01", to_date="2024-12-31", split="0.70",
                        params=["FastPeriod=9,5,1,21"], min_pf=1.0, results_root=tmp_path)
     assert env["data"]["rejected"][0]["reason"] == "NO_WINNER"
-    # all-NO_WINNER campaigns carry a diagnostic hint (loud, not silent), persisted
-    assert "hint" in env["data"] and "profit-factor gate" in env["data"]["hint"]
+    # all-NO_WINNER campaigns carry a diagnostic hint (loud, not silent), persisted;
+    # it names both in-sample gates the winner must clear.
+    assert "hint" in env["data"] and "--min-is-trades" in env["data"]["hint"]
     reloaded = store.get_campaign(env["data"]["campaign_id"], root=tmp_path)
-    assert "profit-factor gate" in reloaded["data"]["hint"]
+    assert "--min-is-trades" in reloaded["data"]["hint"]
 
 
 def test_hint_absent_when_rejects_are_not_all_no_winner(monkeypatch, tmp_path):
@@ -133,6 +134,47 @@ def test_hint_absent_when_rejects_are_not_all_no_winner(monkeypatch, tmp_path):
     assert env["data"]["ranked"] == []
     assert env["data"]["rejected"][0]["reason"] == "MIN_TRADES"
     assert "hint" not in env["data"]
+
+
+def test_min_is_trades_floor_skips_sparse_overfit_winner(monkeypatch, tmp_path):
+    # optimization yields a sparse high-PF pass and a dense moderate pass; with an
+    # in-sample trade floor the dense pass is crowned, so the sparse overfit pass
+    # never wastes an OOS/FULL launch only to be MIN_TRADES-rejected downstream.
+    def fake_optimize(**kw):
+        return {"ok": True, "data": {"run_id": "opt", "run_dir": str(tmp_path / "opt"),
+                "optimization": [
+                    {"FastPeriod": "3", "Profit Factor": 9.0, "Trades": 4, "Sharpe Ratio": 2.0, "Profit": 50},
+                    {"FastPeriod": "21", "Profit Factor": 1.6, "Trades": 450, "Sharpe Ratio": 1.1, "Profit": 900},
+                ]}}
+    monkeypatch.setattr(campaign.ea, "optimize", fake_optimize)
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=3,3,1,21"], min_is_trades=300, results_root=tmp_path)
+    assert env["ok"] is True
+    assert env["data"]["ranked"][0]["is"]["profit_factor"] == 1.6  # dense pass, not PF 9.0
+    assert env["data"]["selection"]["min_is_trades"] == 300
+
+
+def test_min_is_trades_defaults_to_min_trades(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], min_trades=250, results_root=tmp_path)
+    assert env["data"]["selection"]["min_is_trades"] == 250  # defaulted from --min-trades
+
+
+def test_min_is_trades_negative_clamps_to_zero(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    # a nonsensical negative floor clamps to 0 (recorded as 0, the trades check disabled),
+    # mirroring per_asset's clamp; the cell still produces a winner.
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], min_is_trades=-5, results_root=tmp_path)
+    assert env["ok"] is True and len(env["data"]["ranked"]) == 1
+    assert env["data"]["selection"]["min_is_trades"] == 0
 
 
 def test_oos_single_failure_rejects_cell(monkeypatch, tmp_path):

@@ -4,9 +4,9 @@ import pytest
 from mt5_cli.quant import selection
 
 
-def _pass(pf, fast):
+def _pass(pf, fast, trades=400):
     return {"params": {"FastPeriod": str(fast)},
-            "is": {"profit_factor": pf, "trades": 400, "sharpe": 1.0, "net_profit": 100.0}}
+            "is": {"profit_factor": pf, "trades": trades, "sharpe": 1.0, "net_profit": 100.0}}
 
 
 def test_pick_winner_by_is_pf_among_gate_clearers():
@@ -16,6 +16,28 @@ def test_pick_winner_by_is_pf_among_gate_clearers():
 
 def test_pick_winner_none_when_no_pass_clears():
     assert selection.pick_winner([_pass(0.8, 5)], min_pf=1.0) is None
+
+
+def test_pick_winner_skips_sparse_overfit_pass_when_is_trade_floor_set():
+    # a sparse, high-PF pass (4 trades, PF 9.0) must lose to a dense, robust pass
+    # (400 trades, PF 1.8) once an in-sample trade floor is applied.
+    passes = [_pass(9.0, 7, trades=4), _pass(1.8, 12, trades=400)]
+    assert selection.pick_winner(passes, min_pf=1.0, min_is_trades=300)["params"]["FastPeriod"] == "12"
+    # default floor (0) keeps the old behaviour: max in-sample PF wins regardless of count
+    assert selection.pick_winner(passes, min_pf=1.0)["params"]["FastPeriod"] == "7"
+
+
+def test_pick_winner_none_when_all_passes_below_is_trade_floor():
+    passes = [_pass(2.0, 7, trades=50), _pass(3.0, 12, trades=120)]
+    assert selection.pick_winner(passes, min_pf=1.0, min_is_trades=300) is None
+
+
+def test_pick_winner_missing_trades_disqualified_only_when_floor_active():
+    p = {"params": {"FastPeriod": "5"}, "is": {"profit_factor": 2.0, "trades": None}}
+    # an active floor can't be cleared by a missing count (same rule as a missing PF)
+    assert selection.pick_winner([p], min_pf=1.0, min_is_trades=300) is None
+    # no floor -> trade count is not consulted, so the pass still qualifies
+    assert selection.pick_winner([p], min_pf=1.0)["params"]["FastPeriod"] == "5"
 
 
 def _cell(symbol, trades, net, oos_pf=1.5, oos_sharpe=1.0):

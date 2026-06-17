@@ -34,8 +34,8 @@ def _metrics(env: dict[str, Any]) -> dict[str, Any]:
 
 def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str,
               split_day: str, is_end_day: str, params: list[str], param_names: list[str],
-              mode: str, min_pf: float, modelling: str, results_root: Path | str,
-              timeout: int) -> dict[str, Any]:
+              mode: str, min_pf: float, min_is_trades: int, modelling: str,
+              results_root: Path | str, timeout: int) -> dict[str, Any]:
     base: dict[str, Any] = {"symbol": symbol, "timeframe": tf}
     child_runs: list[str] = []
 
@@ -54,7 +54,7 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
         return {**base, "reason": "CELL_FAILED", "envelope": opt, "child_runs": child_runs}
 
     rows = passes.read_rows(opt["data"].get("optimization") or [], param_names=param_names)
-    winner = selection.pick_winner(rows, min_pf=min_pf)
+    winner = selection.pick_winner(rows, min_pf=min_pf, min_is_trades=min_is_trades)
     if winner is None:
         return {**base, "reason": "NO_WINNER", "child_runs": child_runs}
     if any(v is None for v in winner["params"].values()):
@@ -86,10 +86,11 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
 
 def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: str,
         to_date: str, split: str, params: list[str] | None = None, mode: str = "genetic",
-        min_trades: int = 300, min_pf: float = 1.0, oos_min_pf: float = 1.0,
-        rank_by: str = "full_net", per_asset: int = 2, modelling: str = "ohlc-1m",
-        results_root: Path | str = "results", dry_run: bool = False, html: bool = True,
-        timeout: int = 1800, label: str | None = None) -> dict[str, Any]:
+        min_trades: int = 300, min_pf: float = 1.0, min_is_trades: int | None = None,
+        oos_min_pf: float = 1.0, rank_by: str = "full_net", per_asset: int = 2,
+        modelling: str = "ohlc-1m", results_root: Path | str = "results",
+        dry_run: bool = False, html: bool = True, timeout: int = 1800,
+        label: str | None = None) -> dict[str, Any]:
     """Run a quant campaign and return a ``quant.v1`` envelope."""
     try:
         cells = matrix.expand(symbols, timeframes)
@@ -107,6 +108,11 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
     if rank_by not in _RANK_BY:
         return fail("INVALID_RANK_BY", "--rank-by must be one of full_net, oos_sharpe, oos_pf.")
     per_asset = max(1, per_asset)  # 0/negative is nonsensical; keep at least the top 1
+    # The in-sample winner floor defaults to --min-trades: since the FULL window
+    # contains the in-sample window, a winner with that many in-sample trades also
+    # clears the FULL MIN_TRADES gate (no sparse pass crowned then rejected). A
+    # user can decouple them (e.g. a lower floor for slower strategies).
+    eff_min_is_trades = min_trades if min_is_trades is None else max(0, min_is_trades)
 
     matrix_field = {
         "symbols": list(dict.fromkeys(s.strip() for s in symbols if s and s.strip())),
@@ -122,7 +128,8 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
     all_cells: list[dict[str, Any]] = [
         _run_cell(expert=expert, symbol=symbol, tf=tf, from_date=from_date, to_date=to_date,
                   split_day=split_day, is_end_day=is_end_day, params=param_list,
-                  param_names=pnames, mode=mode, min_pf=min_pf, modelling=modelling,
+                  param_names=pnames, mode=mode, min_pf=min_pf,
+                  min_is_trades=eff_min_is_trades, modelling=modelling,
                   results_root=results_root, timeout=timeout)
         for symbol, tf in cells
     ]
@@ -145,15 +152,17 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
     data: dict[str, Any] = {
         "schema": "quant.v1", "campaign_id": cid, "expert": expert, "matrix": matrix_field,
         "from": from_date, "to": to_date, "split": split_day,
-        "selection": {"min_trades": min_trades, "min_pf": min_pf, "oos_min_pf": oos_min_pf,
+        "selection": {"min_trades": min_trades, "min_pf": min_pf,
+                      "min_is_trades": eff_min_is_trades, "oos_min_pf": oos_min_pf,
                       "rank_by": rank_by, "per_asset": per_asset},
         "rank_caveat": graded["rank_caveat"], "ranked": graded["ranked"], "rejected": rejected,
         "capped": graded["capped"], "child_run_ids": child_run_ids,
     }
     if not graded["ranked"] and rejected and all(r.get("reason") == "NO_WINNER" for r in rejected):
         data["hint"] = ("Every cell was NO_WINNER — no optimization pass cleared the in-sample "
-                        "profit-factor gate. Lower --min-pf, widen the parameter grid, or check "
-                        "the EA produces profitable in-sample passes.")
+                        "gates (profit factor >= --min-pf and in-sample trades >= --min-is-trades). "
+                        "Lower --min-pf or --min-is-trades, widen the parameter grid, or check the "
+                        "EA produces enough profitable in-sample trades.")
     # Populate artifacts (paths under the actual results_root) BEFORE persisting,
     # so a reloaded manifest carries them. The manifest always exists; the report
     # only when html is on.

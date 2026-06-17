@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `mt5 quant run` drives the native Strategy Tester across a symbol × timeframe
   matrix with explicit two-pass in-sample/out-of-sample validation, selection
-  gates (`--min-trades`, `--min-pf`, `--oos-min-pf`), a ranking metric
+  gates (`--min-trades`, `--min-pf`, `--oos-min-pf`, and `--min-is-trades` — an
+  in-sample trade floor for winner selection that defaults to `--min-trades`), a
+  ranking metric
   (`--rank-by`, default `full_net`; `oos_sharpe`/`oos_pf` opt-in with a drift
   caveat), per-asset capping, and `--dry-run` planning. Returns a ranked
   `quant.v1` envelope plus a dependency-free HTML report; `mt5 quant list` /

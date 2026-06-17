@@ -411,9 +411,12 @@
       <div class="step pure">
         <div>
           <strong>Pick the winner &mdash; in-sample selector</strong> <span class="pill purejs">pure</span><br>
-          <code>selection.pick_winner(passes, min_pf)</code> takes the in-sample pass clearing
-          <code>--min-pf</code> with the best <em>in-sample</em> profit factor, then reads its
-          parameter columns &rarr; a <code>.set</code>. <strong>Not</strong> <code>full_net</code> &mdash;
+          <code>selection.pick_winner(passes, min_pf, min_is_trades)</code> takes the in-sample pass
+          clearing <code>--min-pf</code> <em>and</em> the in-sample trade floor <code>--min-is-trades</code>
+          (default <code>--min-trades</code>) with the best <em>in-sample</em> profit factor, then reads its
+          parameter columns &rarr; a <code>.set</code>. The trade floor stops a sparse, overfit pass winning;
+          defaulting it to <code>--min-trades</code> means the winner already clears the FULL-trades gate.
+          <strong>Not</strong> <code>full_net</code> &mdash;
           that does not exist until the FULL re-run; <code>--rank-by</code> ranks finished cells, not passes.
           <span class="anchor">.set via ini_builder.render_set (ini_builder.py:181-212)</span>
         </div>
@@ -496,7 +499,10 @@
       (frame 0025), with one <strong>illustrative IS PF</strong> column added so the explorer
       can model the in-sample gate (the frame published only OOS/FULL). Defaults:
       <code>--min-trades 300</code>, <code>--min-pf 1.0</code> (in-sample),
-      <code>--rank-by full_net</code>. OOS metrics are validation, not the default rank key.
+      <code>--rank-by full_net</code>. A second in-sample gate, <code>--min-is-trades</code>
+      (default <code>--min-trades</code>), acts upstream at <em>pass</em> selection &mdash; it is not
+      modelled here because frame 0025 has no per-pass in-sample trade counts.
+      OOS metrics are validation, not the default rank key.
     </p>
     <div class="calc-grid" style="margin-top:12px; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)">
       <div>
@@ -533,7 +539,7 @@
     <p style="margin-top:8px; color:var(--muted); font-size:0.82rem">
       *IS PF is illustrative &mdash; frame 0025 published only OOS/FULL columns; the value is
       added so the explorer can model the in-sample gate. A row failing it would be a cell-level
-      <code>NO_WINNER</code> (no pass cleared the gate); FULL-trades failures are
+      <code>NO_WINNER</code> (no pass cleared the in-sample PF + trades gates); FULL-trades failures are
       <code>MIN_TRADES</code>. Survivors past <code>--per-asset</code> are trimmed, not rejected.
     </p>
     <div class="caveat">
@@ -559,8 +565,8 @@
     "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
     "from": "2022-01-01", "to": "2024-12-31",
     "split": "2024-02-06",
-    "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
-                   "rank_by": "full_net", "per_asset": 2 },
+    "selection": { "min_trades": 300, "min_pf": 1.0, "min_is_trades": 300,
+                   "oos_min_pf": 1.0, "rank_by": "full_net", "per_asset": 2 },
     "rank_caveat": null,
     "ranked": [
       { "rank": 1, "symbol": "XAUUSD", "timeframe": "H1", "side": "long",
@@ -611,6 +617,7 @@
   --param ATRWindow=20,10,5,30 \
   --mode genetic \
   --min-trades 300 --min-pf 1.0 --oos-min-pf 1.0 \   # min-pf is in-sample
+  [--min-is-trades 300] \              # in-sample trade floor at selection; defaults to --min-trades
   --rank-by full_net --per-asset 2 \   # full_net default; oos_sharpe/oos_pf opt-in (caveated)
   [--modelling ohlc-1m] [--no-html] [--dry-run] [--timeout 1800]
 
@@ -684,7 +691,7 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
           <li><code>quant.campaign.run(*, expert, symbols, timeframes, from_date, to_date, split, params, mode, selection, &hellip;)</code> &rarr; <code>quant.v1</code></li>
           <li><code>quant.list_campaigns()</code> / <code>quant.get_campaign(id)</code></li>
           <li><code>mt5 quant run | list | show</code>; new <code>tester ea stress --set-file</code></li>
-          <li><code>pick_winner(passes, min_pf)</code> selects by <em>in-sample</em> PF; <code>--rank-by</code> ranks finished cells (default <code>full_net</code>). Different operations.</li>
+          <li><code>pick_winner(passes, min_pf, min_is_trades)</code> selects by <em>in-sample</em> PF among passes clearing the in-sample trade floor; <code>--rank-by</code> ranks finished cells (default <code>full_net</code>). Different operations.</li>
           <li>Root errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>INVALID_PARAM</code>, <code>INVALID_RANK_BY</code>, <code>NO_RESULTS</code>. Per-cell reject reasons: <code>NO_WINNER</code>, <code>MIN_TRADES</code>, <code>CELL_FAILED</code>.</li>
         </ul>
       </div>

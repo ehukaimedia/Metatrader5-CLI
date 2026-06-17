@@ -17,8 +17,10 @@ author the EA — the tool never invents a strategy and never holds the alpha.
 3. **Plan the campaign.** Dry-run first to see the launch cost:
    `mt5 --json quant run --expert <name> --symbols <list> --tf <list> --from <date> --to <date> --split 0.70 --param <range> --dry-run`.
 4. **Run it.** Drop `--dry-run`. The defaults encode the discipline:
-   `--min-trades 300`, `--min-pf 1.0`, `--rank-by full_net`. Rank only *orders*
-   candidates — it never certifies edge.
+   `--min-trades 300`, `--min-pf 1.0`, `--rank-by full_net`, and
+   `--min-is-trades` (the in-sample trade floor for winner selection, defaulting
+   to `--min-trades`) so a sparse, overfit pass can't be crowned. Rank only
+   *orders* candidates — it never certifies edge.
 5. **Read `quant.v1`.** Each `data.ranked[]` entry carries FULL / IS / OOS blocks
    and a `validated` flag. Start at the top, then judge.
 6. **Apply the judgment (this is the quant part):**

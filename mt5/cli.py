@@ -1634,6 +1634,8 @@ def quant() -> None:
 @click.option("--mode", default="genetic", type=click.Choice(["genetic", "complete"]))
 @click.option("--min-trades", default=300, type=int)
 @click.option("--min-pf", default=1.0, type=float)
+@click.option("--min-is-trades", "min_is_trades", default=None, type=int,
+              help="Min in-sample trades for a pass to win selection (default: --min-trades).")
 @click.option("--oos-min-pf", default=1.0, type=float)
 @click.option("--rank-by", default="full_net",
               help="full_net (default), oos_sharpe, or oos_pf.")

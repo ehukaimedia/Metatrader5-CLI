@@ -20,19 +20,35 @@ _RANK_KEYS: dict[str, Callable[[dict[str, Any]], Any]] = {
 _OOS_KEYS = {"oos_sharpe", "oos_pf"}
 
 
-def pick_winner(passes: list[dict[str, Any]], *, min_pf: float) -> dict[str, Any] | None:
-    """Best in-sample pass clearing ``min_pf``, by in-sample profit factor.
+def pick_winner(passes: list[dict[str, Any]], *, min_pf: float,
+                min_is_trades: int = 0) -> dict[str, Any] | None:
+    """Best in-sample pass clearing the in-sample gates, by in-sample profit factor.
 
-    Returns None when no pass clears the gate (the cell is then rejected
+    A pass qualifies when its in-sample profit factor is numeric and >= ``min_pf``
+    and — when ``min_is_trades`` is positive — its in-sample trade count is numeric
+    and >= that floor. The trade floor stops a sparse, overfit pass (a handful of
+    trades at a flattering profit factor) from being crowned over a denser, more
+    robust one; and because the FULL window contains the in-sample window, a floor
+    equal to ``--min-trades`` also keeps the winner from later tripping the FULL
+    MIN_TRADES gate. Returns None when no pass qualifies (the cell is then rejected
     NO_WINNER). Never consults full_net — that does not exist at selection time.
     """
     def _pf(p: dict[str, Any]) -> float | None:
         v = (p.get("is") or {}).get("profit_factor")
         return float(v) if isinstance(v, (int, float)) else None
 
-    # require a NUMERIC in-sample PF >= min_pf; a missing PF never qualifies
-    # (so "report has no PF column" correctly yields no winner -> NO_WINNER).
-    qualified = [p for p in passes if (pf := _pf(p)) is not None and pf >= min_pf]
+    def _trades_ok(p: dict[str, Any]) -> bool:
+        if min_is_trades <= 0:
+            return True  # no floor -> the in-sample trade count is not consulted
+        v = (p.get("is") or {}).get("trades")
+        # a missing/non-numeric count can't clear an active floor (same rule as PF)
+        return isinstance(v, (int, float)) and v >= min_is_trades
+
+    # require a NUMERIC in-sample PF >= min_pf (a missing PF never qualifies, so
+    # "report has no PF column" correctly yields no winner -> NO_WINNER) and,
+    # when set, enough in-sample trades for that PF to be meaningful.
+    qualified = [p for p in passes
+                 if (pf := _pf(p)) is not None and pf >= min_pf and _trades_ok(p)]
     if not qualified:
         return None
     return max(qualified, key=lambda p: float(p["is"]["profit_factor"]))

@@ -6,7 +6,9 @@
 
 **Goal:** Ship `mt5 quant` — a campaign that drives the native MT5 Strategy Tester across a symbol × timeframe matrix with explicit two-pass IS/OOS validation, configurable selection gates, ranked survivors, a `quant.v1` envelope, a dependency-free HTML report, and a static agent playbook.
 
-**Architecture:** A new pure-stdlib package `mt5_cli/quant/` (matrix, passes, selection, report, store, campaign) composes the existing `mt5_cli.tester.ea` primitives; `mt5/cli.py` adds a thin `quant` group plus `tester ea stress --set-file`. Per cell, serially: optimize IS `[from, split−1d]` → pick winner by in-sample PF → `single` OOS `[split, to]` → `single` FULL `[from, to]`. Like the tester package, `quant` never imports MetaTrader5.
+**Architecture:** A new pure-stdlib package `mt5_cli/quant/` (matrix, passes, selection, report, store, campaign) composes the existing `mt5_cli.tester.ea` primitives; `mt5/cli.py` adds a thin `quant` group plus `tester ea stress --set-file`. Per cell, serially: optimize IS `[from, split−1d]` → pick winner by in-sample PF (among passes clearing an in-sample trade floor `--min-is-trades`, default `--min-trades`) → `single` OOS `[split, to]` → `single` FULL `[from, to]`. Like the tester package, `quant` never imports MetaTrader5.
+
+> **Post-merge refinement (selection):** `pick_winner` gained an in-sample trade floor (`--min-is-trades`, default `--min-trades`) so a sparse, overfit pass can't be crowned over a denser, more robust one; since FULL ⊇ IS, the default also implies the FULL `MIN_TRADES` gate. See the spec's *Selection & ranking contract* — the source of truth.
 
 **Tech Stack:** Python 3.10+, click, stdlib only (`xml.etree`, `datetime`, `html.parser`); pytest; the existing `mt5_cli.tester` and `mt5_cli.reports` modules.
 

@@ -16,6 +16,16 @@ def test_quant_run_dry_run_emits_envelope():
     assert '"planned_launches": 12' in r.output  # 4 cells * 3 launches
 
 
+def test_quant_run_accepts_min_is_trades_option():
+    # the option parses and forwards into campaign.run (a missing kwarg would TypeError)
+    r = CliRunner().invoke(main, [
+        "--json", "quant", "run", "--expert", "demo", "--symbols", "EURUSD", "--tf", "H1",
+        "--from", "2022-01-01", "--to", "2024-12-31", "--split", "0.70",
+        "--min-is-trades", "150", "--dry-run"])
+    assert r.exit_code == 0
+    assert '"schema": "quant.v1"' in r.output
+
+
 def test_quant_run_bad_rank_by_emits_invalid_rank_by():
     r = CliRunner().invoke(main, [
         "--json", "quant", "run", "--expert", "demo", "--symbols", "EURUSD", "--tf", "H1",
