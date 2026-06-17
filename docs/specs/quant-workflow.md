@@ -11,9 +11,8 @@ Related plan: to be written after this spec is reviewed
 `mt5 quant` turns the research pipeline from the "AI quant workflow" into one
 tool-true command. `quant run` drives the **native** MT5 Strategy Tester across
 a symbol × timeframe matrix: genetic optimization on an in-sample window,
-out-of-sample forward validation, configurable selection gates, a ranking
-metric, and a consolidated `quant.v1` envelope plus a dependency-free HTML
-report.
+out-of-sample validation, configurable selection gates, a ranking metric, and a
+consolidated `quant.v1` envelope plus a dependency-free HTML report.
 
 The point of the slice: a trader's real cost is not running one backtest — it
 is running the same logic across many assets and timeframes, splitting each into
@@ -33,238 +32,201 @@ of alpha; the harness never computes a signal.
 To make an AI agent able to *operate* this loop as a quant — not just call the
 commands — the spec also ships a quant agent playbook
 (`mt5_cli/skills/QUANT_WORKFLOW.md`), drafted in full in
-[Quant agent playbook](#quant-agent-playbook) below. The agent supplies the
+[Quant agent playbook](#quant-agent-playbook). The agent supplies the
 hypotheses and authors the EA (its own native capabilities); the playbook wires
 that reasoning to the commands and carries the judgment the video earns the hard
 way — the asset-drift trap, trade-count sufficiency, multiple-testing
 discipline, and execution stress. The tool stays hands; the agent is the brain.
 
-## How MT5 forward optimization actually behaves
+## Validation mechanism: explicit two-pass (v1)
 
-This shaped the per-cell contract, so it is stated up front (verified against
-the code and MetaQuotes docs, 2026-06-16):
+v1 splits each cell into a flat, explicit sequence — **no MT5 forward mode, no
+`.forward` artifact, no back↔forward join**:
 
-- `ForwardMode` is `1` (last ½), `2` (last ⅓), `3` (last ¼), or `4` (custom —
-  split at `ForwardDate`); `ForwardDate` is honored **only** under
-  `ForwardMode=4`. Today `build_ea_ini()` emits `ForwardMode=1` *and*
-  `ForwardDate` together (`mt5_cli/tester/ini_builder.py:107-109`) — so a custom
-  date is silently ignored and the split is always ½. This feature fixes that:
-  any `--split` maps to `ForwardMode=4` + a computed `ForwardDate`. MT5 then
-  optimizes on the in-sample (back) segment and **forward-tests only the
-  selected best passes** on the out-of-sample segment.
-- MT5 writes forward results to a **separate report** with a `.forward` suffix,
-  not as extra columns on the back-result rows. The current
-  `parse_optimization_xml()` (`mt5_cli/tester/results.py:285`) is a flat
-  `<pass>` reader with no back/forward model, and `assemble()` parses only the
-  one optimization file. There is no `.forward` handling anywhere today.
+1. **Optimize the in-sample window** `[from, split]` (genetic) → `optimization.xml`
+   (one row per pass, with that pass's input parameters and in-sample metrics).
+2. **Pick the winner** from the in-sample passes (below).
+3. **`single` on the out-of-sample window** `[split, to]` with the winner's set → OOS metrics.
+4. **`single` on the FULL window** `[from, to]` with the winner's set → FULL metrics + the
+   continuous equity curve crossing the split.
 
-Consequences the earlier draft got wrong, now fixed in this spec: a single pass
-row does **not** contain both IS and OOS; not every pass is forward-tested; and
-reconstructing the winner's `.set` depends on the optimization report exposing
-its input-parameter columns. The per-cell flow and launch-count claim are
-rewritten accordingly, and the risky assumptions are fixture-gated (see
-[Implementation risks](#implementation-risks-fixtures-required-before-build)).
+**Three native launches per cell, flat.** This was chosen over the
+forward-optimization "hybrid" (2 launches) on review: MT5's forward mode writes
+a *separate* `.forward` report, forward-tests only the *selected* passes, and
+needs a back↔forward join — and `build_ea_ini()` today emits the wrong
+`ForwardMode` for a custom split (see [Deferred: hybrid](#deferred-hybrid-forward-path)).
+Two-pass removes all of that from v1; the hybrid returns later, behind fixtures,
+purely as a launch-count optimization.
+
+### Winner selection vs cell ranking (these are different operations)
+
+The review caught a circularity: you cannot select the winning optimization pass
+by `full_net`, because `full_net` does not exist until the FULL re-run. So the
+two concepts are split:
+
+- **Winner selection** (step 2, in-sample, pre-FULL): among passes whose
+  in-sample `profit_factor` clears `--min-pf`, `pick_winner` takes the best by an
+  **in-sample** selector — default in-sample `profit_factor`. (A configurable
+  `--winner-by` is deliberately deferred; YAGNI.)
+- **Cell ranking** (after all cells assemble, post-FULL): `--rank-by` orders the
+  finished cells by a metric that now exists — default `full_net`; `oos_sharpe`
+  / `oos_pf` are opt-in and set `rank_caveat`.
 
 ## Source Anchors
 
 - Orchestration template: `mt5_cli/tester/ea.py:304` — `stress()` runs many
   `single()` passes serially (the launcher forbids parallel terminals),
-  aggregates per-scenario envelopes, and attaches a graded block.
-- Per-cell primitives: `mt5_cli/tester/ea.py:152` (`optimize()`), which threads
-  `forward` (`ea.py:160` signature, `ea.py:221` into `build_ea_ini`) and points
-  at one `optimization.xml`; `mt5_cli/tester/ea.py:45` (`single()`), whose
-  `set_file` parameter (`ea.py:59`) is staged at `ea.py:92`.
-- Forward INI emission: `mt5_cli/tester/ini_builder.py:107-109` emits
-  `ForwardMode=1` + `ForwardDate` — but MT5 honors `ForwardDate` only under
-  `ForwardMode=4`, so this feature changes it to mode 4 for custom splits.
+  aggregates per-scenario envelopes, attaches a graded block.
+- Per-cell primitives: `mt5_cli/tester/ea.py:152` (`optimize()`, used here on the
+  in-sample window — v1 passes **no** `forward`); `mt5_cli/tester/ea.py:45`
+  (`single()`, used for OOS and FULL), whose `set_file` parameter (`ea.py:59`) is
+  staged at `ea.py:92`.
 - `.set` rendering already exists: `mt5_cli/tester/ini_builder.py:181-212`
   (`render_set` / `write_set`), including the `value||start||step||stop||Y`
   optimization-range form.
 - Genetic mode code: `mt5_cli/tester/ea.py:18` — `_OPT_MODES["genetic"] = 2`.
-- Multi-symbol precedent (raw, no optimization): `mt5_cli/tester/ea.py:273`
-  (`scanner()`).
+- Multi-symbol precedent (raw): `mt5_cli/tester/ea.py:273` (`scanner()`).
 - Stress today has no `set_file`: CLI `tester_ea_stress` (`mt5/cli.py:1526`)
-  exposes no `--set-file`, and `ea.stress()` (`mt5_cli/tester/ea.py:304`) calls
-  `single()` without one — so a winning parameter set cannot be stressed yet.
-- Pure-module precedent for scoring: `mt5_cli/tester/stress.py` — stdlib-only,
-  no filesystem, no launcher.
+  exposes no `--set-file`, and `ea.stress()` calls `single()` without one — this
+  feature adds it.
+- Forward INI emission (relevant only to the deferred hybrid):
+  `mt5_cli/tester/ini_builder.py:107-109` emits `ForwardMode=1` + `ForwardDate`,
+  but MT5 honors `ForwardDate` only under `ForwardMode=4` — a latent bug the
+  hybrid must fix; v1 two-pass never sets a forward mode.
+- `rates fetch` shape (for the playbook's asset-drift step): `mt5/cli.py:569-574`
+  — accepts `symbol`, `timeframe`, `--bars` only (no `--from`/`--to`; those are
+  on `history`).
+- Pure-module precedent for scoring: `mt5_cli/tester/stress.py`.
 - Stats source: `mt5_cli/tester/results.py:184-256` — `parse_html_report()`
   yields `net_profit`, `profit_factor`, `max_drawdown_pct`, `total_trades`,
-  `win_rate`, `sharpe`, `expectancy`, and an `equity_curve`.
+  `win_rate`, `sharpe`, `expectancy`, `equity_curve`. Optimization passes:
+  `results.py:285` (`parse_optimization_xml`, a flat `<pass>` reader).
 - Bridge isolation: `mt5_cli/tester/__init__.py:15-17` — the tester package must
-  not import MetaTrader5; `terminal64.exe` produces artifacts on disk. `quant`
-  inherits this rule (see Architecture).
-- Run cache: `mt5_cli/tester/cache.py:17-38` (`make_run_id`, `run_dir`) and
-  `:41-63` (`list_recent`, `get_run`).
-- Envelope contract: `mt5_cli/reports/envelope.py` — `ok` / `fail`; failure
-  detail lives under `error.data`, frozen by the envelope-contract test.
-- Error registry: `mt5_cli/errors.py` — new codes must be registered
-  (test-enforced).
-- CLI wiring: `mt5/cli.py` — thin click wrapper (`pyproject.toml:69`,
-  `mt5 = "mt5.cli:main"`); `--json` is hoisted before Click parsing so it is
-  position-independent.
-- Lean-deps charter: `pyproject.toml:38-48` — no pandas/numpy stack.
-- Agent-doc precedent: `mt5_cli/skills/USER_WORKSPACE.md` ships static markdown
-  for agents to introspect, packaged via `pyproject.toml:107-111`
-  (`"mt5_cli.skills" = ["*.md"]`). The quant playbook ships the same way.
+  not import MetaTrader5; `quant` inherits this (import-boundary test).
+- Run cache: `mt5_cli/tester/cache.py:17-63`.
+- Envelope contract: `mt5_cli/reports/envelope.py`. Error registry:
+  `mt5_cli/errors.py` (test-enforced). CLI: `mt5/cli.py` (`pyproject.toml:69`).
+- Lean-deps charter: `pyproject.toml:38-48` (no pandas/numpy). Agent-doc
+  precedent: `mt5_cli/skills/USER_WORKSPACE.md`, packaged via
+  `pyproject.toml:107-111`.
 
 ## Durable Wedge
 
-Six-month thesis: multi-asset genetic optimization with a forward split is
-native MT5 — the platform owns the simulation and the split. This repo owns what
-the platform does not ship: matrix orchestration across cells, a deterministic
+Six-month thesis: multi-asset optimization with an in/out-of-sample split is
+native MT5 — the platform owns the simulation. This repo owns what the platform
+does not ship: matrix orchestration across cells, a deterministic
 selection/ranking contract, and a machine-readable ranked envelope an agent
-gates on without a human reading eight HTML reports. Better agents make a
-deterministic campaign more valuable, not less.
+gates on without reading eight HTML reports. Better agents make a deterministic
+campaign more valuable, not less.
 
 ## Goals
 
-- Expand a `symbols × timeframes` matrix and drive each cell through the hybrid
-  validation (forward-split genetic optimize → pick winner → re-run winner over
-  FULL), with an explicit-rerun fallback when the forward artifact does not
-  cover the winner.
-- Apply deterministic selection gates (min FULL trades, min in-sample PF) and a
-  configurable ranking metric; record rejects with reasons.
-- Mark each survivor `validated` against an out-of-sample PF floor, without
-  letting OOS metrics be the default ranking key.
-- Return one `quant.v1` envelope, a dependency-free HTML report, and a
-  re-loadable `manifest.json`; keep child runs cached under `results/`.
-- Add `set_file` support to `tester ea stress` so the playbook's "stress the
-  winner" step can test the winning parameter set (small, well-scoped extension
-  to the existing stress contract).
-- Ship a quant agent playbook (`mt5_cli/skills/QUANT_WORKFLOW.md`) that turns the
-  agent's own reasoning into the quant role.
+- Expand a `symbols × timeframes` matrix and drive each cell through the explicit
+  two-pass validation (optimize IS → pick winner → `single` OOS → `single` FULL).
+- Separate winner selection (in-sample selector) from cell ranking (`--rank-by`).
+- Apply deterministic gates (min FULL trades, min in-sample PF) and a ranking
+  metric; record rejects with reasons; mark survivors `validated` against an OOS
+  PF floor without letting OOS be the default rank key.
+- Return one `quant.v1` envelope, a dependency-free HTML report, and a re-loadable
+  `manifest.json`; keep child runs cached under `results/`.
+- Add `set_file` support to `tester ea stress` so the playbook can stress the
+  winning set.
+- Ship the quant agent playbook (`mt5_cli/skills/QUANT_WORKFLOW.md`).
 
 ## Non-Goals
 
-- No Python EDA engine; no Python vectorized backtester; no Python→MQL5
-  translation. MT5 stays the only engine; the EA stays the only alpha.
-- No campaign-internal benchmark computation. The asset-drift check is an agent
-  step using the existing `rates` command (see playbook) — pulling the rates
-  module into `quant` would import the MetaTrader5 SDK and break bridge
-  isolation.
-- No walk-forward beyond the single native forward split; no multi-data-feed or
-  news testing; no campaign resume in v1.
+- **The forward-optimization hybrid is deferred** (see below) — not v1.
+- No Python EDA engine; no Python backtester; no Python→MQL5 translation. MT5 is
+  the only engine; the EA is the only alpha.
+- No campaign-internal benchmark. The asset-drift check is an agent step using
+  `rates` (playbook); importing the rates module into `quant` would pull in the
+  MT5 SDK and break bridge isolation.
+- No walk-forward beyond the single split; no multi-data-feed/news testing; no
+  campaign resume in v1.
 - No MCP exposure for `quant run` (long-running, launches a terminal);
   `quant list` / `show` are read-only and MCP-safe.
 - No trading strategy, signal generation, indicator math, or market opinion.
 
 ## Architecture
 
-A new package `mt5_cli/quant/`, same layering as the tester stack (pure modules
-below, orchestration above, the CLI a thin wrapper). **Bridge isolation:** like
-`mt5_cli/tester`, `quant` must not import MetaTrader5 — it drives the tester
-through the filesystem only. An import-boundary test enforces this.
+A new package `mt5_cli/quant/`, same layering as the tester stack. **Bridge
+isolation:** like `mt5_cli/tester`, `quant` must not import MetaTrader5 — it
+drives the tester through the filesystem only (import-boundary test).
 
 1. `matrix.py` — pure: expand/validate `symbols × timeframes`; parse `--split`
-   into a `ForwardDate` — a `0<f<1` fraction becomes `from + f×(to−from)`
-   (stdlib date math), an explicit `YYYY-MM-DD` is used as-is, and both drive
-   `ForwardMode=4`; parse `--param NAME=value,start,step,stop` ranges (reusing
-   `ini_builder.render_set`
-   grammar). Rejects an empty matrix (`EMPTY_MATRIX`), a malformed split
-   (`INVALID_SPLIT`), or a malformed range (`INVALID_PARAM`) through one shared
-   gate, so the typed library path is held to the same contract as the CLI.
-2. `passes.py` — pure: read the optimization back-result file and the
-   `.forward` file, normalize each `<pass>` to a metric+parameter record, and
-   **join back↔forward by pass id**. Extends/wraps
-   `results.parse_optimization_xml` with the back/forward awareness it lacks
-   today.
-3. `selection.py` — pure: `pick_winner(joined_passes, *, min_pf, rank_by)`
-   chooses, among passes whose in-sample clears `min_pf`, the best by the
-   ranking metric and returns its parameter set; `gate_and_rank(cells,
-   selection)` applies the FULL-trades gate, ranks survivors, caps per asset,
-   and records rejects. The `tester/stress.py` analog.
-4. `report.py` — pure: render the HTML from assembled cells — a ranked table, a
-   per-strategy IS/OOS/FULL card, and an inline-SVG equity curve with the split
-   marker, linking to each child run's native `report.html`. No matplotlib, no
-   pandas; the SVG is a generated polyline over the parsed `equity_curve`.
-5. `campaign.py` — orchestration: expand the matrix, run each cell's hybrid
-   serially, assemble cells, call `selection`, write artifacts, return
-   `quant.v1`. The `ea.stress()` analog.
-6. `store.py` — `make_campaign_id()` and `manifest.json` read/write, plus
-   `list_campaigns()` / `get_campaign(id)`, reusing `tester/cache.py`.
-7. `mt5/cli.py` — a new `quant` click group (`run`, `list`, `show`); also adds
-   `--set-file` to the existing `tester ea stress` command. No business logic.
-8. `mt5_cli/skills/QUANT_WORKFLOW.md` — a static agent playbook shipped with the
-   package (the `USER_WORKSPACE.md` precedent), drafted in
-   [Quant agent playbook](#quant-agent-playbook). It ships in the same phase as
-   the `quant` CLI so the doc never references a command the build lacks.
+   into the IS/OOS boundary date — a `0<f<1` fraction becomes `from + f×(to−from)`
+   (stdlib date math), an explicit `YYYY-MM-DD` is used as-is; parse
+   `--param NAME=value,start,step,stop` ranges (reusing `ini_builder.render_set`
+   grammar). Rejects via one shared gate: `EMPTY_MATRIX`, `INVALID_SPLIT`,
+   `INVALID_PARAM`.
+2. `passes.py` — pure: read the in-sample `optimization.xml` into one record per
+   pass carrying its **input parameters** and **in-sample metrics** (wraps
+   `results.parse_optimization_xml`, which is column-blind today). No forward
+   join in v1.
+3. `selection.py` — pure: `pick_winner(passes, *, min_pf)` returns the in-sample
+   pass clearing `min_pf` with the best in-sample selector (default IS
+   `profit_factor`); `gate_and_rank(cells, selection)` applies the FULL-trades
+   gate, ranks by `--rank-by`, caps per asset, records rejects.
+4. `report.py` — pure: render HTML from assembled cells — ranked table,
+   per-strategy IS/OOS/FULL card, inline-SVG equity curve with the split marker,
+   links to each child `report.html`. No matplotlib, no pandas.
+5. `campaign.py` — orchestration: expand the matrix, run each cell's two-pass
+   sequence serially, assemble cells, call `selection`, write artifacts, return
+   `quant.v1`.
+6. `store.py` — `make_campaign_id()`, `manifest.json` read/write,
+   `list_campaigns()` / `get_campaign(id)` (reuses `tester/cache.py`).
+7. `mt5/cli.py` — a new `quant` click group (`run`, `list`, `show`); adds
+   `--set-file` to `tester ea stress`. No business logic.
+8. `mt5_cli/skills/QUANT_WORKFLOW.md` — the static agent playbook, shipped with
+   the package, drafted in [Quant agent playbook](#quant-agent-playbook). Ships
+   in the same phase as the `quant` CLI so it never references a missing command.
 
-Cross-cutting changes to the tester layer: (a) `build_ea_ini()` emits
-`ForwardMode=4` — not `1` — whenever a forward date is supplied, so the custom
-`ForwardDate` is actually used; (b) `stress()` and CLI `tester ea stress` gain
-an optional `set_file` / `--set-file` threaded into the `single()` calls they
-already make.
+Cross-cutting: `stress()` and CLI `tester ea stress` gain an optional `set_file`
+/ `--set-file` threaded into the `single()` calls they already make. (The
+`ForwardMode=4` fix is **not** v1 — it belongs to the deferred hybrid.)
 
-### Per-cell hybrid (with fallback)
+### Per-cell two-pass flow
 
-Each cell is one `(symbol, timeframe)`. Steps run serially.
+For each `(symbol, timeframe)` cell, serially (launcher forbids parallel
+terminals):
 
-1. `ea.optimize(mode="genetic", forward=split, params=…, from=FULL, to=FULL)` →
-   the back-result `optimization.xml` (all passes, in-sample) plus MT5's
-   `.forward` report (the selected passes, out-of-sample). **1 launch.**
-2. `passes.join()` pairs back↔forward rows by pass id.
-   `selection.pick_winner()` takes the best forward-covered pass clearing the
-   in-sample `min_pf`, by `rank_by`, and reads its parameter columns → `.set`.
-3. `ea.single(set_file=winner.set, from=FULL, to=FULL)` → the continuous FULL
-   `report.html` (merged equity curve + FULL stats). **1 launch.**
-4. Assemble the cell: IS from the back row, OOS from the forward row, FULL from
-   the re-run; equity curve split at `ForwardDate`.
-
-**Launches: 2 per cell** in the common path. **Fallback (+1 launch):** if the
-winner was not forward-tested (so no `.forward` row), or the optimization report
-lacks the metric columns needed for IS/OOS, run an explicit
-`ea.single(set_file=winner.set, from=split, to=FULL)` over the held-out window to
-produce OOS directly. The fallback is the same shape as the explicit two-pass
-mechanism, scoped to the cells that need it.
-
-> **Open mechanism choice for the maintainer.** The review exposed enough
-> forward-artifact complexity (separate file, partial forward coverage, join by
-> pass id) that the *explicit two-pass* mechanism — optimize IS-window → pick
-> winner → `single` OOS-window → `single` FULL, a flat 3 launches/cell, no
-> `.forward` parsing — may be the simpler, more robust default. This spec keeps
-> the hybrid as the chosen default (per the brainstorm decision) with the
-> explicit rerun already specced as the fallback, so switching the default is a
-> one-line contract change if preferred.
+1. `ea.optimize(mode="genetic", params=…, from=FROM, to=SPLIT)` → in-sample
+   `optimization.xml`. **launch 1.**
+2. `passes.read()` + `selection.pick_winner(passes, min_pf=…)` → the winning
+   parameter set → `.set`. (pure)
+3. `ea.single(set_file=winner.set, from=SPLIT, to=TO)` → OOS metrics. **launch 2.**
+4. `ea.single(set_file=winner.set, from=FROM, to=TO)` → FULL metrics + continuous
+   equity. **launch 3.**
+5. Assemble: IS from the winner's optimization row, OOS from launch 2, FULL from
+   launch 3; equity split at `SPLIT`. (pure)
 
 ### Selection & ranking contract
 
-- **Gates (hard):** winner's FULL `total_trades` ≥ `--min-trades` (default 300);
-  in-sample `profit_factor` ≥ `--min-pf` (default 1.0), enforced inside
-  `pick_winner` (a cell whose best pass clears neither yields no winner).
-- **`validated` flag:** OOS `profit_factor` ≥ `--oos-min-pf` (default 1.0). This
-  is an honesty check, **not** a hard gate and **not** the ranking key — a
-  `validated: false` survivor still ranks.
-- **Ranking metric — `--rank-by`:** default **`full_net`** (whole-period
-  realized net profit of the in-sample-selected parameters). Options:
-  `full_net`, `oos_sharpe`, `oos_pf`. Choosing an `oos_*` key sets a top-level
-  `rank_caveat` in the envelope, because out-of-sample metrics over-reward a
-  trending asset (the GOLD case). Ranking only **orders candidates for review**;
-  it never certifies edge — the `validated` flag and the agent's asset-drift
-  check do. (IS-based rank keys are deferred until the optimization artifact's
-  IS columns are fixture-proven.)
-- **`--per-asset`** (default 2): keep the top N per asset, matching the video's
-  rank-1/rank-2 layout.
+- **Winner selector** (step 2): among in-sample passes with `profit_factor` ≥
+  `--min-pf` (default 1.0), the best by in-sample `profit_factor`. No qualifying
+  pass → the cell is rejected `NO_WINNER`.
+- **FULL-trades gate:** winner's FULL `total_trades` ≥ `--min-trades` (default
+  300), else reject `MIN_TRADES`.
+- **`validated` flag:** OOS `profit_factor` ≥ `--oos-min-pf` (default 1.0). Not a
+  gate, not the rank key — a `validated: false` survivor still ranks.
+- **`--rank-by`** (over assembled cells): default `full_net`; `oos_sharpe` /
+  `oos_pf` are opt-in and set `rank_caveat`. Ranking orders candidates; it never
+  certifies edge — the `validated` flag and the agent's asset-drift check do.
+- **`--per-asset`** (default 2): keep the top N per asset.
 
 ### Reject reasons vs error codes
 
-These were ambiguous in the earlier draft; resolved here.
-
 - **Per-cell reject reasons** (entries in `rejected[]`, campaign continues):
-  - `NO_WINNER` — optimization produced no pass clearing the in-sample gates.
-  - `MIN_TRADES` — the winner's FULL trade count is below `--min-trades`.
-  - `CELL_FAILED` — a native launch failed; the fail envelope is embedded.
-- **Root command errors** (`ok: false`, frozen `{ok,error}` shape): input
+  `NO_WINNER` (no in-sample pass cleared the gate), `MIN_TRADES` (winner's FULL
+  trades below floor), `CELL_FAILED` (a native launch failed; fail envelope
+  embedded).
+- **Root command errors** (`ok:false`, frozen `{ok,error}` shape): input
   validation only — `EMPTY_MATRIX`, `INVALID_SPLIT`, `INVALID_PARAM`,
-  `INVALID_RANK_BY` — plus the degenerate case where no cell yields any ranked
-  or rejected record. `NO_WINNER` is **not** a root error; it is a per-cell
-  reject reason.
+  `INVALID_RANK_BY` — plus the degenerate "no cell yielded any record" case.
 
 ### Envelope: `quant.v1`
 
-Every `ranked[]` entry carries `full`, `is`, and `oos` blocks (the FULL block is
-always present from the re-run; `is`/`oos` are present once the cell's
-back/forward rows are read or the fallback OOS rerun runs).
+Every `ranked[]` entry carries `full`, `is`, and `oos` blocks.
 
 ```json
 {
@@ -275,7 +237,7 @@ back/forward rows are read or the fallback OOS rerun runs).
     "expert": "alpha",
     "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
     "from": "2022-01-01", "to": "2024-12-31",
-    "split": "0.70",
+    "split": "2024-01-21",
     "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
                    "rank_by": "full_net", "per_asset": 2 },
     "rank_caveat": null,
@@ -327,31 +289,31 @@ mt5 tester ea stress --expert <EA> --symbol <SYM> --tf <TF> \
 ```
 
 - Exit code stays 0; callers parse the envelope's `ok` boolean.
-- `--dry-run` returns the expanded matrix, cell count, and launch estimate (2
-  per cell, noting the +1 fallback), and launches nothing.
-- `--timeout` is per native launch.
-- `--modelling` defaults to `ohlc-1m` for the optimization sweep; the FULL
-  re-run inherits `single()`'s `real-ticks` default unless overridden.
-- `tester ea stress --set-file` is the new flag this feature adds so a winner's
-  parameter set can be stressed.
+- `--split` is the IS/OOS boundary date (a fraction is converted against
+  `from`/`to`); it bounds the in-sample optimize `[from, split]` and the OOS
+  `single` `[split, to]`.
+- `--dry-run` returns the expanded matrix, cell count, and launch estimate (3 per
+  cell), and launches nothing.
+- `--timeout` is per native launch. `--modelling` defaults to `ohlc-1m` for the
+  optimization pass; the OOS/FULL re-runs inherit `single()`'s `real-ticks`
+  default unless overridden.
 
 ## Quant agent playbook
 
 Full draft of `mt5_cli/skills/QUANT_WORKFLOW.md` — static markdown shipped with
 the tool for any AI agent to introspect (the `USER_WORKSPACE.md` precedent). It
 ships in the implementation phase, not this spec PR, so it never documents a
-command the build lacks. The agent brings the hypotheses and writes the EA; this
-playbook turns that into the quant role.
+command the build lacks.
 
 ---
 
 ### The loop
 
 1. **Frame the hypothesis.** State the edge in one or two sentences: what
-   inefficiency, on which assets and timeframes, and why it should persist.
-   Predeclare the asset universe *before* seeing results — choosing symbols
-   after the fact manufactures a false out-of-sample. Keep the rule simple;
-   complex rules curve-fit. You own this step; the tool never invents a strategy.
+   inefficiency, on which assets and timeframes, why it should persist.
+   Predeclare the asset universe *before* seeing results — choosing symbols after
+   the fact manufactures a false out-of-sample. Keep the rule simple. You own
+   this step; the tool never invents a strategy.
 2. **Author and compile the EA.** Write the rule as an MQL5 Expert Advisor in
    `./ea/`, exposing the parameters to search as `input`s. Compile it:
    `mt5 --json ea compile <name>`. (Where files live: `USER_WORKSPACE.md`.)
@@ -359,26 +321,25 @@ playbook turns that into the quant role.
    `mt5 --json quant run --expert <name> --symbols ... --tf ... --from ... --to ... --split 0.70 --param ... --dry-run`.
 4. **Run it.** Drop `--dry-run`. Defaults encode the discipline:
    `--min-trades 300 --min-pf 1.0 --rank-by full_net`.
-5. **Read `quant.v1`.** Each `data.ranked[]` entry carries FULL / IS / OOS
-   blocks and a `validated` flag. Rank only orders candidates — start at the top,
-   then judge.
+5. **Read `quant.v1`.** Each `data.ranked[]` entry carries FULL / IS / OOS blocks
+   and a `validated` flag. Rank only orders candidates — start at the top, then
+   judge.
 6. **Apply the judgment (this is the quant part):**
    - *Asset-drift trap.* A long-only winner on a trending asset posts a gorgeous
      OOS curve that is the asset, not the edge (canonical case: gold up
      ~150–200%). Make it actionable: fetch the asset's own move with
      `mt5 --json rates fetch <symbol> <tf> --bars <N>`, compute the buy-and-hold
-     return from the first vs last close, and
-     compare it to the strategy's return. If the edge disappears once you
-     subtract the asset's drift, it is not an edge. (The campaign does not embed
-     a benchmark — computing it from `rates` is your step, which keeps `quant`
-     free of the MT5 SDK.)
+     return from the first vs last close, and compare it to the strategy's
+     return. If the edge disappears once you subtract the asset's drift, it is not
+     an edge. (The campaign does not embed a benchmark — computing it from `rates`
+     is your step, which keeps `quant` free of the MT5 SDK.)
    - *Multiple testing / data snooping.* A `symbols × timeframes × params` matrix
-     plus genetic search creates many chances at a lucky survivor. Report how
-     many cells and roughly how many parameter combinations you tried; do not
-     treat the rank-1 survivor as validated just because it ranks first.
-   - *Statistical weight.* Treat ~300 trades as a floor, not proof — trade
-     clustering, correlated positions, a single market regime, and near-identical
-     parameter variants all shrink the effective sample.
+     plus genetic search creates many chances at a lucky survivor. Report how many
+     cells and roughly how many parameter combinations you tried; do not treat the
+     rank-1 survivor as validated just because it ranks first.
+   - *Statistical weight.* Treat ~300 trades as a floor, not proof — clustering, a
+     single regime, and near-identical parameter variants shrink the effective
+     sample.
    - *IS↔OOS consistency.* Profit factor and Sharpe should not collapse from
      in-sample to out-of-sample. A `validated: true` entry whose OOS roughly
      tracks its IS beats a higher-ranked entry that only shines OOS.
@@ -386,25 +347,22 @@ playbook turns that into the quant role.
      economically meaningful parameters win.
 7. **Stress the winner.** Test execution realism on the winner's actual set:
    `mt5 --json tester ea stress --expert <name> --symbol <sym> --tf <tf> --from ... --to ... --set-file <winner.set>`.
-   Require `robustness.verdict` of `robust` (or at least `degraded`) — a backtest
-   edge that evaporates under 100–500 ms fills was borrowed from execution
-   conditions a retail account never gets.
-8. **Iterate.** Refine the hypothesis or narrow the parameters and re-run. Keep a
-   short log of what you tried and why each candidate lived or died, including
-   whether the OOS window has been reused across iterations (reuse erodes its
-   out-of-sample meaning).
+   Require `robustness.verdict` of `robust` (or at least `degraded`).
+8. **Iterate.** Refine the hypothesis or narrow the parameters and re-run. Log
+   what you tried and why each candidate lived or died, including whether the OOS
+   window has been reused across iterations (reuse erodes its meaning).
 
 ### Honesty rules
 
 - You author the alpha; the tool runs the native MT5 tester. Never ask the tool
   for a strategy, and never report a result the tester did not produce.
-- A single-asset, single-broker result is not validated edge. Name the caveats
-  an honest quant names: broker clock / session boundaries, spread and slippage,
-  and cost sensitivity (an edge that survives 1× cost can die at 4×).
-- Use `real-ticks` modelling for the final read; `ohlc-1m` is fine for the
-  optimization sweep but understates execution cost.
-- Out-of-sample numbers are a check, not a trophy. If you cannot explain *why*
-  the edge exists, treat a great OOS curve as unexplained until proven.
+- A single-asset, single-broker result is not validated edge. Name the caveats:
+  broker clock / session boundaries, spread and slippage, and cost sensitivity
+  (an edge that survives 1× cost can die at 4×).
+- Use `real-ticks` modelling for the final read; `ohlc-1m` understates execution
+  cost.
+- Out-of-sample numbers are a check, not a trophy. If you cannot explain *why* the
+  edge exists, treat a great OOS curve as unexplained until proven.
 
 ### Pointers
 
@@ -413,6 +371,25 @@ playbook turns that into the quant role.
 - Full contract: this spec and the `quant.v1` envelope.
 
 ---
+
+## Deferred: hybrid forward path
+
+A later enhancement, **not v1**, kept here so the decision is recorded. MT5's
+forward optimization could collapse the two-pass three launches into two: one
+`optimize(forward=split)` does in-sample optimization *and* forward-tests the
+selected passes in a single launch, then only the FULL re-run remains. It is
+deferred because it is materially more complex and rests on unproven artifact
+shapes:
+
+- MT5 writes forward results to a **separate** report with a `.forward` suffix
+  and forward-tests **only the selected** passes — so `passes.py` would need a
+  back↔forward join by pass id and a rule for winners with no forward row.
+- `build_ea_ini()` must emit `ForwardMode=4` + a computed `ForwardDate` (today it
+  emits `ForwardMode=1`, which forces MT5's ½ split and ignores the date).
+- `ForwardMode` is `1` (last ½), `2` (last ⅓), `3` (last ¼), `4` (custom date).
+
+Promote the hybrid only once the `.forward` shape, join key, partial-coverage
+behavior, and `ForwardMode=4` emission are proven by committed fixtures.
 
 ## Error Codes
 
@@ -423,100 +400,83 @@ Register in `mt5_cli/errors.py` (test-enforced):
 - `INVALID_PARAM` — "--param must be NAME=value or NAME=value,start,step,stop."
 - `INVALID_RANK_BY` — "--rank-by must be one of full_net, oos_sharpe, oos_pf."
 
-`NO_WINNER`, `MIN_TRADES`, and `CELL_FAILED` are per-cell **reject reasons**, not
-root error codes (see [Reject reasons vs error codes](#reject-reasons-vs-error-codes)).
+`NO_WINNER`, `MIN_TRADES`, `CELL_FAILED` are per-cell **reject reasons**, not root
+error codes.
 
 ## Implementation risks (fixtures required before build)
 
-The plan must close these against real MT5 artifacts before code is frozen:
+Close these against real MT5 artifacts before code is frozen:
 
-1. **Optimization input columns.** `pick_winner` can only write the winner's
-   `.set` if the optimization report exposes its input-parameter columns. Commit
-   a real `optimization.xml` fixture proving the columns are present and map to
-   `render_set` names. If they are not, v1 uses MT5's selected-pass `.set` export
-   instead — decide in the plan, do not assume.
-2. **Forward artifact shape.** Commit a `.forward` fixture and prove the
-   back↔forward join key (pass id) and which passes are forward-tested. Define
-   behavior when the winner has no forward row (→ the explicit OOS rerun
-   fallback).
-3. **IS/OOS metric availability.** Confirm which metrics (`profit_factor`,
-   `sharpe`) the optimization/forward reports actually expose; the gate and the
-   `oos_*` rank keys depend on them. Anything unavailable comes from an explicit
-   rerun, not an assumed column.
+1. **Optimization input columns (hard).** `pick_winner` writes the winner's `.set`
+   from the optimization report's input-parameter columns, and `min_pf`/IS metrics
+   read from the same rows. Commit a real `optimization.xml` fixture proving the
+   input columns and the in-sample metrics (`profit_factor` at minimum) are
+   present and map to `render_set` names. If in-sample metrics are absent, add a
+   fallback explicit IS `single()` (a 4th launch) — decide in the plan.
+2. **Deferred-hybrid artifacts.** The `.forward` shape, back↔forward join key, and
+   partial-forward coverage are *not* a v1 risk (two-pass does not use them) — they
+   gate the deferred hybrid only.
 
 ## Acceptance Tests
 
 Matrix (pure):
 
 1. `EURUSD,XAUUSD × H1,H2` expands to 4 ordered cells; duplicates dedupe.
-2. `--split 0.70` and `--split 2024-06-01` parse; `1.5`, `0`, `abc`, empty raise
-   `INVALID_SPLIT`. A fraction converts to a calendar `ForwardDate`
-   (`from + f×(to−from)`), and the built INI emits `ForwardMode=4` + that
-   `ForwardDate` — never `ForwardMode=1` (which would force MT5's ½ split and
-   ignore the date).
+2. `--split 0.70` over `2022-01-01..2024-12-31` converts to the calendar boundary
+   `2024-01-21` (`from + f×(to−from)`); `--split 2024-06-01` is used as-is; `1.5`,
+   `0`, `abc`, empty raise `INVALID_SPLIT`.
 3. Empty symbol or timeframe set raises `EMPTY_MATRIX` on the library path.
-4. `--param Risk=1.0,0.5,0.5,3.0` parses to the range form; a malformed range
-   raises `INVALID_PARAM`. Bad `--rank-by` raises `INVALID_RANK_BY`.
+4. `--param Risk=1.0,0.5,0.5,3.0` parses to the range form; malformed raises
+   `INVALID_PARAM`. Bad `--rank-by` raises `INVALID_RANK_BY`.
 
-Pass join (pure, fixtures — risk 1, 2, 3):
+Passes + selection (pure, fixtures — risk 1):
 
-5. A back `optimization.xml` + `.forward` fixture join by pass id into records
-   carrying both IS and OOS metric blocks.
-6. The winner's input-parameter columns round-trip through `render_set` into a
-   `.set` MT5 would accept.
-7. A winner with no forward row triggers the explicit OOS-rerun fallback path
-   (asserted via the fake launcher: one extra `single()` over `split..to`).
-
-Selection (pure):
-
-8. `pick_winner` ignores passes failing the in-sample `min_pf` and returns the
-   best remaining by `rank_by`; no qualifying pass → the cell is rejected
-   `NO_WINNER`.
-9. FULL trades < `min_trades` → reject `MIN_TRADES`.
-10. `validated` is true only when OOS PF ≥ `oos_min_pf`, and a `validated: false`
-    survivor still ranks (validated is not a gate).
-11. Default `rank_by` is `full_net` and `rank_caveat` is null; selecting an
-    `oos_*` key sets `rank_caveat`. Ranking respects `--per-asset`.
+5. `passes.read()` yields one record per pass with input parameters and in-sample
+   metrics; the winner's parameters round-trip through `render_set` into a `.set`
+   MT5 would accept.
+6. `pick_winner` ignores passes failing in-sample `min_pf` and returns the best
+   remaining by **in-sample** `profit_factor`; no qualifying pass → `NO_WINNER`.
+   It does **not** consult `full_net` (which does not exist at selection time).
+7. `gate_and_rank`: FULL trades < `min_trades` → `MIN_TRADES`; default `rank_by`
+   is `full_net` with `rank_caveat` null; an `oos_*` key sets `rank_caveat`;
+   `--per-asset` caps; `validated` follows OOS PF and a `validated: false`
+   survivor still ranks.
 
 Orchestration (fake launcher, no terminal):
 
-12. Common path issues exactly two native launches per cell (optimize, FULL
-    single); the fallback adds exactly one.
-13. A cell whose optimize or re-run fails ships `reason: "CELL_FAILED"` with the
-    embedded fail envelope and does not stop later cells.
-14. Empty matrix → root `EMPTY_MATRIX`, zero launches. No cell yielding any
-    ranked or rejected record → root failure.
-15. Child run ids are unique and registered under `results/`; the campaign
-    `manifest.json` lists them and `get_campaign(id)` reloads it.
-16. `--dry-run` returns the plan (matrix, cells, launch estimate) and zero
-    launches.
+8. Each cell issues exactly three launches in order — optimize `[from, split]`,
+   single `[split, to]`, single `[from, to]` — and assembles IS/OOS/FULL.
+9. A cell whose any launch fails ships `reason: "CELL_FAILED"` with the embedded
+   fail envelope and does not stop later cells.
+10. Empty matrix → root `EMPTY_MATRIX`, zero launches; no cell yielding any record
+    → root failure.
+11. Child run ids are unique and registered under `results/`; `manifest.json`
+    lists them and `get_campaign(id)` reloads it.
+12. `--dry-run` returns the plan and zero launches.
 
 Report + boundaries (pure):
 
-17. `report.render` produces self-contained HTML — no external `src`/`href` to a
-    CDN, an inline-SVG `<polyline>` per equity curve, a link to each child
-    `report.html` — and imports/render-runs with no matplotlib/pandas present.
-18. Import-boundary test: nothing under `mt5_cli/quant` imports `MetaTrader5`
-    (mirrors the tester rule).
+13. `report.render` produces self-contained HTML — no external `src`/`href`, an
+    inline-SVG `<polyline>` per equity curve, a link to each child `report.html`
+    — and imports/render-runs with no matplotlib/pandas present.
+14. Import-boundary test: nothing under `mt5_cli/quant` imports `MetaTrader5`.
 
 Stress extension:
 
-19. `single(set_file=...)` already stages the set; `stress(set_file=...)` and
-    `tester ea stress --set-file` thread it into every rung, asserted via the
-    written INI's `ExpertParameters` line.
+15. `stress(set_file=...)` and `tester ea stress --set-file` thread the set into
+    every rung, asserted via the written INI's `ExpertParameters` line.
 
 CLI + playbook:
 
-20. `quant run` happy path emits `quant.v1`; `quant list` / `show` read back a
+16. `quant run` happy path emits `quant.v1`; `quant list` / `show` read back a
     written campaign; new error codes are registered.
-21. `mt5_cli/skills/QUANT_WORKFLOW.md` ships in the built wheel as package data.
-22. Anti-drift guard: a test extracts each `mt5 ...` example from the playbook,
+17. `mt5_cli/skills/QUANT_WORKFLOW.md` ships in the built wheel as package data.
+18. Anti-drift guard: a test extracts each `mt5 ...` example from the playbook,
     **normalizes it** (strip the `mt5` binary, the global `--json`, placeholders
     like `<name>`, `...`, and option values), and asserts both the command path
     **and every `--option`** resolve in the `describe` catalog
-    (`describe.commands[].command` and its option list). The playbook can never
-    drift ahead of the implemented CLI — including referencing an option a
-    command does not have (e.g. `rates fetch --from`).
+    (`describe.commands[].command` and its option list) — so a stale option like
+    `rates fetch --from` fails, not just a stale command.
 
 ## Verification
 
@@ -524,7 +484,7 @@ Before merge: `ruff check .`, `pytest -m "not integration"`,
 `mypy mt5_cli mt5 mt5_mcp`, `git diff --check`.
 
 Live check (manual, optional, needs a closed terminal and a compiled demo EA):
-run a 2-symbol × 1-timeframe campaign with a tiny param range; confirm the child
-run dirs per cell, a `manifest.json`, a `report.html` whose ranked table matches
-the child runs' parsed stats, and that `tester ea stress --set-file <winner.set>`
-writes that set into each rung's INI.
+run a 2-symbol × 1-timeframe campaign with a tiny param range; confirm three
+child runs per cell (IS optimize, OOS single, FULL single), a `manifest.json`, a
+`report.html` whose ranked table matches the child runs' parsed stats, and that
+`tester ea stress --set-file <winner.set>` writes that set into each rung's INI.

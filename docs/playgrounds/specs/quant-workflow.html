@@ -388,76 +388,79 @@
   </section>
 
   <section class="band">
-    <h2>Per-cell flow &mdash; the hybrid (forward optimize + FULL re-run)</h2>
+    <h2>Per-cell flow &mdash; explicit two-pass (v1)</h2>
     <p class="lede" style="font-size:0.95rem">
-      Each cell is one <code>(symbol, timeframe)</code>. Steps run serially &mdash; the
-      launcher contract forbids parallel terminals (<code>TERMINAL_ALREADY_RUNNING</code>).
-      <span class="pill native">native MT5</span> steps launch <code>terminal64.exe</code>;
-      <span class="pill purejs">pure</span> steps are stdlib-only, no terminal, unit-tested
-      with fixtures.
+      Each cell is one <code>(symbol, timeframe)</code>, split into a flat, explicit sequence:
+      no MT5 forward mode, no <code>.forward</code> file, no back&harr;forward join. Steps run
+      serially &mdash; the launcher forbids parallel terminals
+      (<code>TERMINAL_ALREADY_RUNNING</code>). <span class="pill native">native MT5</span> steps
+      launch <code>terminal64.exe</code>; <span class="pill purejs">pure</span> steps are
+      stdlib-only.
     </p>
     <div class="flow" style="margin-top:14px">
       <div class="step">
         <div>
-          <strong>Optimize on the matrix cell</strong> <span class="pill native">native MT5</span><br>
-          <code>ea.optimize(mode="genetic", forward=split, params=&hellip;, from=FULL, to=FULL)</code>
-          &rarr; the back-result <code>optimization.xml</code> (all passes, in-sample) <em>plus</em>
-          MT5's separate <code>.forward</code> report (only the selected best passes,
-          out-of-sample). One pass row does <strong>not</strong> hold both.
-          <span class="anchor">Custom split = ForwardMode=4 + computed ForwardDate (ini_builder.py:107-109 emits mode 1 today &mdash; the fix) &middot; ea.py:152 &middot; genetic=_OPT_MODES (ea.py:18) &middot; forward threaded ea.py:221</span>
+          <strong>Optimize the in-sample window</strong> <span class="pill native">native MT5</span><br>
+          <code>ea.optimize(mode="genetic", params=&hellip;, from=FROM, to=SPLIT)</code> &rarr;
+          <code>optimization.xml</code>: one row per pass with its input parameters and in-sample
+          metrics. No forward mode.
+          <span class="anchor">ea.py:152 &middot; genetic=_OPT_MODES (ea.py:18) &middot; passes read via results.parse_optimization_xml (results.py:285)</span>
         </div>
       </div>
       <div class="step pure">
         <div>
-          <strong>Join back&harr;forward, pick the winner</strong> <span class="pill purejs">pure</span><br>
-          <code>passes.join()</code> pairs back&harr;forward rows by pass id;
-          <code>selection.pick_winner()</code> takes the best forward-covered pass clearing the
-          in-sample PF gate, by <code>rank_by</code>, and reads its parameter columns &rarr; a <code>.set</code>.
-          <span class="anchor">New mt5_cli/quant/passes.py wraps results.parse_optimization_xml (results.py:285, back/forward-blind today) &middot; .set via ini_builder.render_set (ini_builder.py:181-212)</span>
+          <strong>Pick the winner &mdash; in-sample selector</strong> <span class="pill purejs">pure</span><br>
+          <code>selection.pick_winner(passes, min_pf)</code> takes the in-sample pass clearing
+          <code>--min-pf</code> with the best <em>in-sample</em> profit factor, then reads its
+          parameter columns &rarr; a <code>.set</code>. <strong>Not</strong> <code>full_net</code> &mdash;
+          that does not exist until the FULL re-run; <code>--rank-by</code> ranks finished cells, not passes.
+          <span class="anchor">.set via ini_builder.render_set (ini_builder.py:181-212)</span>
         </div>
       </div>
       <div class="step">
         <div>
-          <strong>Re-run the winner over the FULL range</strong> <span class="pill native">native MT5</span><br>
-          <code>ea.single(set_file=winner.set, from=FULL, to=FULL)</code> &rarr; one continuous
-          <code>report.html</code>: the merged equity curve crossing the split marker + FULL
-          stats.
-          <span class="anchor">mt5_cli/tester/ea.py:45 (single, set_file path) &middot; stats from results.py:184-256</span>
+          <strong>Single on the out-of-sample window</strong> <span class="pill native">native MT5</span><br>
+          <code>ea.single(set_file=winner.set, from=SPLIT, to=TO)</code> &rarr; clean OOS metrics.
+          <span class="anchor">mt5_cli/tester/ea.py:45 (single, set_file path)</span>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <strong>Single on the FULL window</strong> <span class="pill native">native MT5</span><br>
+          <code>ea.single(set_file=winner.set, from=FROM, to=TO)</code> &rarr; FULL metrics + the
+          continuous equity curve crossing the split.
+          <span class="anchor">stats from results.py:184-256</span>
         </div>
       </div>
       <div class="step pure">
         <div>
           <strong>Assemble the cell</strong> <span class="pill purejs">pure</span><br>
-          IS from the back row, OOS from the forward row, FULL from the re-run; equity curve
-          split at <code>ForwardDate</code>. One cell record.
+          IS from the winner's optimization row, OOS from the OOS single, FULL from the FULL
+          single; equity split at <code>SPLIT</code>. One cell record.
         </div>
       </div>
     </div>
     <p style="margin-top:12px; color:var(--muted); font-size:0.9rem">
-      Cost: <strong>2 native launches per cell</strong> in the common path (1 optimize writes
-      both reports, 1 FULL re-run). <strong>Fallback +1:</strong> if the winner was not
-      forward-tested (no <code>.forward</code> row) or the report lacks the needed metric
-      columns, an explicit <code>single(from=split, to=FULL)</code> produces OOS directly.
-      Edge direction is proven by the stress precedent &mdash; <code>ea.stress()</code> already
-      calls <code>single()</code> in a serial loop (<code>mt5_cli/tester/ea.py:335-360</code>);
-      the campaign reuses that shape one altitude up.
+      Cost: <strong>3 native launches per cell, flat</strong> (optimize IS, single OOS, single
+      FULL). Edge direction is proven by the stress precedent &mdash; <code>ea.stress()</code>
+      already calls <code>single()</code> in a serial loop
+      (<code>mt5_cli/tester/ea.py:335-360</code>); the campaign reuses that shape one altitude up.
     </p>
     <div class="caveat">
-      <strong>Open mechanism choice.</strong> The forward path is fiddlier than it looks
-      (separate <code>.forward</code> file, only top passes forward-tested, join by pass id),
-      so the simpler <em>explicit two-pass</em> mechanism &mdash; optimize IS-window &rarr; pick
-      &rarr; <code>single</code> OOS-window &rarr; <code>single</code> FULL, a flat 3
-      launches/cell, no <code>.forward</code> parsing &mdash; may be the better default. The
-      spec keeps the hybrid (the brainstorm choice) with this explicit rerun already specced as
-      the fallback, so flipping the default is a one-line contract change.
+      <strong>Why two-pass, not the forward hybrid.</strong> MT5's forward optimization could do
+      this in 2 launches/cell &mdash; but it writes a <em>separate</em> <code>.forward</code>
+      report, forward-tests <em>only</em> selected passes, needs a back&harr;forward join, and
+      <code>build_ea_ini()</code> emits the wrong <code>ForwardMode</code> for a custom split. v1
+      sidesteps all of it; the hybrid is <strong>deferred behind fixtures</strong> as a later
+      launch-count optimization.
     </div>
   </section>
 
   <section class="band">
     <h2>Campaign matrix &mdash; explore the cost</h2>
     <p class="lede" style="font-size:0.95rem">
-      The matrix is <code>symbols &times; timeframes</code>, each cell 2 common-path launches
-      (+1 on fallback cells), run serially. This is the video's &ldquo;30 minutes for 10 asset classes&rdquo; budget
+      The matrix is <code>symbols &times; timeframes</code>, each cell 3 native launches
+      (optimize IS, single OOS, single FULL), run serially. This is the video's &ldquo;30 minutes for 10 asset classes&rdquo; budget
       made explicit &mdash; and the reason <code>--dry-run</code> prints the plan before
       committing a terminal for an hour.
     </p>
@@ -472,7 +475,7 @@
       </div>
       <div>
         <div class="readout">
-          <div><strong id="cells">8</strong> cells &times; 2 launches = <strong id="launches">16</strong> native runs <span style="font-size:0.85rem; color:var(--muted)">(+1 on cells needing the OOS-rerun fallback)</span></div>
+          <div><strong id="cells">8</strong> cells &times; 3 launches = <strong id="launches">24</strong> native runs</div>
           <div id="eta" style="font-size:0.95rem; color:var(--muted); margin-top:6px"></div>
         </div>
         <p style="margin-top:10px; color:var(--muted); font-size:0.9rem">
@@ -554,7 +557,7 @@
     "expert": "alpha",
     "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
     "from": "2022-01-01", "to": "2024-12-31",
-    "split": "0.70",
+    "split": "2024-01-21",
     "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
                    "rank_by": "full_net", "per_asset": 2 },
     "rank_caveat": null,
@@ -664,10 +667,10 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
         <ul>
           <li>New package <code>mt5_cli/quant/</code> owns the campaign; it imports <code>mt5_cli.tester.ea</code>, writes <strong>zero</strong> strategy logic, and never imports MetaTrader5 (filesystem-only, like the tester package).</li>
           <li><code>matrix.py</code> &mdash; pure: expand/validate symbols&times;timeframes, parse <code>--split</code> (fraction or date), parse <code>--param</code> ranges.</li>
-          <li><code>passes.py</code> &mdash; pure: read + join back&harr;forward optimization rows by pass id.</li>
-          <li><code>selection.py</code> &mdash; pure: pick winner from passes, apply gates, rank, record rejects (the <code>tester/stress.py</code> analog).</li>
+          <li><code>passes.py</code> &mdash; pure: read in-sample optimization rows (input params + IS metrics). No forward join in v1.</li>
+          <li><code>selection.py</code> &mdash; pure: <code>pick_winner</code> by in-sample selector, <code>gate_and_rank</code> by <code>--rank-by</code>, record rejects (the <code>tester/stress.py</code> analog).</li>
           <li><code>report.py</code> &mdash; pure: dependency-free HTML + inline-SVG equity curve. No matplotlib, no pandas.</li>
-          <li><code>campaign.py</code> &mdash; orchestration: per-cell hybrid, serial launches, artifacts, <code>quant.v1</code> assembly.</li>
+          <li><code>campaign.py</code> &mdash; orchestration: per-cell two-pass, serial launches, artifacts, <code>quant.v1</code> assembly.</li>
           <li><code>store.py</code> &mdash; campaign-id + <code>manifest.json</code> read/write (reuses <code>tester/cache.py</code> conventions).</li>
           <li><code>mt5/cli.py</code> stays a thin flag-parsing wrapper (CONTRIBUTING architecture rule).</li>
           <li><code>mt5_cli/skills/QUANT_WORKFLOW.md</code> &mdash; static agent playbook (the loop + judgment), shipped like <code>USER_WORKSPACE.md</code>.</li>
@@ -679,16 +682,16 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
           <li><code>quant.campaign.run(*, expert, symbols, timeframes, from_date, to_date, split, params, mode, selection, &hellip;)</code> &rarr; <code>quant.v1</code></li>
           <li><code>quant.list_campaigns()</code> / <code>quant.get_campaign(id)</code></li>
           <li><code>mt5 quant run | list | show</code>; new <code>tester ea stress --set-file</code></li>
-          <li>New <code>mt5_cli/quant/passes.py</code> joins back&harr;forward (wraps <code>results.parse_optimization_xml</code>, back/forward-blind today).</li>
+          <li><code>pick_winner(passes, min_pf)</code> selects by <em>in-sample</em> PF; <code>--rank-by</code> ranks finished cells (default <code>full_net</code>). Different operations.</li>
           <li>Root errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>INVALID_PARAM</code>, <code>INVALID_RANK_BY</code>. Per-cell reject reasons: <code>NO_WINNER</code>, <code>MIN_TRADES</code>, <code>CELL_FAILED</code>.</li>
         </ul>
       </div>
       <div class="tile">
         <h3>Build sequence</h3>
         <ul>
-          <li>1 &mdash; <code>matrix.py</code> (expansion, split, param ranges) + tests</li>
-          <li>2 &mdash; forward-aware <code>parse_optimization_xml</code> + fixtures</li>
-          <li>3 &mdash; <code>selection.py</code> (winner pick, gates, ranking) + tests</li>
+          <li>1 &mdash; <code>matrix.py</code> (expansion, split&rarr;date, param ranges) + tests</li>
+          <li>2 &mdash; <code>passes.py</code> (read IS passes + params) + optimization fixtures</li>
+          <li>3 &mdash; <code>selection.py</code> (IS winner pick, gate_and_rank) + tests</li>
           <li>4 &mdash; <code>campaign.py</code> orchestration against a fake launcher</li>
           <li>5 &mdash; <code>report.py</code> (HTML/SVG) + <code>store.py</code> + tests</li>
           <li>6 &mdash; CLI group + error registry + quant agent playbook (ships with the CLI)</li>
@@ -700,7 +703,8 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
         <ul>
           <li>No Python EDA engine (return distribution, weekday&times;hour heatmap, autocorrelation) &mdash; that needs numpy/pandas the charter excludes.</li>
           <li>No Python vectorized backtester and no Python&rarr;MQL5 translation &mdash; MT5 stays the only engine; the EA stays the only alpha.</li>
-          <li>No walk-forward beyond the single forward split; no multi-data-feed / news (CPI/FOMC/NFP) testing.</li>
+          <li>The forward-optimization hybrid is <strong>deferred behind fixtures</strong> (a later 2-launch optimization) &mdash; not v1.</li>
+          <li>No walk-forward beyond the single in/out-of-sample split; no multi-data-feed / news (CPI/FOMC/NFP) testing.</li>
           <li>No campaign resume in v1 (each child run is cached, so resume can come later).</li>
           <li>No trading strategy, signal generation, indicator math, or market opinion.</li>
         </ul>
@@ -710,9 +714,10 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
       Full contract: <code>docs/specs/quant-workflow.md</code>. Implementation phases:
       <code>docs/plans/quant-workflow-plan.md</code> (written after this spec is reviewed).
       Scope &amp; placement decisions that produced this seed: tool-true orchestration only,
-      top-level <code>mt5 quant</code> group, hybrid forward-optimize + FULL re-run, and a
-      quant agent playbook (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>, drafted in full in
-      the spec) so an AI agent can operate the loop as a quant.
+      top-level <code>mt5 quant</code> group, explicit two-pass validation (hybrid deferred
+      behind fixtures), and a quant agent playbook
+      (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>, drafted in full in the spec) so an AI
+      agent can operate the loop as a quant.
     </p>
   </section>
 </main>
@@ -731,7 +736,7 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
       var t = Math.max(0, Math.floor(parseFloat(ntf.value) || 0));
       var m = parseFloat(mins.value);
       var cells = s * t;
-      var launches = cells * 2;
+      var launches = cells * 3;
       cellsEl.textContent = cells;
       launchesEl.textContent = launches;
       if (!isFinite(m) || m <= 0) {
