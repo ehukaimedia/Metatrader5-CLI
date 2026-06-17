@@ -408,6 +408,8 @@ Register in `mt5_cli/errors.py` (test-enforced):
 - `INVALID_SPLIT` — "--split must be a 0<f<1 fraction or a YYYY-MM-DD date."
 - `INVALID_PARAM` — "--param must be NAME=value or NAME=value,start,step,stop."
 - `INVALID_RANK_BY` — "--rank-by must be one of full_net, oos_sharpe, oos_pf."
+- `NO_RESULTS` — "No cell produced a ranked or rejected record." (the degenerate
+  case named in *Reject reasons vs error codes*).
 
 `NO_WINNER`, `MIN_TRADES`, `CELL_FAILED` are per-cell **reject reasons**, not root
 error codes.
