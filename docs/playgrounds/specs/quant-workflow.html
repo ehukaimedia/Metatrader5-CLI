@@ -404,7 +404,7 @@
           &rarr; the back-result <code>optimization.xml</code> (all passes, in-sample) <em>plus</em>
           MT5's separate <code>.forward</code> report (only the selected best passes,
           out-of-sample). One pass row does <strong>not</strong> hold both.
-          <span class="anchor">ForwardMode=1/ForwardDate: ini_builder.py:107-109 &middot; ea.py:152 &middot; genetic=_OPT_MODES (ea.py:18) &middot; forward threaded ea.py:221</span>
+          <span class="anchor">Custom split = ForwardMode=4 + computed ForwardDate (ini_builder.py:107-109 emits mode 1 today &mdash; the fix) &middot; ea.py:152 &middot; genetic=_OPT_MODES (ea.py:18) &middot; forward threaded ea.py:221</span>
         </div>
       </div>
       <div class="step pure">
@@ -456,8 +456,8 @@
   <section class="band">
     <h2>Campaign matrix &mdash; explore the cost</h2>
     <p class="lede" style="font-size:0.95rem">
-      The matrix is <code>symbols &times; timeframes</code>, each cell ~2 native launches,
-      run serially. This is the video's &ldquo;30 minutes for 10 asset classes&rdquo; budget
+      The matrix is <code>symbols &times; timeframes</code>, each cell 2 common-path launches
+      (+1 on fallback cells), run serially. This is the video's &ldquo;30 minutes for 10 asset classes&rdquo; budget
       made explicit &mdash; and the reason <code>--dry-run</code> prints the plan before
       committing a terminal for an hour.
     </p>
@@ -642,7 +642,7 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
     <div class="caveat">
       <strong>The judgment that makes it quant, not curve-fitting.</strong>
       <ul style="margin-top:6px">
-        <li><strong>Asset-drift trap:</strong> a long-only winner on a trending asset (gold +150&ndash;200%) shows a gorgeous OOS curve that is the asset, not the edge. Make it actionable: fetch the asset's own move with <code>mt5 --json rates fetch</code>, compute buy-and-hold return, and subtract it &mdash; if the edge vanishes, it was never there.</li>
+        <li><strong>Asset-drift trap:</strong> a long-only winner on a trending asset (gold +150&ndash;200%) shows a gorgeous OOS curve that is the asset, not the edge. Make it actionable: fetch the asset's own move with <code>mt5 --json rates fetch &lt;sym&gt; &lt;tf&gt; --bars N</code>, compute buy-and-hold return, and subtract it &mdash; if the edge vanishes, it was never there.</li>
         <li><strong>Multiple testing:</strong> a big matrix &times; genetic search invites a lucky survivor; report how many cells and param combinations you tried, and don't treat rank-1 as validated.</li>
         <li><strong>Statistical weight:</strong> treat ~300 trades as a floor, not proof (clustering and one regime shrink the effective sample).</li>
         <li><strong>IS&harr;OOS consistency &amp; overfitting:</strong> a <code>validated</code> entry whose OOS tracks its in-sample beats one that only shines OOS; fewer, meaningful params beat wide grids.</li>

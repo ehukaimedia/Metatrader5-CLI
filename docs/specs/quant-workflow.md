@@ -44,10 +44,14 @@ discipline, and execution stress. The tool stays hands; the agent is the brain.
 This shaped the per-cell contract, so it is stated up front (verified against
 the code and MetaQuotes docs, 2026-06-16):
 
-- `build_ea_ini()` emits `ForwardMode=1` + `ForwardDate=<date>`
-  (`mt5_cli/tester/ini_builder.py:107-109`). MT5 then optimizes on the
-  in-sample (back) segment and **forward-tests only the selected best passes**
-  on the out-of-sample segment.
+- `ForwardMode` is `1` (last ½), `2` (last ⅓), `3` (last ¼), or `4` (custom —
+  split at `ForwardDate`); `ForwardDate` is honored **only** under
+  `ForwardMode=4`. Today `build_ea_ini()` emits `ForwardMode=1` *and*
+  `ForwardDate` together (`mt5_cli/tester/ini_builder.py:107-109`) — so a custom
+  date is silently ignored and the split is always ½. This feature fixes that:
+  any `--split` maps to `ForwardMode=4` + a computed `ForwardDate`. MT5 then
+  optimizes on the in-sample (back) segment and **forward-tests only the
+  selected best passes** on the out-of-sample segment.
 - MT5 writes forward results to a **separate report** with a `.forward` suffix,
   not as extra columns on the back-result rows. The current
   `parse_optimization_xml()` (`mt5_cli/tester/results.py:285`) is a flat
@@ -70,8 +74,9 @@ rewritten accordingly, and the risky assumptions are fixture-gated (see
   `forward` (`ea.py:160` signature, `ea.py:221` into `build_ea_ini`) and points
   at one `optimization.xml`; `mt5_cli/tester/ea.py:45` (`single()`), whose
   `set_file` parameter (`ea.py:59`) is staged at `ea.py:92`.
-- Forward INI emission: `mt5_cli/tester/ini_builder.py:107-109`
-  (`ForwardMode=1` / `ForwardDate`).
+- Forward INI emission: `mt5_cli/tester/ini_builder.py:107-109` emits
+  `ForwardMode=1` + `ForwardDate` — but MT5 honors `ForwardDate` only under
+  `ForwardMode=4`, so this feature changes it to mode 4 for custom splits.
 - `.set` rendering already exists: `mt5_cli/tester/ini_builder.py:181-212`
   (`render_set` / `write_set`), including the `value||start||step||stop||Y`
   optimization-range form.
@@ -152,8 +157,10 @@ below, orchestration above, the CLI a thin wrapper). **Bridge isolation:** like
 through the filesystem only. An import-boundary test enforces this.
 
 1. `matrix.py` — pure: expand/validate `symbols × timeframes`; parse `--split`
-   (a `0<f<1` fraction or `YYYY-MM-DD`) into the MT5 `ForwardDate`; parse
-   `--param NAME=value,start,step,stop` ranges (reusing `ini_builder.render_set`
+   into a `ForwardDate` — a `0<f<1` fraction becomes `from + f×(to−from)`
+   (stdlib date math), an explicit `YYYY-MM-DD` is used as-is, and both drive
+   `ForwardMode=4`; parse `--param NAME=value,start,step,stop` ranges (reusing
+   `ini_builder.render_set`
    grammar). Rejects an empty matrix (`EMPTY_MATRIX`), a malformed split
    (`INVALID_SPLIT`), or a malformed range (`INVALID_PARAM`) through one shared
    gate, so the typed library path is held to the same contract as the CLI.
@@ -183,8 +190,11 @@ through the filesystem only. An import-boundary test enforces this.
    [Quant agent playbook](#quant-agent-playbook). It ships in the same phase as
    the `quant` CLI so the doc never references a command the build lacks.
 
-Cross-cutting: `stress()` and CLI `tester ea stress` gain an optional
-`set_file` / `--set-file` threaded into the `single()` calls they already make.
+Cross-cutting changes to the tester layer: (a) `build_ea_ini()` emits
+`ForwardMode=4` — not `1` — whenever a forward date is supplied, so the custom
+`ForwardDate` is actually used; (b) `stress()` and CLI `tester ea stress` gain
+an optional `set_file` / `--set-file` threaded into the `single()` calls they
+already make.
 
 ### Per-cell hybrid (with fallback)
 
@@ -356,8 +366,8 @@ playbook turns that into the quant role.
    - *Asset-drift trap.* A long-only winner on a trending asset posts a gorgeous
      OOS curve that is the asset, not the edge (canonical case: gold up
      ~150–200%). Make it actionable: fetch the asset's own move with
-     `mt5 --json rates fetch <symbol> <tf> --from <start> --to <end>` (or
-     `--bars`), compute the buy-and-hold return from first vs last close, and
+     `mt5 --json rates fetch <symbol> <tf> --bars <N>`, compute the buy-and-hold
+     return from the first vs last close, and
      compare it to the strategy's return. If the edge disappears once you
      subtract the asset's drift, it is not an edge. (The campaign does not embed
      a benchmark — computing it from `rates` is your step, which keeps `quant`
@@ -440,7 +450,10 @@ Matrix (pure):
 
 1. `EURUSD,XAUUSD × H1,H2` expands to 4 ordered cells; duplicates dedupe.
 2. `--split 0.70` and `--split 2024-06-01` parse; `1.5`, `0`, `abc`, empty raise
-   `INVALID_SPLIT`.
+   `INVALID_SPLIT`. A fraction converts to a calendar `ForwardDate`
+   (`from + f×(to−from)`), and the built INI emits `ForwardMode=4` + that
+   `ForwardDate` — never `ForwardMode=1` (which would force MT5's ½ split and
+   ignore the date).
 3. Empty symbol or timeframe set raises `EMPTY_MATRIX` on the library path.
 4. `--param Risk=1.0,0.5,0.5,3.0` parses to the range form; a malformed range
    raises `INVALID_PARAM`. Bad `--rank-by` raises `INVALID_RANK_BY`.
@@ -499,9 +512,11 @@ CLI + playbook:
 21. `mt5_cli/skills/QUANT_WORKFLOW.md` ships in the built wheel as package data.
 22. Anti-drift guard: a test extracts each `mt5 ...` example from the playbook,
     **normalizes it** (strip the `mt5` binary, the global `--json`, placeholders
-    like `<name>`, `...`, and option values), and asserts the remaining command
-    path resolves in the `describe` catalog (`describe.commands[].command`). The
-    playbook can never drift ahead of the implemented CLI.
+    like `<name>`, `...`, and option values), and asserts both the command path
+    **and every `--option`** resolve in the `describe` catalog
+    (`describe.commands[].command` and its option list). The playbook can never
+    drift ahead of the implemented CLI — including referencing an option a
+    command does not have (e.g. `rates fetch --from`).
 
 ## Verification
 
