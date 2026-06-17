@@ -324,7 +324,11 @@
      signal; (2) trusting out-of-sample metrics ALONE — a strongly-trending long-only asset
      (the video's GOLD, up ~150-200%) posts gorgeous OOS Sharpe/PF that reflect the asset's
      drift, not the strategy's edge. Source: "Inside My AI Quant Workflow", chapters on
-     multi-asset optimization, IS/OOS validation, selection criteria, and the ranked report. -->
+     multi-asset optimization, IS/OOS validation, selection criteria, and the ranked report.
+     This spec also ships a quant agent playbook (mt5_cli/skills/QUANT_WORKFLOW.md) so an AI
+     agent can OPERATE this loop as a quant: it brings the hypotheses and authors the EA
+     itself (its own capabilities), with the CLI as hands. The tool still never holds the
+     alpha. -->
 <main>
   <header>
     <span class="eyebrow">Spec playground &middot; Proposed 2026-06-16</span>
@@ -588,6 +592,33 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
   </section>
 
   <section class="band">
+    <h2>Operating as a quant &mdash; the agent loop</h2>
+    <p class="lede" style="font-size:0.95rem">
+      The commands are hands; this loop is the role. It ships as a static agent playbook
+      (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>, the <code>USER_WORKSPACE.md</code>
+      precedent) so any agent can introspect it. The agent brings the hypotheses and authors
+      the EA &mdash; its own capabilities; the tool never holds the alpha.
+    </p>
+    <div class="flow" style="margin-top:14px">
+      <div class="step"><div><strong>Frame the hypothesis</strong> &mdash; one or two sentences: what edge, which assets/timeframes, why it persists. Keep rules simple; complex rules curve-fit.</div></div>
+      <div class="step"><div><strong>Author &amp; compile the EA</strong> &mdash; write the rule in <code>./ea/</code>, expose search params as <code>input</code>s, <code>mt5 ea compile</code>.</div></div>
+      <div class="step"><div><strong>Plan, then run the campaign</strong> &mdash; <code>quant run &hellip; --dry-run</code> to see the cost, then run with gates <code>--min-trades 300 --min-pf 1.0 --rank-by oos_sharpe</code>.</div></div>
+      <div class="step"><div><strong>Read <code>quant.v1</code> and judge</strong> &mdash; start at the top rank, then apply the discipline below; do not stop at the headline number.</div></div>
+      <div class="step"><div><strong>Stress the winner</strong> &mdash; <code>tester ea stress</code> on the winning set; require <code>robustness.verdict</code> robust/degraded before trusting it.</div></div>
+      <div class="step"><div><strong>Iterate</strong> &mdash; refine hypothesis/params, re-run, log what lived or died and why.</div></div>
+    </div>
+    <div class="caveat">
+      <strong>The judgment that makes it quant, not curve-fitting.</strong>
+      <ul style="margin-top:6px">
+        <li><strong>Asset-drift trap:</strong> a long-only winner on a trending asset (gold +150&ndash;200%) shows a gorgeous OOS curve that is the asset, not the edge. Subtract the drift &mdash; if the edge vanishes, it was never there.</li>
+        <li><strong>Statistical weight:</strong> trust nothing under ~300 trades.</li>
+        <li><strong>IS&harr;OOS consistency:</strong> a <code>validated</code> entry whose OOS tracks its in-sample beats a higher-ranked one that only shines out-of-sample.</li>
+        <li><strong>Overfitting:</strong> wide grids + genetic search find lucky corners; fewer, meaningful params win.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band">
     <h2>Spec seed</h2>
     <div class="cols">
       <div class="tile">
@@ -600,6 +631,7 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
           <li><code>campaign.py</code> &mdash; orchestration: per-cell hybrid, serial launches, artifacts, <code>quant.v1</code> assembly.</li>
           <li><code>store.py</code> &mdash; campaign-id + <code>manifest.json</code> read/write (reuses <code>tester/cache.py</code> conventions).</li>
           <li><code>mt5/cli.py</code> stays a thin flag-parsing wrapper (CONTRIBUTING architecture rule).</li>
+          <li><code>mt5_cli/skills/QUANT_WORKFLOW.md</code> &mdash; static agent playbook (the loop + judgment), shipped like <code>USER_WORKSPACE.md</code>.</li>
         </ul>
       </div>
       <div class="tile">
@@ -620,7 +652,7 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
           <li>3 &mdash; <code>selection.py</code> (winner pick, gates, ranking) + tests</li>
           <li>4 &mdash; <code>campaign.py</code> orchestration against a fake launcher</li>
           <li>5 &mdash; <code>report.py</code> (HTML/SVG) + <code>store.py</code> + tests</li>
-          <li>6 &mdash; CLI group + error registry</li>
+          <li>6 &mdash; CLI group + error registry + quant agent playbook (ships with the CLI)</li>
           <li>7 &mdash; README / AGENTS / describe catalog / CHANGELOG; flip spec &amp; plan status</li>
         </ul>
       </div>
@@ -639,7 +671,9 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
       Full contract: <code>docs/specs/quant-workflow.md</code>. Implementation phases:
       <code>docs/plans/quant-workflow-plan.md</code> (written after this spec is reviewed).
       Scope &amp; placement decisions that produced this seed: tool-true orchestration only,
-      top-level <code>mt5 quant</code> group, hybrid forward-optimize + FULL re-run.
+      top-level <code>mt5 quant</code> group, hybrid forward-optimize + FULL re-run, and a
+      quant agent playbook (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>, drafted in full in
+      the spec) so an AI agent can operate the loop as a quant.
     </p>
   </section>
 </main>

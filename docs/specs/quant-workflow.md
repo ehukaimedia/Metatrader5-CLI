@@ -30,6 +30,15 @@ strategy logic, no indicator math, no pandas … not a separate Python
 backtester" (`README.md:18-19`). The user's compiled EA stays the only source
 of alpha; the harness never computes a signal.
 
+To make an AI agent able to *operate* this loop as a quant — not just call the
+commands — the spec also ships a quant agent playbook
+(`mt5_cli/skills/QUANT_WORKFLOW.md`), drafted in full in
+[Quant agent playbook](#quant-agent-playbook) below. The agent supplies the
+hypotheses and authors the EA (its own native capabilities); the playbook wires
+that reasoning to the commands and carries the judgment the video earns the hard
+way — the asset-drift trap, trade-count sufficiency, and execution stress. The
+tool stays hands; the agent is the brain.
+
 ## Source Anchors
 
 - Orchestration template: `mt5_cli/tester/ea.py:304` — `stress()` runs many
@@ -62,6 +71,9 @@ of alpha; the harness never computes a signal.
   (`pyproject.toml:69`, `mt5 = "mt5.cli:main"`).
 - Lean-deps charter: `pyproject.toml:38-48` — "carries no pandas / pandas-ta /
   indicator-math stack." The report renderer stays pure-Python + inline SVG.
+- Agent-doc precedent: `mt5_cli/skills/USER_WORKSPACE.md` ships static markdown
+  for agents to introspect, packaged via `pyproject.toml:107-111`
+  (`"mt5_cli.skills" = ["*.md"]`). The quant playbook ships the same way.
 
 ## Durable Wedge
 
@@ -91,6 +103,10 @@ winner to forward to `tester ea stress` before risking capital.
   dependency-free HTML report and a re-loadable `manifest.json`.
 - Keep child runs cached under `results/` so the existing tester listing and
   show commands work unchanged.
+- Ship a quant agent playbook (`mt5_cli/skills/QUANT_WORKFLOW.md`) that turns the
+  agent's own reasoning into the quant role: hypothesize → author EA →
+  `quant run` → interpret `quant.v1` → `stress` the winner → iterate, with
+  explicit anti-overfitting and anti-asset-drift discipline.
 
 ## Non-Goals
 
@@ -136,6 +152,11 @@ A new package `mt5_cli/quant/`, same layering discipline as the tester stack
    conventions.
 6. `mt5/cli.py` — a new `quant` click group (`run`, `list`, `show`) that parses
    flags and calls the library. No business logic.
+7. `mt5_cli/skills/QUANT_WORKFLOW.md` — a static agent playbook shipped with the
+   package (the `USER_WORKSPACE.md` precedent), drafted in
+   [Quant agent playbook](#quant-agent-playbook). It ships in the same phase as
+   the `quant` CLI so the doc never references a command the build does not yet
+   have.
 
 One cross-cutting change: `results.parse_optimization_xml()` gains back-vs-forward
 awareness so a winner's in-sample and out-of-sample metrics are read from the
@@ -224,6 +245,75 @@ mt5 quant show <campaign-id>
 - `--modelling` defaults to `ohlc-1m` for the optimization sweep (speed); the
   FULL re-run inherits `single()`'s default unless overridden.
 
+## Quant agent playbook
+
+This is the full draft of `mt5_cli/skills/QUANT_WORKFLOW.md` — static markdown
+shipped with the tool for any AI agent to introspect (the `USER_WORKSPACE.md`
+precedent). It ships in the implementation phase, not this spec PR, so it never
+documents a command the build lacks. The agent brings the hypotheses and writes
+the EA; this playbook turns that into the quant role.
+
+---
+
+### The loop
+
+1. **Frame the hypothesis.** State the edge in one or two sentences: what
+   inefficiency, on which assets and timeframes, and why it should persist. Keep
+   the rule simple — simple rules are auditable and survive optimization;
+   complex rules curve-fit. You (the agent) own this step; the tool never invents
+   a strategy.
+2. **Author and compile the EA.** Write the rule as an MQL5 Expert Advisor in
+   `./ea/`, exposing the parameters you want to search as `input`s. Compile it:
+   `mt5 --json ea compile <name>`. (Where files live: `USER_WORKSPACE.md`.)
+3. **Plan the campaign.** Dry-run first to see the cost:
+   `mt5 --json quant run --expert <name> --symbols ... --tf ... --from ... --to ... --split 0.70 --param ... --dry-run`.
+4. **Run it.** Drop `--dry-run`. Defaults encode the discipline:
+   `--min-trades 300 --min-pf 1.0 --rank-by oos_sharpe`.
+5. **Read `quant.v1`.** Each `data.ranked[]` entry carries FULL / IS / OOS blocks
+   and a `validated` flag. Start at the top rank — then apply judgment; do not
+   stop at the headline number.
+6. **Apply the judgment (this is the quant part):**
+   - *Asset-drift trap.* A long-only winner on a trending asset posts a gorgeous
+     OOS curve that is the asset, not the edge (the canonical case: gold up
+     ~150–200%). Cross-check: did the strategy also pay in-sample, when the asset
+     went sideways or down? Compare strategy return to the asset's own return. If
+     the edge disappears once you subtract the drift, it is not an edge.
+   - *Statistical weight.* Trust nothing under ~300 trades; small samples
+     optimize to noise.
+   - *IS↔OOS consistency.* Profit factor and Sharpe should not collapse from
+     in-sample to out-of-sample. A `validated: true` entry whose OOS roughly
+     tracks its IS is worth more than a higher-ranked entry that only shines OOS.
+   - *Overfitting.* Wide parameter grids plus genetic search find lucky corners.
+     Fewer, economically meaningful parameters beat a large search.
+7. **Stress the winner.** Before trusting a survivor, test execution realism on
+   its winning set:
+   `mt5 --json tester ea stress --expert <name> --symbol <sym> --tf <tf> --from ... --to ...`.
+   Require `robustness.verdict` of `robust` (or at least `degraded`) — a backtest
+   edge that evaporates under 100–500 ms fills was borrowed from execution
+   conditions a retail account never gets.
+8. **Iterate.** Refine the hypothesis or narrow the parameters and re-run. Keep a
+   short log of what you tried and why each candidate lived or died.
+
+### Honesty rules
+
+- You author the alpha; the tool runs the native MT5 tester. Never ask the tool
+  for a strategy, and never report a result the tester did not produce.
+- A single-asset, single-broker result is not validated edge. Name the caveats
+  an honest quant names: broker clock / session boundaries, spread and slippage,
+  and cost sensitivity (an edge that survives 1× cost can die at 4×).
+- Use `real-ticks` modelling for the final read; `ohlc-1m` is fine for the
+  optimization sweep but understates execution cost.
+- Out-of-sample numbers are a check, not a trophy. If you cannot explain *why*
+  the edge exists, treat a great OOS curve as unexplained until proven.
+
+### Pointers
+
+- `mt5 --json describe` — machine catalog of every command and error code.
+- `USER_WORKSPACE.md` — where EAs, presets, and results live.
+- Full contract: this spec and the `quant.v1` envelope.
+
+---
+
 ## Error Codes
 
 Register in `mt5_cli/errors.py` (test-enforced):
@@ -285,6 +375,14 @@ CLI:
 
 16. `quant run` happy path emits `quant.v1`; `quant list` / `quant show` read
     back a written campaign; new error codes are registered.
+
+Playbook (packaging + anti-drift):
+
+17. `mt5_cli/skills/QUANT_WORKFLOW.md` ships in the built wheel as package data,
+    like `USER_WORKSPACE.md`.
+18. A guard test parses every `mt5 ...` command token in the playbook and asserts
+    each resolves in the `describe` catalog — the playbook can never drift ahead
+    of the implemented CLI.
 
 ## Verification
 
