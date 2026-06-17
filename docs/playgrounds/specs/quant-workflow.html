@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quant Workflow</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2933;
+      --muted: #5b6773;
+      --bg: #f6f4ef;
+      --panel: #ffffff;
+      --line: #d8d2c4;
+      --teal: #0f766e;
+      --teal-soft: #d8f3ef;
+      --amber: #b7791f;
+      --amber-soft: #fff1d6;
+      --red: #b42318;
+      --red-soft: #ffe4df;
+      --shadow: 0 18px 45px rgba(31, 41, 51, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    header {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 820px;
+      font-size: clamp(2rem, 5vw, 4.4rem);
+      line-height: 1;
+    }
+
+    h2 {
+      font-size: 1.35rem;
+      margin-bottom: 12px;
+    }
+
+    h3 {
+      font-size: 1rem;
+      margin-bottom: 6px;
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border-radius: 8px;
+      background: #17212b;
+      color: #f7fafc;
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .eyebrow {
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .lede {
+      max-width: 900px;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+
+    .band {
+      margin-top: 18px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .intent {
+      border-left: 6px solid var(--teal);
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .tile {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .tile.bad {
+      background: var(--red-soft);
+      border-color: var(--red);
+    }
+
+    .tile.good {
+      background: var(--teal-soft);
+      border-color: var(--teal);
+    }
+
+    .anchor {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    th,
+    td {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--bg);
+    }
+
+    td.num {
+      text-align: right;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      counter-reset: step;
+    }
+
+    .flow .step {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .flow .step::before {
+      counter-increment: step;
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    .flow .step.pure::before {
+      background: var(--amber);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      vertical-align: middle;
+    }
+
+    .pill.native {
+      background: var(--teal-soft);
+      color: var(--teal);
+      border: 1px solid var(--teal);
+    }
+
+    .pill.purejs {
+      background: var(--amber-soft);
+      color: var(--amber);
+      border: 1px solid var(--amber);
+    }
+
+    .calc-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .calc-grid label {
+      display: block;
+      margin: 10px 0 4px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .calc-grid input,
+    .calc-grid select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-family: Consolas, "Courier New", monospace;
+      background: #fff;
+    }
+
+    .readout {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--teal);
+      background: var(--teal-soft);
+      font-size: 1.05rem;
+    }
+
+    .readout strong {
+      font-size: 1.3rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.pass {
+      background: var(--teal-soft);
+      color: var(--teal);
+      border: 1px solid var(--teal);
+    }
+
+    .badge.reject {
+      background: var(--red-soft);
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+
+    tr.is-reject td {
+      color: var(--muted);
+      background: #faf7f1;
+    }
+
+    .caveat {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border: 1px solid var(--amber);
+      border-left: 6px solid var(--amber);
+      border-radius: 8px;
+      background: var(--amber-soft);
+      font-size: 0.95rem;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 4px 0;
+    }
+
+    @media (max-width: 820px) {
+      .cols,
+      .calc-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+<!-- INTENT: Decide and freeze the contract for `mt5 quant` — a campaign that drives the
+     NATIVE MT5 Strategy Tester across a symbol x timeframe matrix with genetic
+     optimization, in-sample/out-of-sample forward validation, configurable selection
+     gates, ranked survivors, and a consolidated dependency-free report. This is the
+     tool-true slice of the "AI quant workflow" video. Anti-patterns prevented:
+     (1) shipping strategy logic or a Python backtester into a deliberately tool-only CLI
+     — the user's compiled EA stays the only source of alpha; the harness never computes a
+     signal; (2) trusting out-of-sample metrics ALONE — a strongly-trending long-only asset
+     (the video's GOLD, up ~150-200%) posts gorgeous OOS Sharpe/PF that reflect the asset's
+     drift, not the strategy's edge. Source: "Inside My AI Quant Workflow", chapters on
+     multi-asset optimization, IS/OOS validation, selection criteria, and the ranked report. -->
+<main>
+  <header>
+    <span class="eyebrow">Spec playground &middot; Proposed 2026-06-16</span>
+    <h1>Quant Workflow</h1>
+    <p class="lede">
+      Turn the AI-quant video's research pipeline into one tool-true command:
+      <code>mt5 quant run</code> drives the <strong>native</strong> MT5 tester across a
+      symbol &times; timeframe matrix &mdash; genetic optimization, in-sample/out-of-sample
+      forward validation, configurable selection gates &mdash; and emits a ranked
+      <code>quant.v1</code> envelope plus a dependency-free report. The user's EA stays the
+      only source of alpha; the harness never writes a strategy.
+    </p>
+  </header>
+
+  <section class="band intent">
+    <h2>Intent</h2>
+    <p>
+      <strong>Decision this informs:</strong> the public contract for a campaign command
+      &mdash; matrix expansion, the per-cell hybrid (optimize&nbsp;&rarr;&nbsp;pick
+      winner&nbsp;&rarr;&nbsp;re-run FULL), selection gates and ranking, envelope shape,
+      artifacts, and error codes &mdash; before any implementation lands.
+    </p>
+    <p style="margin-top:8px">
+      <strong>Anti-pattern this prevents:</strong> dragging the video's Python research
+      engine and vectorized backtester into a CLI whose charter is &ldquo;no strategy logic,
+      no indicator math, no pandas &hellip; not a separate Python backtester.&rdquo; The
+      campaign orchestrates <em>native</em> tester runs only. Second anti-pattern: ranking on
+      out-of-sample numbers alone, which flatters a trending long-only asset whose OOS curve
+      is the market, not the edge.
+    </p>
+    <span class="anchor">README.md:18-19 (tool-only charter) &middot; pyproject.toml:38-48 (lean, no-pandas deps) &middot; mt5_cli/tester/ea.py:304 (stress = the orchestration template)</span>
+  </section>
+
+  <section class="band">
+    <h2>Current vs target</h2>
+    <div class="cols">
+      <div class="tile bad">
+        <h3>Current &mdash; one cell at a time, by hand</h3>
+        <ul>
+          <li><code>tester ea optimize</code> runs one (symbol, timeframe) at a time; the trader re-launches per asset and per timeframe.</li>
+          <li><code>scanner()</code> exists but only runs <em>raw</em> single-mode tests across symbols &mdash; no optimization, no IS/OOS, no ranking.</li>
+          <li>Picking the winner, splitting in/out-of-sample, gating on trades/PF, and ranking are all manual &mdash; the video's &ldquo;500 clicks, 5 hours&rdquo; problem.</li>
+        </ul>
+        <span class="anchor">mt5_cli/tester/ea.py:152 (optimize, single cell)<br>mt5_cli/tester/ea.py:273 (scanner: raw single-mode only)</span>
+      </div>
+      <div class="tile good">
+        <h3>Target &mdash; one campaign, ranked output</h3>
+        <ul>
+          <li><code>quant run</code> expands a symbol&times;timeframe matrix and drives each cell through the hybrid validation below.</li>
+          <li>Configurable gates (min trades, min PF) + a ranking metric pick survivors; rejects are recorded with reasons.</li>
+          <li>One <code>quant.v1</code> envelope + a dependency-free HTML report (ranked table, per-strategy IS/OOS/FULL card, inline-SVG equity curve, caveats).</li>
+          <li>Child runs still register under <code>results/</code>, so <code>tester list</code>/<code>show</code> keep working.</li>
+        </ul>
+        <span class="anchor">Template: mt5_cli/tester/ea.py:304 (stress: many native runs &rarr; graded *.v1)<br>Pure-module precedent: mt5_cli/tester/stress.py</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Per-cell flow &mdash; the hybrid (forward optimize + FULL re-run)</h2>
+    <p class="lede" style="font-size:0.95rem">
+      Each cell is one <code>(symbol, timeframe)</code>. Steps run serially &mdash; the
+      launcher contract forbids parallel terminals (<code>TERMINAL_ALREADY_RUNNING</code>).
+      <span class="pill native">native MT5</span> steps launch <code>terminal64.exe</code>;
+      <span class="pill purejs">pure</span> steps are stdlib-only, no terminal, unit-tested
+      with fixtures.
+    </p>
+    <div class="flow" style="margin-top:14px">
+      <div class="step">
+        <div>
+          <strong>Optimize on the matrix cell</strong> <span class="pill native">native MT5</span><br>
+          <code>ea.optimize(mode="genetic", forward=split, params=&hellip;, from=FULL, to=FULL)</code>
+          &rarr; <code>optimization.xml</code> with a <em>back</em> (in-sample) and
+          <em>forward</em> (out-of-sample) result per pass. MT5 owns the split.
+          <span class="anchor">mt5_cli/tester/ea.py:152 &middot; genetic = _OPT_MODES["genetic"] (ea.py:18) &middot; forward param already threaded (ea.py:160)</span>
+        </div>
+      </div>
+      <div class="step pure">
+        <div>
+          <strong>Pick the winner from the passes</strong> <span class="pill purejs">pure</span><br>
+          <code>selection.pick_winner(passes, rank_by)</code> &mdash; choose the pass whose
+          in-sample clears the gates, best by the ranking metric; extract its parameter set
+          &rarr; write a <code>.set</code>.
+          <span class="anchor">Reads: mt5_cli/tester/results.py:285 (parse_optimization_xml) &mdash; extend to expose back-vs-forward columns per pass</span>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <strong>Re-run the winner over the FULL range</strong> <span class="pill native">native MT5</span><br>
+          <code>ea.single(set_file=winner.set, from=FULL, to=FULL)</code> &rarr; one continuous
+          <code>report.html</code>: the merged equity curve crossing the split marker + FULL
+          stats.
+          <span class="anchor">mt5_cli/tester/ea.py:45 (single, set_file path) &middot; stats from results.py:184-256</span>
+        </div>
+      </div>
+      <div class="step pure">
+        <div>
+          <strong>Assemble the cell</strong> <span class="pill purejs">pure</span><br>
+          IS &amp; OOS metrics from the winner's XML row, FULL metrics from the re-run,
+          equity curve split at the forward date. One cell record.
+        </div>
+      </div>
+    </div>
+    <p style="margin-top:12px; color:var(--muted); font-size:0.9rem">
+      Cost: <strong>~2 native launches per cell</strong>. Edge direction is proven by the
+      stress precedent &mdash; <code>ea.stress()</code> already calls <code>single()</code> in
+      a serial loop and grades the result (<code>mt5_cli/tester/ea.py:335-360</code>); the
+      campaign reuses that shape one altitude up, swapping &ldquo;delay rung&rdquo; for
+      &ldquo;matrix cell&rdquo; and &ldquo;robustness score&rdquo; for &ldquo;ranked
+      survivors.&rdquo;
+    </p>
+  </section>
+
+  <section class="band">
+    <h2>Campaign matrix &mdash; explore the cost</h2>
+    <p class="lede" style="font-size:0.95rem">
+      The matrix is <code>symbols &times; timeframes</code>, each cell ~2 native launches,
+      run serially. This is the video's &ldquo;30 minutes for 10 asset classes&rdquo; budget
+      made explicit &mdash; and the reason <code>--dry-run</code> prints the plan before
+      committing a terminal for an hour.
+    </p>
+    <div class="calc-grid" style="margin-top:12px">
+      <div>
+        <label for="nsym">Symbols (e.g. EURUSD, XAUUSD, UKOIL, USDJPY)</label>
+        <input id="nsym" type="number" value="4" min="1" step="1">
+        <label for="ntf">Timeframes (e.g. H1, H2)</label>
+        <input id="ntf" type="number" value="2" min="1" step="1">
+        <label for="mins">Avg minutes per native launch (optimize is the long pole)</label>
+        <input id="mins" type="number" value="3" min="0.1" step="0.1">
+      </div>
+      <div>
+        <div class="readout">
+          <div><strong id="cells">8</strong> cells &times; ~2 launches = <strong id="launches">16</strong> native runs</div>
+          <div id="eta" style="font-size:0.95rem; color:var(--muted); margin-top:6px"></div>
+        </div>
+        <p style="margin-top:10px; color:var(--muted); font-size:0.9rem">
+          Serial by contract: the launcher refuses a second <code>terminal64.exe</code>
+          while one is running, so wall-clock is the sum, not the max. A <code>--dry-run</code>
+          returns this plan (cells, launch count, the expanded matrix) and launches nothing.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Selection &amp; ranking &mdash; explore the contract</h2>
+    <p class="lede" style="font-size:0.95rem">
+      Hard gates decide who survives; the ranking metric decides the order; the rest are
+      <em>rejected with a reason</em>. The rows below are the video's own published run
+      (frame 0025) &mdash; adjust the gates and watch survivors and order move. Defaults
+      mirror the video: <code>--min-trades 300</code>, <code>--min-pf 1.0</code>,
+      <code>--rank-by oos_sharpe</code>.
+    </p>
+    <div class="calc-grid" style="margin-top:12px; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)">
+      <div>
+        <label for="minTrades">Min FULL trades &mdash; <code>--min-trades</code></label>
+        <input id="minTrades" type="number" value="300" min="0" step="50">
+      </div>
+      <div>
+        <label for="minPf">Min OOS profit factor &mdash; <code>--min-pf</code></label>
+        <input id="minPf" type="number" value="1.0" min="0" step="0.05">
+      </div>
+      <div>
+        <label for="rankBy">Rank by &mdash; <code>--rank-by</code></label>
+        <select id="rankBy">
+          <option value="oosSharpe">oos_sharpe</option>
+          <option value="fullNet">full_net</option>
+          <option value="oosPf">oos_pf</option>
+          <option value="oosTrades">oos_trades</option>
+        </select>
+      </div>
+    </div>
+    <table style="margin-top:14px">
+      <thead>
+        <tr>
+          <th>#</th><th>Asset</th><th>TF</th><th>Side</th>
+          <th>FULL trades</th><th>FULL net</th><th>OOS Sharpe</th><th>OOS PF</th><th>OOS trades</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="caveat">
+      <strong>The GOLD trap (why OOS alone never ranks).</strong> Rank by
+      <code>oos_sharpe</code> or <code>full_net</code> and GOLD tops the table &mdash; but
+      the video is explicit that gold ran up ~150&ndash;200% over the window, so a
+      <em>long-only</em> strategy posts a beautiful out-of-sample curve that is the
+      <em>asset</em>, not the edge. That is why the contract gates min-PF on the
+      <em>in-sample</em> segment (where selection happens) and treats OOS as a
+      <code>validated</code> flag, not the sole ranking key. Honest reporting over a
+      flattering number.
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>Envelope: <code>quant.v1</code></h2>
+    <pre>{
+  "ok": true,
+  "data": {
+    "schema": "quant.v1",
+    "campaign_id": "2026-06-16T19-40-00_quant_alpha",
+    "expert": "alpha",
+    "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
+    "from": "2022-01-01", "to": "2024-12-31",
+    "split": "0.70",
+    "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
+                   "rank_by": "oos_sharpe", "per_asset": 2 },
+    "ranked": [
+      { "rank": 1, "symbol": "XAUUSD", "timeframe": "H1", "side": "long",
+        "validated": true, "set_file": "results/&lt;child&gt;/alpha.XAUUSD.H1.set",
+        "run_id": "2026-06-16T19-41-10_alpha_XAUUSD_H1",
+        "full": { "trades": 804, "net_profit": 55198.59, "profit_factor": 2.02 },
+        "is":   { "trades": 609, "profit_factor": 2.10, "sharpe": 1.91 },
+        "oos":  { "trades": 195, "profit_factor": 2.02, "sharpe": 1.79 } },
+      { "rank": 2, "symbol": "EURUSD", "timeframe": "H1", "side": "long",
+        "validated": true, "full": { "trades": 977, "net_profit": 13486.76 },
+        "oos": { "sharpe": 1.01, "profit_factor": 1.56, "trades": 234 } }
+    ],
+    "rejected": [
+      { "symbol": "UKOIL", "timeframe": "H1", "reason": "MIN_TRADES",
+        "full": { "trades": 142 } }
+    ],
+    "artifacts": {
+      "report_html": "results/2026-06-16T19-40-00_quant_alpha/report.html",
+      "manifest":    "results/2026-06-16T19-40-00_quant_alpha/manifest.json"
+    }
+  }
+}</pre>
+    <p style="margin-top:8px; color:var(--muted); font-size:0.9rem">
+      Failure semantics follow the repo's frozen shape
+      (<code>mt5_cli/reports/envelope.py</code>, locked by the envelope-contract test): a cell
+      whose optimize or re-run fails ships its fail envelope in <code>rejected</code> with
+      <code>reason: "CELL_FAILED"</code> and the campaign continues; the command only fails
+      outright when <em>no</em> cell produces a ranked or rejected record (e.g. an empty
+      matrix). Schema-version style mirrors <code>stress.v1</code> and <code>wake.v1</code>.
+    </p>
+  </section>
+
+  <section class="band">
+    <h2>Command contract</h2>
+    <pre>mt5 --json quant run \
+  --expert my_strategy \
+  --symbols EURUSD,XAUUSD,UKOIL,USDJPY \
+  --tf H1,H2 \
+  --from 2022-01-01 --to 2024-12-31 \
+  --split 0.70 \                 # IS/OOS boundary: fraction or YYYY-MM-DD (maps to MT5 forward)
+  --param Risk=0.5,0.5,3.0 \     # MT5 optimization range: start,step,stop  (repeatable)
+  --param ATRWindow=10,5,30 \
+  --mode genetic \
+  --min-trades 300 --min-pf 1.0 --oos-min-pf 1.0 \
+  --rank-by oos_sharpe --per-asset 2 \
+  [--modelling ohlc-1m] [--no-html] [--dry-run] [--timeout 1800]
+
+mt5 --json quant list            # campaigns, newest first
+mt5 --json quant show &lt;campaign-id&gt;</pre>
+    <ul style="margin-top:10px">
+      <li>Exit code stays <code>0</code>; callers parse the envelope's <code>ok</code> boolean (repo-wide rule).</li>
+      <li><code>run</code> is CLI-only (launches a terminal, long-running). <code>list</code>/<code>show</code> are read-only and MCP-safe &mdash; matching how tester <em>runs</em> are not exposed over MCP.</li>
+      <li><code>--per-asset 2</code> keeps the top two per asset, exactly the rank-1/rank-2 layout of the video's summary table.</li>
+    </ul>
+  </section>
+
+  <section class="band">
+    <h2>Spec seed</h2>
+    <div class="cols">
+      <div class="tile">
+        <h3>Ownership boundaries</h3>
+        <ul>
+          <li>New package <code>mt5_cli/quant/</code> owns the campaign; it imports <code>mt5_cli.tester.ea</code> and writes <strong>zero</strong> strategy logic.</li>
+          <li><code>matrix.py</code> &mdash; pure: expand/validate symbols&times;timeframes, parse <code>--split</code> (fraction or date), parse <code>--param</code> ranges.</li>
+          <li><code>selection.py</code> &mdash; pure: pick winner from passes, apply gates, rank, record rejects (the <code>tester/stress.py</code> analog).</li>
+          <li><code>report.py</code> &mdash; pure: dependency-free HTML + inline-SVG equity curve. No matplotlib, no pandas.</li>
+          <li><code>campaign.py</code> &mdash; orchestration: per-cell hybrid, serial launches, artifacts, <code>quant.v1</code> assembly.</li>
+          <li><code>store.py</code> &mdash; campaign-id + <code>manifest.json</code> read/write (reuses <code>tester/cache.py</code> conventions).</li>
+          <li><code>mt5/cli.py</code> stays a thin flag-parsing wrapper (CONTRIBUTING architecture rule).</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Public interfaces</h3>
+        <ul>
+          <li><code>quant.campaign.run(*, expert, symbols, timeframes, from_date, to_date, split, params, mode, selection, &hellip;)</code> &rarr; <code>quant.v1</code></li>
+          <li><code>quant.list_campaigns()</code> / <code>quant.get_campaign(id)</code></li>
+          <li><code>mt5 quant run | list | show</code></li>
+          <li>One parsing extension: <code>results.parse_optimization_xml</code> gains back-vs-forward awareness.</li>
+          <li>Errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>NO_WINNER</code> (registered in <code>mt5_cli/errors.py</code>, test-enforced).</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Build sequence</h3>
+        <ul>
+          <li>1 &mdash; <code>matrix.py</code> (expansion, split, param ranges) + tests</li>
+          <li>2 &mdash; forward-aware <code>parse_optimization_xml</code> + fixtures</li>
+          <li>3 &mdash; <code>selection.py</code> (winner pick, gates, ranking) + tests</li>
+          <li>4 &mdash; <code>campaign.py</code> orchestration against a fake launcher</li>
+          <li>5 &mdash; <code>report.py</code> (HTML/SVG) + <code>store.py</code> + tests</li>
+          <li>6 &mdash; CLI group + error registry</li>
+          <li>7 &mdash; README / AGENTS / describe catalog / CHANGELOG; flip spec &amp; plan status</li>
+        </ul>
+      </div>
+      <div class="tile">
+        <h3>Non-goals (YAGNI)</h3>
+        <ul>
+          <li>No Python EDA engine (return distribution, weekday&times;hour heatmap, autocorrelation) &mdash; that needs numpy/pandas the charter excludes.</li>
+          <li>No Python vectorized backtester and no Python&rarr;MQL5 translation &mdash; MT5 stays the only engine; the EA stays the only alpha.</li>
+          <li>No walk-forward beyond the single forward split; no multi-data-feed / news (CPI/FOMC/NFP) testing.</li>
+          <li>No campaign resume in v1 (each child run is cached, so resume can come later).</li>
+          <li>No trading strategy, signal generation, indicator math, or market opinion.</li>
+        </ul>
+      </div>
+    </div>
+    <p style="margin-top:12px; color:var(--muted); font-size:0.9rem">
+      Full contract: <code>docs/specs/quant-workflow.md</code>. Implementation phases:
+      <code>docs/plans/quant-workflow-plan.md</code> (written after this spec is reviewed).
+      Scope &amp; placement decisions that produced this seed: tool-true orchestration only,
+      top-level <code>mt5 quant</code> group, hybrid forward-optimize + FULL re-run.
+    </p>
+  </section>
+</main>
+<script>
+  (function () {
+    // ---- Matrix cost calculator ------------------------------------------
+    var nsym = document.getElementById('nsym');
+    var ntf = document.getElementById('ntf');
+    var mins = document.getElementById('mins');
+    var cellsEl = document.getElementById('cells');
+    var launchesEl = document.getElementById('launches');
+    var etaEl = document.getElementById('eta');
+
+    function recalcMatrix() {
+      var s = Math.max(0, Math.floor(parseFloat(nsym.value) || 0));
+      var t = Math.max(0, Math.floor(parseFloat(ntf.value) || 0));
+      var m = parseFloat(mins.value);
+      var cells = s * t;
+      var launches = cells * 2;
+      cellsEl.textContent = cells;
+      launchesEl.textContent = launches;
+      if (!isFinite(m) || m <= 0) {
+        etaEl.textContent = 'Set a per-launch estimate to see wall-clock.';
+        return;
+      }
+      var total = launches * m;
+      var label = total >= 60
+        ? (total / 60).toFixed(1) + ' hours'
+        : Math.round(total) + ' minutes';
+      etaEl.textContent = '~' + label + ' wall-clock, serial (sum of launches, not max).';
+    }
+
+    [nsym, ntf, mins].forEach(function (el) { el.addEventListener('input', recalcMatrix); });
+    recalcMatrix();
+
+    // ---- Selection & ranking explorer ------------------------------------
+    // Rows are the video's published run (frame 0025): asset, tf, side, FULL
+    // trades, FULL net, OOS daily Sharpe, OOS profit factor, OOS trades.
+    var strategies = [
+      { asset: 'EURUSD',   tf: 'H1', side: 'long',  fullTrades: 977,  fullNet: 13486.76,  oosSharpe: 1.01, oosPf: 1.56, oosTrades: 234 },
+      { asset: 'EURUSD',   tf: 'H1', side: 'long',  fullTrades: 1886, fullNet: 25610.44,  oosSharpe: 1.57, oosPf: 1.52, oosTrades: 467 },
+      { asset: 'GOLD',     tf: 'H1', side: 'long',  fullTrades: 804,  fullNet: 55198.59,  oosSharpe: 1.79, oosPf: 2.02, oosTrades: 195 },
+      { asset: 'GOLD',     tf: 'H1', side: 'long',  fullTrades: 1635, fullNet: 115104.53, oosSharpe: 2.38, oosPf: 1.94, oosTrades: 404 },
+      { asset: 'OILBRENT', tf: 'H2', side: 'long',  fullTrades: 592,  fullNet: 27266.42,  oosSharpe: 0.62, oosPf: 1.26, oosTrades: 148 },
+      { asset: 'OILBRENT', tf: 'H2', side: 'long',  fullTrades: 603,  fullNet: 27565.40,  oosSharpe: 0.76, oosPf: 1.33, oosTrades: 153 },
+      { asset: 'USDJPY',   tf: 'H1', side: 'long',  fullTrades: 779,  fullNet: 10999.47,  oosSharpe: 0.67, oosPf: 1.26, oosTrades: 197 },
+      { asset: 'USDJPY',   tf: 'H1', side: 'short', fullTrades: 793,  fullNet: 11315.20,  oosSharpe: 1.00, oosPf: 2.01, oosTrades: 169 }
+    ];
+
+    var minTrades = document.getElementById('minTrades');
+    var minPf = document.getElementById('minPf');
+    var rankBy = document.getElementById('rankBy');
+    var rows = document.getElementById('rows');
+
+    function fmtUsd(n) { return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+    function recalcSelection() {
+      var mt = parseFloat(minTrades.value);
+      var mp = parseFloat(minPf.value);
+      var key = rankBy.value;
+      if (!isFinite(mt)) mt = 0;
+      if (!isFinite(mp)) mp = 0;
+
+      // Gate, then rank the survivors by the selected metric (desc).
+      var evaluated = strategies.map(function (s, i) {
+        var reason = null;
+        if (s.fullTrades < mt) reason = 'MIN_TRADES';
+        else if (s.oosPf < mp) reason = 'MIN_PF';
+        return { s: s, idx: i, reason: reason };
+      });
+      var survivors = evaluated.filter(function (e) { return !e.reason; });
+      survivors.sort(function (a, b) { return b.s[key] - a.s[key]; });
+      var rankByIdx = {};
+      survivors.forEach(function (e, i) { rankByIdx[e.idx] = i + 1; });
+
+      // Render in ranked order first, then rejects.
+      var ordered = survivors.concat(evaluated.filter(function (e) { return e.reason; }));
+      rows.innerHTML = '';
+      ordered.forEach(function (e) {
+        var s = e.s;
+        var tr = document.createElement('tr');
+        if (e.reason) tr.className = 'is-reject';
+        var verdict = e.reason
+          ? '<span class="badge reject">REJECT &middot; ' + e.reason + '</span>'
+          : '<span class="badge pass">PASS &middot; #' + rankByIdx[e.idx] + '</span>';
+        tr.innerHTML =
+          '<td class="num">' + (e.reason ? '&mdash;' : rankByIdx[e.idx]) + '</td>' +
+          '<td>' + s.asset + '</td>' +
+          '<td>' + s.tf + '</td>' +
+          '<td>' + s.side + '</td>' +
+          '<td class="num">' + s.fullTrades + '</td>' +
+          '<td class="num">' + fmtUsd(s.fullNet) + '</td>' +
+          '<td class="num">' + s.oosSharpe.toFixed(2) + '</td>' +
+          '<td class="num">' + s.oosPf.toFixed(2) + '</td>' +
+          '<td class="num">' + s.oosTrades + '</td>' +
+          '<td>' + verdict + '</td>';
+        rows.appendChild(tr);
+      });
+    }
+
+    [minTrades, minPf, rankBy].forEach(function (el) {
+      el.addEventListener('input', recalcSelection);
+      el.addEventListener('change', recalcSelection);
+    });
+    recalcSelection();
+  })();
+</script>
+</body>
+</html>
