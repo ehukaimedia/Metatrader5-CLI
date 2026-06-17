@@ -43,12 +43,19 @@ discipline, and execution stress. The tool stays hands; the agent is the brain.
 v1 splits each cell into a flat, explicit sequence — **no MT5 forward mode, no
 `.forward` artifact, no back↔forward join**:
 
-1. **Optimize the in-sample window** `[from, split]` (genetic) → `optimization.xml`
-   (one row per pass, with that pass's input parameters and in-sample metrics).
+1. **Optimize the in-sample window** `[from, split−1 day]` (genetic) →
+   `optimization.xml` (one row per pass, with that pass's input parameters and
+   in-sample metrics).
 2. **Pick the winner** from the in-sample passes (below).
 3. **`single` on the out-of-sample window** `[split, to]` with the winner's set → OOS metrics.
 4. **`single` on the FULL window** `[from, to]` with the winner's set → FULL metrics + the
    continuous equity curve crossing the split.
+
+**Split boundary (no leakage):** `split` is the first out-of-sample day. A
+fraction `f` resolves to `split = from + floor(f×(to−from))` days. Because MT5
+treats `FromDate`/`ToDate` inclusively, the in-sample optimize runs
+`[from, split−1 day]` and the OOS `single` runs `[split, to]` — disjoint, no
+boundary double-count.
 
 **Three native launches per cell, flat.** This was chosen over the
 forward-optimization "hybrid" (2 launches) on review: MT5's forward mode writes
@@ -154,8 +161,10 @@ isolation:** like `mt5_cli/tester`, `quant` must not import MetaTrader5 — it
 drives the tester through the filesystem only (import-boundary test).
 
 1. `matrix.py` — pure: expand/validate `symbols × timeframes`; parse `--split`
-   into the IS/OOS boundary date — a `0<f<1` fraction becomes `from + f×(to−from)`
-   (stdlib date math), an explicit `YYYY-MM-DD` is used as-is; parse
+   into the IS/OOS boundary date — a `0<f<1` fraction becomes
+   `from + floor(f×(to−from))` days (stdlib date math), an explicit `YYYY-MM-DD`
+   is used as-is; `split` is the first OOS day, so the IS optimize ends
+   `split−1`; parse
    `--param NAME=value,start,step,stop` ranges (reusing `ini_builder.render_set`
    grammar). Rejects via one shared gate: `EMPTY_MATRIX`, `INVALID_SPLIT`,
    `INVALID_PARAM`.
@@ -190,7 +199,7 @@ Cross-cutting: `stress()` and CLI `tester ea stress` gain an optional `set_file`
 For each `(symbol, timeframe)` cell, serially (launcher forbids parallel
 terminals):
 
-1. `ea.optimize(mode="genetic", params=…, from=FROM, to=SPLIT)` → in-sample
+1. `ea.optimize(mode="genetic", params=…, from=FROM, to=SPLIT−1d)` → in-sample
    `optimization.xml`. **launch 1.**
 2. `passes.read()` + `selection.pick_winner(passes, min_pf=…)` → the winning
    parameter set → `.set`. (pure)
@@ -237,7 +246,7 @@ Every `ranked[]` entry carries `full`, `is`, and `oos` blocks.
     "expert": "alpha",
     "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
     "from": "2022-01-01", "to": "2024-12-31",
-    "split": "2024-01-21",
+    "split": "2024-02-06",
     "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
                    "rank_by": "full_net", "per_asset": 2 },
     "rank_caveat": null,
@@ -290,8 +299,8 @@ mt5 tester ea stress --expert <EA> --symbol <SYM> --tf <TF> \
 
 - Exit code stays 0; callers parse the envelope's `ok` boolean.
 - `--split` is the IS/OOS boundary date (a fraction is converted against
-  `from`/`to`); it bounds the in-sample optimize `[from, split]` and the OOS
-  `single` `[split, to]`.
+  `from`/`to`); `split` is the first OOS day, so the in-sample optimize runs
+  `[from, split−1]` and the OOS `single` runs `[split, to]` (disjoint).
 - `--dry-run` returns the expanded matrix, cell count, and launch estimate (3 per
   cell), and launches nothing.
 - `--timeout` is per native launch. `--modelling` defaults to `ohlc-1m` for the
@@ -422,9 +431,10 @@ Close these against real MT5 artifacts before code is frozen:
 Matrix (pure):
 
 1. `EURUSD,XAUUSD × H1,H2` expands to 4 ordered cells; duplicates dedupe.
-2. `--split 0.70` over `2022-01-01..2024-12-31` converts to the calendar boundary
-   `2024-01-21` (`from + f×(to−from)`); `--split 2024-06-01` is used as-is; `1.5`,
-   `0`, `abc`, empty raise `INVALID_SPLIT`.
+2. `--split 0.70` over `2022-01-01..2024-12-31` (1095 days) converts to
+   `split = from + floor(0.70×1095) = +766d = 2024-02-06` (the first OOS day; the
+   IS optimize ends 2024-02-05); `--split 2024-06-01` is used as-is; `1.5`, `0`,
+   `abc`, empty raise `INVALID_SPLIT`.
 3. Empty symbol or timeframe set raises `EMPTY_MATRIX` on the library path.
 4. `--param Risk=1.0,0.5,0.5,3.0` parses to the range form; malformed raises
    `INVALID_PARAM`. Bad `--rank-by` raises `INVALID_RANK_BY`.
@@ -444,8 +454,9 @@ Passes + selection (pure, fixtures — risk 1):
 
 Orchestration (fake launcher, no terminal):
 
-8. Each cell issues exactly three launches in order — optimize `[from, split]`,
-   single `[split, to]`, single `[from, to]` — and assembles IS/OOS/FULL.
+8. Each cell issues exactly three launches in order — optimize `[from, split−1]`,
+   single `[split, to]`, single `[from, to]` — disjoint IS/OOS with no boundary
+   overlap, and assembles IS/OOS/FULL.
 9. A cell whose any launch fails ships `reason: "CELL_FAILED"` with the embedded
    fail envelope and does not stop later cells.
 10. Empty matrix → root `EMPTY_MATRIX`, zero launches; no cell yielding any record

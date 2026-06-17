@@ -347,7 +347,7 @@
     <h2>Intent</h2>
     <p>
       <strong>Decision this informs:</strong> the public contract for a campaign command
-      &mdash; matrix expansion, the per-cell hybrid (optimize&nbsp;&rarr;&nbsp;pick
+      &mdash; matrix expansion, the per-cell two-pass loop (optimize&nbsp;&rarr;&nbsp;pick
       winner&nbsp;&rarr;&nbsp;re-run FULL), selection gates and ranking, envelope shape,
       artifacts, and error codes &mdash; before any implementation lands.
     </p>
@@ -377,7 +377,7 @@
       <div class="tile good">
         <h3>Target &mdash; one campaign, ranked output</h3>
         <ul>
-          <li><code>quant run</code> expands a symbol&times;timeframe matrix and drives each cell through the hybrid validation below.</li>
+          <li><code>quant run</code> expands a symbol&times;timeframe matrix and drives each cell through the two-pass validation below.</li>
           <li>Configurable gates (min trades, min PF) + a ranking metric pick survivors; rejects are recorded with reasons.</li>
           <li>One <code>quant.v1</code> envelope + a dependency-free HTML report (ranked table, per-strategy IS/OOS/FULL card, inline-SVG equity curve, caveats).</li>
           <li>Child runs still register under <code>results/</code>, so <code>tester list</code>/<code>show</code> keep working.</li>
@@ -401,9 +401,10 @@
       <div class="step">
         <div>
           <strong>Optimize the in-sample window</strong> <span class="pill native">native MT5</span><br>
-          <code>ea.optimize(mode="genetic", params=&hellip;, from=FROM, to=SPLIT)</code> &rarr;
+          <code>ea.optimize(mode="genetic", params=&hellip;, from=FROM, to=SPLIT&minus;1d)</code> &rarr;
           <code>optimization.xml</code>: one row per pass with its input parameters and in-sample
-          metrics. No forward mode.
+          metrics. No forward mode. (<code>SPLIT</code> is the first OOS day; IS ends the day
+          before &mdash; disjoint windows, no leakage.)
           <span class="anchor">ea.py:152 &middot; genetic=_OPT_MODES (ea.py:18) &middot; passes read via results.parse_optimization_xml (results.py:285)</span>
         </div>
       </div>
@@ -557,7 +558,7 @@
     "expert": "alpha",
     "matrix": { "symbols": ["EURUSD", "XAUUSD"], "timeframes": ["H1"] },
     "from": "2022-01-01", "to": "2024-12-31",
-    "split": "2024-01-21",
+    "split": "2024-02-06",
     "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
                    "rank_by": "full_net", "per_asset": 2 },
     "rank_caveat": null,
@@ -605,7 +606,7 @@
   --symbols EURUSD,XAUUSD,UKOIL,USDJPY \
   --tf H1,H2 \
   --from 2022-01-01 --to 2024-12-31 \
-  --split 0.70 \                       # IS/OOS boundary: fraction or YYYY-MM-DD (MT5 ForwardDate)
+  --split 0.70 \                       # IS/OOS split day (fraction or YYYY-MM-DD); IS ends the day before
   --param Risk=1.0,0.5,0.5,3.0 \       # NAME=value,start,step,stop  (repeatable)
   --param ATRWindow=20,10,5,30 \
   --mode genetic \
