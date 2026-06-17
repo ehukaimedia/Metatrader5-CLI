@@ -1631,7 +1631,7 @@ def quant() -> None:
 @click.option("--split", required=True, help="IS/OOS boundary: 0<f<1 fraction or YYYY-MM-DD.")
 @click.option("--param", "params", multiple=True,
               help="EA optimization range Name=value,start,step,stop (repeatable).")
-@click.option("--mode", default="genetic", type=click.Choice(["complete", "genetic", "math"]))
+@click.option("--mode", default="genetic", type=click.Choice(["genetic", "complete"]))
 @click.option("--min-trades", default=300, type=int)
 @click.option("--min-pf", default=1.0, type=float)
 @click.option("--oos-min-pf", default=1.0, type=float)

@@ -295,6 +295,45 @@ millisecond integers from `0` to `600000` and/or `random`; the ideal baseline
 Tester reports are copied into the user's `results/<run-id>/` snapshot when MT5
 produces them.
 
+## Quant Workflow
+
+`mt5 quant run` turns a single compiled EA into a research campaign: it drives the
+native Strategy Tester across a symbol × timeframe matrix, optimizes each cell on
+an in-sample window, validates the winner out-of-sample and over the full range,
+gates on trade count and profit factor, and returns a ranked `quant.v1` envelope
+plus a dependency-free HTML report. The EA stays the only source of strategy
+logic — `quant` orchestrates and ranks, it never invents a signal.
+
+Each cell runs explicit **two-pass** (no MT5 forward mode): optimize
+`[from, split−1]` → pick the winner by in-sample profit factor → backtest the
+winner on `[split, to]` (out-of-sample) and `[from, to]` (full). Three native
+tester launches per cell, run serially.
+
+```bash
+mt5 --json quant run \
+  --expert my_strategy \
+  --symbols EURUSD,XAUUSD,USDJPY \
+  --tf H1,H2 \
+  --from 2022-01-01 --to 2024-12-31 \
+  --split 0.70 \
+  --param FastPeriod=9,5,1,21 --param SlowPeriod=21,10,5,60 \
+  --min-trades 300 --min-pf 1.0 --rank-by full_net --per-asset 2
+
+mt5 --json quant run ... --dry-run      # print the planned matrix + launch count
+mt5 --json quant list
+mt5 --json quant show <campaign-id>
+```
+
+`--split` is the in/out-of-sample boundary — a `0<f<1` fraction (resolved to a
+date) or an explicit `YYYY-MM-DD`. Ranking only orders candidates by `--rank-by`
+(`full_net` default; `oos_sharpe`/`oos_pf` are opt-in and set a drift caveat in
+the envelope); the `validated` flag (out-of-sample profit factor) and your own
+asset-drift check are what confirm an edge. To stress a winner's exact parameter
+set, pass it to the tester: `mt5 tester ea stress --set-file <winner.set>`.
+
+The agent playbook for operating this loop ships at
+`mt5_cli/skills/QUANT_WORKFLOW.md`.
+
 ## Command Groups
 
 | Group | Purpose |
@@ -314,6 +353,7 @@ produces them.
 | `ea` | MQL5 Expert Advisor scaffold, compile, deploy, discovery |
 | `indicator` | MQL5 custom indicator scaffold, compile, deploy, discovery |
 | `tester` | MT5 Strategy Tester runs, listing, and result parsing |
+| `quant` | Multi-asset two-pass optimization campaigns with ranked survivors |
 
 Run `mt5 <group> --help` or `mt5 <group> <command> --help` for exact options,
 or `mt5 --json describe` for a machine-readable catalog of every command.

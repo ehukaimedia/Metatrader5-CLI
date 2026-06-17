@@ -19,7 +19,9 @@ DATA = {
 def test_render_self_contained_with_svg_and_child_links():
     html = report.render(DATA)
     assert "<svg" in html and "<polyline" in html
-    assert "results/r1/report.html" in html        # link to the child run's native report
+    assert "../r1/report.html" in html             # child run is a sibling of the campaign dir
+    assert "results/r1/report.html" not in html    # not a broken nested path
+    assert "<line" in html and "stroke-dasharray" in html  # IS/OOS split marker on the curve
     assert "MIN_TRADES" in html                     # rejected section
     # no external assets — playground/report must be offline-safe
     assert not re.search(r'(src|href)="https?://', html)

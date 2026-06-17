@@ -110,6 +110,27 @@ If the ideal baseline run fails the whole command fails with
 A `fragile` verdict means the backtest's edge depended on execution conditions a
 retail broker will not provide.
 
+## Quant campaigns (`quant.v1`)
+
+`mt5 quant run` drives the native Strategy Tester across a symbol × timeframe
+matrix (explicit two-pass per cell: optimize in-sample, then backtest the winner
+out-of-sample and full) and returns a `quant.v1` envelope. Consume `data.ranked`:
+
+- each entry has `full` / `is` / `oos` metric blocks, a `validated` flag
+  (out-of-sample profit factor ≥ the configured floor), the winner's `set_file`,
+  and the FULL `run_id`.
+- `data.rank_caveat` is non-null when you ranked by an `oos_*` metric — those
+  flatter a trending asset, so rank is ordering, not proof of edge.
+- `data.rejected[]` carries a per-cell `reason`: `NO_WINNER` (no pass cleared the
+  in-sample gate), `MIN_TRADES` (too few full-sample trades), or `CELL_FAILED`
+  (a tester launch failed; the fail envelope is embedded).
+- `data.child_run_ids` lists every tester run the campaign produced (also visible
+  to `tester list`); `data.artifacts` points at the report + manifest.
+
+`mt5 quant list` / `mt5 quant show <id>` reload campaigns. To stress a winner's
+exact parameter set, pass it to the tester: `mt5 tester ea stress --set-file
+<winner.set>`. The agent playbook is shipped at `mt5_cli/skills/QUANT_WORKFLOW.md`.
+
 ## Error codes you should handle
 
 | Code | Meaning | Retryable? |
@@ -125,6 +146,7 @@ retail broker will not provide.
 | `CHART_INVALID_ZOOM` | Bad chart zoom direction, steps, or level | no — fix the call |
 | `INVALID_DELAYS` | Bad `--delays` token (not `random` or `0..600000`) | no — fix the ladder |
 | `STRESS_BASELINE_FAILED` | Stress baseline run failed (see `error.data.baseline`) | maybe — inspect the baseline |
+| `EMPTY_MATRIX` / `INVALID_SPLIT` / `INVALID_PARAM` / `INVALID_RANK_BY` / `NO_RESULTS` | Bad `quant run` inputs, or no cell produced a record | no — fix the call |
 | `MT5_INTERNAL_ERROR` | Unexpected internal error | maybe |
 
 Run `mt5 <group> --help` for exact options of any command.

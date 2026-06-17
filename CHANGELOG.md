@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `mt5 quant run` drives the native Strategy Tester across a symbol × timeframe
+  matrix with explicit two-pass in-sample/out-of-sample validation, selection
+  gates (`--min-trades`, `--min-pf`, `--oos-min-pf`), a ranking metric
+  (`--rank-by`, default `full_net`; `oos_sharpe`/`oos_pf` opt-in with a drift
+  caveat), per-asset capping, and `--dry-run` planning. Returns a ranked
+  `quant.v1` envelope plus a dependency-free HTML report; `mt5 quant list` /
+  `show` reload campaigns. New `mt5_cli/quant/` package and the
+  `mt5_cli/skills/QUANT_WORKFLOW.md` agent playbook.
+- `mt5 tester ea stress --set-file <file>` stresses a specific parameter set
+  (e.g. a quant campaign winner) instead of the EA's compiled defaults.
 - `mt5 tester ea stress` now runs a real execution-delay ladder using MT5's
   native `ExecutionMode` setting (ideal, fixed millisecond delays, and random),
   caches each rung under its own `results/<run-id>/`, and returns a `stress.v1`

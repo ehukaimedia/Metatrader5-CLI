@@ -331,7 +331,7 @@
      alpha. -->
 <main>
   <header>
-    <span class="eyebrow">Spec playground &middot; Proposed 2026-06-16</span>
+    <span class="eyebrow">Spec playground &middot; Implemented &middot; PR #10 (under review)</span>
     <h1>Quant Workflow</h1>
     <p class="lede">
       Turn the AI-quant video's research pipeline into one tool-true command:
@@ -349,7 +349,7 @@
       <strong>Decision this informs:</strong> the public contract for a campaign command
       &mdash; matrix expansion, the per-cell two-pass loop (optimize&nbsp;&rarr;&nbsp;pick
       winner&nbsp;&rarr;&nbsp;re-run FULL), selection gates and ranking, envelope shape,
-      artifacts, and error codes &mdash; before any implementation lands.
+      artifacts, and error codes. Implemented in PR #10 (explicit two-pass v1).
     </p>
     <p style="margin-top:8px">
       <strong>Anti-pattern this prevents:</strong> dragging the video's Python research
@@ -685,7 +685,7 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
           <li><code>quant.list_campaigns()</code> / <code>quant.get_campaign(id)</code></li>
           <li><code>mt5 quant run | list | show</code>; new <code>tester ea stress --set-file</code></li>
           <li><code>pick_winner(passes, min_pf)</code> selects by <em>in-sample</em> PF; <code>--rank-by</code> ranks finished cells (default <code>full_net</code>). Different operations.</li>
-          <li>Root errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>INVALID_PARAM</code>, <code>INVALID_RANK_BY</code>. Per-cell reject reasons: <code>NO_WINNER</code>, <code>MIN_TRADES</code>, <code>CELL_FAILED</code>.</li>
+          <li>Root errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>INVALID_PARAM</code>, <code>INVALID_RANK_BY</code>, <code>NO_RESULTS</code>. Per-cell reject reasons: <code>NO_WINNER</code>, <code>MIN_TRADES</code>, <code>CELL_FAILED</code>.</li>
         </ul>
       </div>
       <div class="tile">
@@ -714,13 +714,14 @@ mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
       </div>
     </div>
     <p style="margin-top:12px; color:var(--muted); font-size:0.9rem">
-      Full contract: <code>docs/specs/quant-workflow.md</code>. Implementation phases:
-      <code>docs/plans/quant-workflow-plan.md</code> (written after this spec is reviewed).
-      Scope &amp; placement decisions that produced this seed: tool-true orchestration only,
-      top-level <code>mt5 quant</code> group, explicit two-pass validation (hybrid deferred
-      behind fixtures), and a quant agent playbook
-      (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>, drafted in full in the spec) so an AI
-      agent can operate the loop as a quant.
+      Full contract: <code>docs/specs/quant-workflow.md</code>. Implementation:
+      <code>docs/plans/quant-workflow-plan.md</code> (shipped in PR #10).
+      Scope &amp; placement: tool-true orchestration only, top-level <code>mt5 quant</code>
+      group, explicit two-pass validation (hybrid deferred behind fixtures), and a quant
+      agent playbook (<code>mt5_cli/skills/QUANT_WORKFLOW.md</code>) so an AI agent can operate
+      the loop as a quant. <strong>Open gate:</strong> the real MT5
+      <code>optimization.xml</code> capture (Task 0) &mdash; the passes parser uses provisional
+      column tag-names unit-tested against a synthetic fixture; confirm and adjust on real data.
     </p>
   </section>
 </main>

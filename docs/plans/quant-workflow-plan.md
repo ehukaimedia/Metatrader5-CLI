@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Implemented — PR #10 (under review). Built in 5 codex-gated checkpoints; full suite green. Task 0 (capture a real MT5 `optimization.xml`) remains the open operator gate; v1 is unit-tested against a synthetic, clearly-labeled fixture.
+
 **Goal:** Ship `mt5 quant` — a campaign that drives the native MT5 Strategy Tester across a symbol × timeframe matrix with explicit two-pass IS/OOS validation, configurable selection gates, ranked survivors, a `quant.v1` envelope, a dependency-free HTML report, and a static agent playbook.
 
 **Architecture:** A new pure-stdlib package `mt5_cli/quant/` (matrix, passes, selection, report, store, campaign) composes the existing `mt5_cli.tester.ea` primitives; `mt5/cli.py` adds a thin `quant` group plus `tester ea stress --set-file`. Per cell, serially: optimize IS `[from, split−1d]` → pick winner by in-sample PF → `single` OOS `[split, to]` → `single` FULL `[from, to]`. Like the tester package, `quant` never imports MetaTrader5.

@@ -1,10 +1,16 @@
 # Quant Workflow Spec
 
-Status: Proposed
+Status: Implemented — PR #10 (under review)
 Date: 2026-06-16
 Owner: metatrader5-cli maintainers
 Related playground: [Quant Workflow](../playgrounds/specs/quant-workflow.html)
-Related plan: to be written after this spec is reviewed
+Related plan: [Quant Workflow Implementation Plan](../plans/quant-workflow-plan.md)
+
+> Implementation note: shipped v1 is explicit two-pass (the chosen default). The
+> one remaining gate is the real-MT5 `optimization.xml` capture (Task 0): the
+> passes parser uses provisional column tag-names, unit-tested against a
+> synthetic fixture; confirm the real report's columns and adjust
+> `mt5_cli/quant/passes.py` if they differ.
 
 ## Purpose
 

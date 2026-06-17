@@ -118,6 +118,28 @@ def test_no_winner_when_no_pass_clears_min_pf(monkeypatch, tmp_path):
     assert env["data"]["rejected"][0]["reason"] == "NO_WINNER"
 
 
+def test_oos_single_failure_rejects_cell(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single",
+                        lambda **k: {"ok": False, "error": {"code": "TESTER_FAILED", "message": "oos boom"}})
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], results_root=tmp_path)
+    assert env["ok"] is True
+    assert env["data"]["rejected"][0]["reason"] == "CELL_FAILED"
+    assert env["data"]["ranked"] == []
+
+
+def test_no_results_when_every_survivor_is_capped(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+    # per_asset=0 caps every survivor and nothing is rejected -> no record at all
+    env = campaign.run(expert="demo", symbols=["EURUSD"], timeframes=["H1"],
+                       from_date="2022-01-01", to_date="2024-12-31", split="0.70",
+                       params=["FastPeriod=9,5,1,21"], per_asset=0, results_root=tmp_path)
+    assert env["ok"] is False and env["error"]["code"] == "NO_RESULTS"
+
+
 def test_quant_package_never_imports_metatrader5():
     for path in pathlib.Path("mt5_cli/quant").glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))

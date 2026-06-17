@@ -6,11 +6,28 @@ run's native report. Pure / stdlib-only.
 """
 from __future__ import annotations
 
+from datetime import date
 from html import escape
 from typing import Any
 
 
-def _svg(curve: list[dict[str, Any]], width: int = 480, height: int = 120) -> str:
+def _split_frac(data: dict[str, Any]) -> float | None:
+    """Position of the IS/OOS split along the [from, to] timeline, in (0, 1)."""
+    try:
+        start = date.fromisoformat(data["from"])
+        end = date.fromisoformat(data["to"])
+        split = date.fromisoformat(data["split"])
+    except (KeyError, ValueError, TypeError):
+        return None
+    span = (end - start).days
+    if span <= 0:
+        return None
+    frac = (split - start).days / span
+    return frac if 0.0 < frac < 1.0 else None
+
+
+def _svg(curve: list[dict[str, Any]], width: int = 480, height: int = 120,
+         split_frac: float | None = None) -> str:
     pts: list[float] = []
     for p in curve:
         b = p.get("balance")
@@ -31,9 +48,15 @@ def _svg(curve: list[dict[str, Any]], width: int = 480, height: int = 120) -> st
     coords = " ".join(
         f"{i * step:.1f},{height - (v - lo) / span * height:.1f}" for i, v in enumerate(pts)
     )
+    marker = ""
+    if split_frac is not None:
+        mx = split_frac * width
+        marker = (f'<line x1="{mx:.1f}" y1="0" x2="{mx:.1f}" y2="{height}" '
+                  f'stroke="#b7791f" stroke-width="1" stroke-dasharray="4 3"/>')
     return (
         f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}">'
-        f'<polyline fill="none" stroke="#0f766e" stroke-width="2" points="{coords}"/></svg>'
+        f'<polyline fill="none" stroke="#0f766e" stroke-width="2" points="{coords}"/>'
+        f'{marker}</svg>'
     )
 
 
@@ -53,7 +76,9 @@ def _row(c: dict[str, Any]) -> str:
         f"<td>{_g(c.get('full'), 'trades')}</td>"
         f"<td>{_g(c.get('full'), 'net_profit')}</td>"
         f"<td>{_g(c.get('oos'), 'sharpe')}</td>"
-        f"<td><a href=\"results/{escape(str(c.get('run_id', '')))}/report.html\">report</a></td>"
+        # the report lives at results/<campaign-id>/report.html; child runs are
+        # siblings at results/<run-id>/, so link relative to the campaign dir.
+        f"<td><a href=\"../{escape(str(c.get('run_id', '')))}/report.html\">report</a></td>"
         "</tr>"
     )
 
@@ -62,10 +87,11 @@ def render(data: dict[str, Any]) -> str:
     """Return one self-contained HTML document for the campaign envelope ``data``."""
     ranked = data.get("ranked", [])
     rows = "".join(_row(c) for c in ranked)
+    split_frac = _split_frac(data)
     cards = "".join(
         f"<section><h3>{escape(str(c.get('symbol', '')))} "
         f"{escape(str(c.get('timeframe', '')))} &mdash; rank {escape(str(c.get('rank', '')))}</h3>"
-        f"{_svg(c.get('equity_curve', []))}</section>"
+        f"{_svg(c.get('equity_curve', []), split_frac=split_frac)}</section>"
         for c in ranked
     )
     rejected = "".join(
