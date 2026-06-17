@@ -401,18 +401,19 @@
         <div>
           <strong>Optimize on the matrix cell</strong> <span class="pill native">native MT5</span><br>
           <code>ea.optimize(mode="genetic", forward=split, params=&hellip;, from=FULL, to=FULL)</code>
-          &rarr; <code>optimization.xml</code> with a <em>back</em> (in-sample) and
-          <em>forward</em> (out-of-sample) result per pass. MT5 owns the split.
-          <span class="anchor">mt5_cli/tester/ea.py:152 &middot; genetic = _OPT_MODES["genetic"] (ea.py:18) &middot; forward param already threaded (ea.py:160)</span>
+          &rarr; the back-result <code>optimization.xml</code> (all passes, in-sample) <em>plus</em>
+          MT5's separate <code>.forward</code> report (only the selected best passes,
+          out-of-sample). One pass row does <strong>not</strong> hold both.
+          <span class="anchor">ForwardMode=1/ForwardDate: ini_builder.py:107-109 &middot; ea.py:152 &middot; genetic=_OPT_MODES (ea.py:18) &middot; forward threaded ea.py:221</span>
         </div>
       </div>
       <div class="step pure">
         <div>
-          <strong>Pick the winner from the passes</strong> <span class="pill purejs">pure</span><br>
-          <code>selection.pick_winner(passes, rank_by)</code> &mdash; choose the pass whose
-          in-sample clears the gates, best by the ranking metric; extract its parameter set
-          &rarr; write a <code>.set</code>.
-          <span class="anchor">Reads: mt5_cli/tester/results.py:285 (parse_optimization_xml) &mdash; extend to expose back-vs-forward columns per pass</span>
+          <strong>Join back&harr;forward, pick the winner</strong> <span class="pill purejs">pure</span><br>
+          <code>passes.join()</code> pairs back&harr;forward rows by pass id;
+          <code>selection.pick_winner()</code> takes the best forward-covered pass clearing the
+          in-sample PF gate, by <code>rank_by</code>, and reads its parameter columns &rarr; a <code>.set</code>.
+          <span class="anchor">New mt5_cli/quant/passes.py wraps results.parse_optimization_xml (results.py:285, back/forward-blind today) &middot; .set via ini_builder.render_set (ini_builder.py:181-212)</span>
         </div>
       </div>
       <div class="step">
@@ -427,19 +428,29 @@
       <div class="step pure">
         <div>
           <strong>Assemble the cell</strong> <span class="pill purejs">pure</span><br>
-          IS &amp; OOS metrics from the winner's XML row, FULL metrics from the re-run,
-          equity curve split at the forward date. One cell record.
+          IS from the back row, OOS from the forward row, FULL from the re-run; equity curve
+          split at <code>ForwardDate</code>. One cell record.
         </div>
       </div>
     </div>
     <p style="margin-top:12px; color:var(--muted); font-size:0.9rem">
-      Cost: <strong>~2 native launches per cell</strong>. Edge direction is proven by the
-      stress precedent &mdash; <code>ea.stress()</code> already calls <code>single()</code> in
-      a serial loop and grades the result (<code>mt5_cli/tester/ea.py:335-360</code>); the
-      campaign reuses that shape one altitude up, swapping &ldquo;delay rung&rdquo; for
-      &ldquo;matrix cell&rdquo; and &ldquo;robustness score&rdquo; for &ldquo;ranked
-      survivors.&rdquo;
+      Cost: <strong>2 native launches per cell</strong> in the common path (1 optimize writes
+      both reports, 1 FULL re-run). <strong>Fallback +1:</strong> if the winner was not
+      forward-tested (no <code>.forward</code> row) or the report lacks the needed metric
+      columns, an explicit <code>single(from=split, to=FULL)</code> produces OOS directly.
+      Edge direction is proven by the stress precedent &mdash; <code>ea.stress()</code> already
+      calls <code>single()</code> in a serial loop (<code>mt5_cli/tester/ea.py:335-360</code>);
+      the campaign reuses that shape one altitude up.
     </p>
+    <div class="caveat">
+      <strong>Open mechanism choice.</strong> The forward path is fiddlier than it looks
+      (separate <code>.forward</code> file, only top passes forward-tested, join by pass id),
+      so the simpler <em>explicit two-pass</em> mechanism &mdash; optimize IS-window &rarr; pick
+      &rarr; <code>single</code> OOS-window &rarr; <code>single</code> FULL, a flat 3
+      launches/cell, no <code>.forward</code> parsing &mdash; may be the better default. The
+      spec keeps the hybrid (the brainstorm choice) with this explicit rerun already specced as
+      the fallback, so flipping the default is a one-line contract change.
+    </div>
   </section>
 
   <section class="band">
@@ -461,7 +472,7 @@
       </div>
       <div>
         <div class="readout">
-          <div><strong id="cells">8</strong> cells &times; ~2 launches = <strong id="launches">16</strong> native runs</div>
+          <div><strong id="cells">8</strong> cells &times; 2 launches = <strong id="launches">16</strong> native runs <span style="font-size:0.85rem; color:var(--muted)">(+1 on cells needing the OOS-rerun fallback)</span></div>
           <div id="eta" style="font-size:0.95rem; color:var(--muted); margin-top:6px"></div>
         </div>
         <p style="margin-top:10px; color:var(--muted); font-size:0.9rem">
@@ -478,9 +489,10 @@
     <p class="lede" style="font-size:0.95rem">
       Hard gates decide who survives; the ranking metric decides the order; the rest are
       <em>rejected with a reason</em>. The rows below are the video's own published run
-      (frame 0025) &mdash; adjust the gates and watch survivors and order move. Defaults
-      mirror the video: <code>--min-trades 300</code>, <code>--min-pf 1.0</code>,
-      <code>--rank-by oos_sharpe</code>.
+      (frame 0025), with one <strong>illustrative IS PF</strong> column added so the explorer
+      can model the in-sample gate (the frame published only OOS/FULL). Defaults:
+      <code>--min-trades 300</code>, <code>--min-pf 1.0</code> (in-sample),
+      <code>--rank-by full_net</code>. OOS metrics are validation, not the default rank key.
     </p>
     <div class="calc-grid" style="margin-top:12px; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)">
       <div>
@@ -488,38 +500,47 @@
         <input id="minTrades" type="number" value="300" min="0" step="50">
       </div>
       <div>
-        <label for="minPf">Min OOS profit factor &mdash; <code>--min-pf</code></label>
+        <label for="minPf">Min in-sample PF &mdash; <code>--min-pf</code></label>
         <input id="minPf" type="number" value="1.0" min="0" step="0.05">
       </div>
       <div>
         <label for="rankBy">Rank by &mdash; <code>--rank-by</code></label>
         <select id="rankBy">
-          <option value="oosSharpe">oos_sharpe</option>
           <option value="fullNet">full_net</option>
+          <option value="oosSharpe">oos_sharpe</option>
           <option value="oosPf">oos_pf</option>
-          <option value="oosTrades">oos_trades</option>
         </select>
+      </div>
+      <div>
+        <label for="perAsset">Keep per asset &mdash; <code>--per-asset</code></label>
+        <input id="perAsset" type="number" value="2" min="1" step="1">
       </div>
     </div>
     <table style="margin-top:14px">
       <thead>
         <tr>
           <th>#</th><th>Asset</th><th>TF</th><th>Side</th>
-          <th>FULL trades</th><th>FULL net</th><th>OOS Sharpe</th><th>OOS PF</th><th>OOS trades</th>
+          <th>IS PF*</th><th>FULL trades</th><th>FULL net</th><th>OOS Sharpe</th><th>OOS PF</th><th>OOS trades</th>
           <th>Verdict</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
+    <p style="margin-top:8px; color:var(--muted); font-size:0.82rem">
+      *IS PF is illustrative &mdash; frame 0025 published only OOS/FULL columns; the value is
+      added so the explorer can model the in-sample gate. A row failing it would be a cell-level
+      <code>NO_WINNER</code> (no pass cleared the gate); FULL-trades failures are
+      <code>MIN_TRADES</code>. Survivors past <code>--per-asset</code> are trimmed, not rejected.
+    </p>
     <div class="caveat">
-      <strong>The GOLD trap (why OOS alone never ranks).</strong> Rank by
-      <code>oos_sharpe</code> or <code>full_net</code> and GOLD tops the table &mdash; but
-      the video is explicit that gold ran up ~150&ndash;200% over the window, so a
-      <em>long-only</em> strategy posts a beautiful out-of-sample curve that is the
-      <em>asset</em>, not the edge. That is why the contract gates min-PF on the
-      <em>in-sample</em> segment (where selection happens) and treats OOS as a
-      <code>validated</code> flag, not the sole ranking key. Honest reporting over a
-      flattering number.
+      <strong>The GOLD trap &mdash; ranking orders, it never certifies.</strong> Switch
+      <code>--rank-by</code> to <code>oos_sharpe</code> and GOLD jumps to the top &mdash; but the
+      video is explicit that gold ran up ~150&ndash;200%, so a <em>long-only</em> strategy's OOS
+      curve is the <em>asset</em>, not the edge. <code>full_net</code> flatters the same trending
+      asset (GOLD's net dwarfs the rest), which is why a high rank is never proof. The contract
+      gates min-PF on the <em>in-sample</em> segment, makes OOS a <code>validated</code> flag (not
+      a rank key), and leaves certification to the agent's asset-drift check (strategy return vs
+      the asset's own return via <code>rates</code>).
     </div>
   </section>
 
@@ -535,7 +556,8 @@
     "from": "2022-01-01", "to": "2024-12-31",
     "split": "0.70",
     "selection": { "min_trades": 300, "min_pf": 1.0, "oos_min_pf": 1.0,
-                   "rank_by": "oos_sharpe", "per_asset": 2 },
+                   "rank_by": "full_net", "per_asset": 2 },
+    "rank_caveat": null,
     "ranked": [
       { "rank": 1, "symbol": "XAUUSD", "timeframe": "H1", "side": "long",
         "validated": true, "set_file": "results/&lt;child&gt;/alpha.XAUUSD.H1.set",
@@ -544,12 +566,16 @@
         "is":   { "trades": 609, "profit_factor": 2.10, "sharpe": 1.91 },
         "oos":  { "trades": 195, "profit_factor": 2.02, "sharpe": 1.79 } },
       { "rank": 2, "symbol": "EURUSD", "timeframe": "H1", "side": "long",
-        "validated": true, "full": { "trades": 977, "net_profit": 13486.76 },
-        "oos": { "sharpe": 1.01, "profit_factor": 1.56, "trades": 234 } }
+        "validated": true, "set_file": "results/&lt;child&gt;/alpha.EURUSD.H1.set",
+        "run_id": "2026-06-16T19-42-30_alpha_EURUSD_H1",
+        "full": { "trades": 977, "net_profit": 13486.76, "profit_factor": 1.66 },
+        "is":   { "trades": 743, "profit_factor": 1.68, "sharpe": 1.48 },
+        "oos":  { "trades": 234, "profit_factor": 1.56, "sharpe": 1.01 } }
     ],
     "rejected": [
       { "symbol": "UKOIL", "timeframe": "H1", "reason": "MIN_TRADES",
-        "full": { "trades": 142 } }
+        "full": { "trades": 142 } },
+      { "symbol": "USDJPY", "timeframe": "H1", "reason": "NO_WINNER" }
     ],
     "artifacts": {
       "report_html": "results/2026-06-16T19-40-00_quant_alpha/report.html",
@@ -558,12 +584,14 @@
   }
 }</pre>
     <p style="margin-top:8px; color:var(--muted); font-size:0.9rem">
-      Failure semantics follow the repo's frozen shape
-      (<code>mt5_cli/reports/envelope.py</code>, locked by the envelope-contract test): a cell
-      whose optimize or re-run fails ships its fail envelope in <code>rejected</code> with
-      <code>reason: "CELL_FAILED"</code> and the campaign continues; the command only fails
-      outright when <em>no</em> cell produces a ranked or rejected record (e.g. an empty
-      matrix). Schema-version style mirrors <code>stress.v1</code> and <code>wake.v1</code>.
+      Per-cell reject reasons (campaign continues): <code>NO_WINNER</code> (no pass cleared the
+      in-sample gates), <code>MIN_TRADES</code> (winner's FULL trades too few),
+      <code>CELL_FAILED</code> (a native launch failed; fail envelope embedded). Root
+      <code>ok:false</code> is input-validation only (<code>EMPTY_MATRIX</code>,
+      <code>INVALID_SPLIT</code>, <code>INVALID_PARAM</code>, <code>INVALID_RANK_BY</code>) plus
+      the degenerate &ldquo;no cell yielded any record&rdquo; case &mdash; the frozen
+      <code>{ok,error}</code> shape (<code>mt5_cli/reports/envelope.py</code>). Schema-version
+      style mirrors <code>stress.v1</code> and <code>wake.v1</code>.
     </p>
   </section>
 
@@ -574,16 +602,20 @@
   --symbols EURUSD,XAUUSD,UKOIL,USDJPY \
   --tf H1,H2 \
   --from 2022-01-01 --to 2024-12-31 \
-  --split 0.70 \                 # IS/OOS boundary: fraction or YYYY-MM-DD (maps to MT5 forward)
-  --param Risk=0.5,0.5,3.0 \     # MT5 optimization range: start,step,stop  (repeatable)
-  --param ATRWindow=10,5,30 \
+  --split 0.70 \                       # IS/OOS boundary: fraction or YYYY-MM-DD (MT5 ForwardDate)
+  --param Risk=1.0,0.5,0.5,3.0 \       # NAME=value,start,step,stop  (repeatable)
+  --param ATRWindow=20,10,5,30 \
   --mode genetic \
-  --min-trades 300 --min-pf 1.0 --oos-min-pf 1.0 \
-  --rank-by oos_sharpe --per-asset 2 \
+  --min-trades 300 --min-pf 1.0 --oos-min-pf 1.0 \   # min-pf is in-sample
+  --rank-by full_net --per-asset 2 \   # full_net default; oos_sharpe/oos_pf opt-in (caveated)
   [--modelling ohlc-1m] [--no-html] [--dry-run] [--timeout 1800]
 
-mt5 --json quant list            # campaigns, newest first
-mt5 --json quant show &lt;campaign-id&gt;</pre>
+mt5 --json quant list                  # campaigns, newest first
+mt5 --json quant show &lt;campaign-id&gt;
+
+# new flag this feature adds, so the winner's set can be stressed:
+mt5 --json tester ea stress --expert my_strategy --symbol XAUUSD --tf H1 \
+  --from 2022-01-01 --to 2024-12-31 --set-file results/&lt;child&gt;/alpha.XAUUSD.H1.set</pre>
     <ul style="margin-top:10px">
       <li>Exit code stays <code>0</code>; callers parse the envelope's <code>ok</code> boolean (repo-wide rule).</li>
       <li><code>run</code> is CLI-only (launches a terminal, long-running). <code>list</code>/<code>show</code> are read-only and MCP-safe &mdash; matching how tester <em>runs</em> are not exposed over MCP.</li>
@@ -600,21 +632,27 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
       the EA &mdash; its own capabilities; the tool never holds the alpha.
     </p>
     <div class="flow" style="margin-top:14px">
-      <div class="step"><div><strong>Frame the hypothesis</strong> &mdash; one or two sentences: what edge, which assets/timeframes, why it persists. Keep rules simple; complex rules curve-fit.</div></div>
-      <div class="step"><div><strong>Author &amp; compile the EA</strong> &mdash; write the rule in <code>./ea/</code>, expose search params as <code>input</code>s, <code>mt5 ea compile</code>.</div></div>
-      <div class="step"><div><strong>Plan, then run the campaign</strong> &mdash; <code>quant run &hellip; --dry-run</code> to see the cost, then run with gates <code>--min-trades 300 --min-pf 1.0 --rank-by oos_sharpe</code>.</div></div>
-      <div class="step"><div><strong>Read <code>quant.v1</code> and judge</strong> &mdash; start at the top rank, then apply the discipline below; do not stop at the headline number.</div></div>
-      <div class="step"><div><strong>Stress the winner</strong> &mdash; <code>tester ea stress</code> on the winning set; require <code>robustness.verdict</code> robust/degraded before trusting it.</div></div>
-      <div class="step"><div><strong>Iterate</strong> &mdash; refine hypothesis/params, re-run, log what lived or died and why.</div></div>
+      <div class="step"><div><strong>Frame the hypothesis</strong> &mdash; what edge, which assets/timeframes, why it persists. Predeclare the universe before seeing results; keep rules simple.</div></div>
+      <div class="step"><div><strong>Author &amp; compile the EA</strong> &mdash; write the rule in <code>./ea/</code>, expose search params as <code>input</code>s, <code>mt5 --json ea compile &lt;name&gt;</code>.</div></div>
+      <div class="step"><div><strong>Plan, then run the campaign</strong> &mdash; <code>mt5 --json quant run &hellip; --dry-run</code> to see the cost, then run with <code>--min-trades 300 --min-pf 1.0 --rank-by full_net</code>.</div></div>
+      <div class="step"><div><strong>Read <code>quant.v1</code> and judge</strong> &mdash; rank only orders candidates; start at the top, then apply the discipline below.</div></div>
+      <div class="step"><div><strong>Stress the winner</strong> &mdash; <code>mt5 --json tester ea stress &hellip; --set-file &lt;winner.set&gt;</code>; require <code>robustness.verdict</code> robust/degraded before trusting it.</div></div>
+      <div class="step"><div><strong>Iterate</strong> &mdash; refine hypothesis/params, re-run, log what lived or died (and whether the OOS window has been reused).</div></div>
     </div>
     <div class="caveat">
       <strong>The judgment that makes it quant, not curve-fitting.</strong>
       <ul style="margin-top:6px">
-        <li><strong>Asset-drift trap:</strong> a long-only winner on a trending asset (gold +150&ndash;200%) shows a gorgeous OOS curve that is the asset, not the edge. Subtract the drift &mdash; if the edge vanishes, it was never there.</li>
-        <li><strong>Statistical weight:</strong> trust nothing under ~300 trades.</li>
-        <li><strong>IS&harr;OOS consistency:</strong> a <code>validated</code> entry whose OOS tracks its in-sample beats a higher-ranked one that only shines out-of-sample.</li>
-        <li><strong>Overfitting:</strong> wide grids + genetic search find lucky corners; fewer, meaningful params win.</li>
+        <li><strong>Asset-drift trap:</strong> a long-only winner on a trending asset (gold +150&ndash;200%) shows a gorgeous OOS curve that is the asset, not the edge. Make it actionable: fetch the asset's own move with <code>mt5 --json rates fetch</code>, compute buy-and-hold return, and subtract it &mdash; if the edge vanishes, it was never there.</li>
+        <li><strong>Multiple testing:</strong> a big matrix &times; genetic search invites a lucky survivor; report how many cells and param combinations you tried, and don't treat rank-1 as validated.</li>
+        <li><strong>Statistical weight:</strong> treat ~300 trades as a floor, not proof (clustering and one regime shrink the effective sample).</li>
+        <li><strong>IS&harr;OOS consistency &amp; overfitting:</strong> a <code>validated</code> entry whose OOS tracks its in-sample beats one that only shines OOS; fewer, meaningful params beat wide grids.</li>
       </ul>
+    </div>
+    <div class="caveat" style="border-color:var(--teal); border-left-color:var(--teal); background:var(--teal-soft)">
+      <strong>Honesty rules (also in the playbook).</strong> Final read in <code>real-ticks</code>
+      (<code>ohlc-1m</code> understates execution cost); a single-asset, single-broker result is
+      not validated edge &mdash; name the broker-clock, spread/slippage, and cost-sensitivity
+      caveats; never report a result the tester did not produce.
     </div>
   </section>
 
@@ -624,8 +662,9 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
       <div class="tile">
         <h3>Ownership boundaries</h3>
         <ul>
-          <li>New package <code>mt5_cli/quant/</code> owns the campaign; it imports <code>mt5_cli.tester.ea</code> and writes <strong>zero</strong> strategy logic.</li>
+          <li>New package <code>mt5_cli/quant/</code> owns the campaign; it imports <code>mt5_cli.tester.ea</code>, writes <strong>zero</strong> strategy logic, and never imports MetaTrader5 (filesystem-only, like the tester package).</li>
           <li><code>matrix.py</code> &mdash; pure: expand/validate symbols&times;timeframes, parse <code>--split</code> (fraction or date), parse <code>--param</code> ranges.</li>
+          <li><code>passes.py</code> &mdash; pure: read + join back&harr;forward optimization rows by pass id.</li>
           <li><code>selection.py</code> &mdash; pure: pick winner from passes, apply gates, rank, record rejects (the <code>tester/stress.py</code> analog).</li>
           <li><code>report.py</code> &mdash; pure: dependency-free HTML + inline-SVG equity curve. No matplotlib, no pandas.</li>
           <li><code>campaign.py</code> &mdash; orchestration: per-cell hybrid, serial launches, artifacts, <code>quant.v1</code> assembly.</li>
@@ -639,9 +678,9 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
         <ul>
           <li><code>quant.campaign.run(*, expert, symbols, timeframes, from_date, to_date, split, params, mode, selection, &hellip;)</code> &rarr; <code>quant.v1</code></li>
           <li><code>quant.list_campaigns()</code> / <code>quant.get_campaign(id)</code></li>
-          <li><code>mt5 quant run | list | show</code></li>
-          <li>One parsing extension: <code>results.parse_optimization_xml</code> gains back-vs-forward awareness.</li>
-          <li>Errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>NO_WINNER</code> (registered in <code>mt5_cli/errors.py</code>, test-enforced).</li>
+          <li><code>mt5 quant run | list | show</code>; new <code>tester ea stress --set-file</code></li>
+          <li>New <code>mt5_cli/quant/passes.py</code> joins back&harr;forward (wraps <code>results.parse_optimization_xml</code>, back/forward-blind today).</li>
+          <li>Root errors: <code>EMPTY_MATRIX</code>, <code>INVALID_SPLIT</code>, <code>INVALID_PARAM</code>, <code>INVALID_RANK_BY</code>. Per-cell reject reasons: <code>NO_WINNER</code>, <code>MIN_TRADES</code>, <code>CELL_FAILED</code>.</li>
         </ul>
       </div>
       <div class="tile">
@@ -710,22 +749,25 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
     recalcMatrix();
 
     // ---- Selection & ranking explorer ------------------------------------
-    // Rows are the video's published run (frame 0025): asset, tf, side, FULL
-    // trades, FULL net, OOS daily Sharpe, OOS profit factor, OOS trades.
+    // Real columns are the video's published run (frame 0025): asset, tf, side,
+    // FULL trades, FULL net, OOS daily Sharpe, OOS profit factor, OOS trades.
+    // isPf is ILLUSTRATIVE (the frame published no in-sample column) so the
+    // explorer can model the in-sample gate the contract actually uses.
     var strategies = [
-      { asset: 'EURUSD',   tf: 'H1', side: 'long',  fullTrades: 977,  fullNet: 13486.76,  oosSharpe: 1.01, oosPf: 1.56, oosTrades: 234 },
-      { asset: 'EURUSD',   tf: 'H1', side: 'long',  fullTrades: 1886, fullNet: 25610.44,  oosSharpe: 1.57, oosPf: 1.52, oosTrades: 467 },
-      { asset: 'GOLD',     tf: 'H1', side: 'long',  fullTrades: 804,  fullNet: 55198.59,  oosSharpe: 1.79, oosPf: 2.02, oosTrades: 195 },
-      { asset: 'GOLD',     tf: 'H1', side: 'long',  fullTrades: 1635, fullNet: 115104.53, oosSharpe: 2.38, oosPf: 1.94, oosTrades: 404 },
-      { asset: 'OILBRENT', tf: 'H2', side: 'long',  fullTrades: 592,  fullNet: 27266.42,  oosSharpe: 0.62, oosPf: 1.26, oosTrades: 148 },
-      { asset: 'OILBRENT', tf: 'H2', side: 'long',  fullTrades: 603,  fullNet: 27565.40,  oosSharpe: 0.76, oosPf: 1.33, oosTrades: 153 },
-      { asset: 'USDJPY',   tf: 'H1', side: 'long',  fullTrades: 779,  fullNet: 10999.47,  oosSharpe: 0.67, oosPf: 1.26, oosTrades: 197 },
-      { asset: 'USDJPY',   tf: 'H1', side: 'short', fullTrades: 793,  fullNet: 11315.20,  oosSharpe: 1.00, oosPf: 2.01, oosTrades: 169 }
+      { asset: 'EURUSD',   tf: 'H1', side: 'long',  isPf: 1.68, fullTrades: 977,  fullNet: 13486.76,  oosSharpe: 1.01, oosPf: 1.56, oosTrades: 234 },
+      { asset: 'EURUSD',   tf: 'H1', side: 'long',  isPf: 1.60, fullTrades: 1886, fullNet: 25610.44,  oosSharpe: 1.57, oosPf: 1.52, oosTrades: 467 },
+      { asset: 'GOLD',     tf: 'H1', side: 'long',  isPf: 2.10, fullTrades: 804,  fullNet: 55198.59,  oosSharpe: 1.79, oosPf: 2.02, oosTrades: 195 },
+      { asset: 'GOLD',     tf: 'H1', side: 'long',  isPf: 2.20, fullTrades: 1635, fullNet: 115104.53, oosSharpe: 2.38, oosPf: 1.94, oosTrades: 404 },
+      { asset: 'OILBRENT', tf: 'H2', side: 'long',  isPf: 1.40, fullTrades: 592,  fullNet: 27266.42,  oosSharpe: 0.62, oosPf: 1.26, oosTrades: 148 },
+      { asset: 'OILBRENT', tf: 'H2', side: 'long',  isPf: 1.45, fullTrades: 603,  fullNet: 27565.40,  oosSharpe: 0.76, oosPf: 1.33, oosTrades: 153 },
+      { asset: 'USDJPY',   tf: 'H1', side: 'long',  isPf: 1.30, fullTrades: 779,  fullNet: 10999.47,  oosSharpe: 0.67, oosPf: 1.26, oosTrades: 197 },
+      { asset: 'USDJPY',   tf: 'H1', side: 'short', isPf: 1.85, fullTrades: 793,  fullNet: 11315.20,  oosSharpe: 1.00, oosPf: 2.01, oosTrades: 169 }
     ];
 
     var minTrades = document.getElementById('minTrades');
     var minPf = document.getElementById('minPf');
     var rankBy = document.getElementById('rankBy');
+    var perAsset = document.getElementById('perAsset');
     var rows = document.getElementById('rows');
 
     function fmtUsd(n) { return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -733,37 +775,57 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
     function recalcSelection() {
       var mt = parseFloat(minTrades.value);
       var mp = parseFloat(minPf.value);
-      var key = rankBy.value;
+      var pa = Math.max(1, Math.floor(parseFloat(perAsset.value) || 1));
+      var key = rankBy.value;            // fullNet | oosSharpe | oosPf
       if (!isFinite(mt)) mt = 0;
       if (!isFinite(mp)) mp = 0;
 
-      // Gate, then rank the survivors by the selected metric (desc).
+      // Gate: FULL-trades floor -> MIN_TRADES; in-sample PF gate -> NO_WINNER
+      // (at the cell level, no pass clearing min-pf means no winner).
       var evaluated = strategies.map(function (s, i) {
         var reason = null;
         if (s.fullTrades < mt) reason = 'MIN_TRADES';
-        else if (s.oosPf < mp) reason = 'MIN_PF';
+        else if (s.isPf < mp) reason = 'NO_WINNER';
         return { s: s, idx: i, reason: reason };
       });
+
+      // Rank survivors by the selected metric (desc), then cap per asset.
       var survivors = evaluated.filter(function (e) { return !e.reason; });
       survivors.sort(function (a, b) { return b.s[key] - a.s[key]; });
-      var rankByIdx = {};
-      survivors.forEach(function (e, i) { rankByIdx[e.idx] = i + 1; });
+      var perAssetCount = {};
+      var rankNo = 0;
+      survivors.forEach(function (e) {
+        var n = (perAssetCount[e.s.asset] || 0) + 1;
+        perAssetCount[e.s.asset] = n;
+        if (n <= pa) { e.status = 'pass'; e.rank = ++rankNo; }
+        else { e.status = 'capped'; }
+      });
 
-      // Render in ranked order first, then rejects.
-      var ordered = survivors.concat(evaluated.filter(function (e) { return e.reason; }));
+      var rejects = evaluated.filter(function (e) { return e.reason; });
+      var ordered = survivors.concat(rejects);
       rows.innerHTML = '';
       ordered.forEach(function (e) {
         var s = e.s;
         var tr = document.createElement('tr');
-        if (e.reason) tr.className = 'is-reject';
-        var verdict = e.reason
-          ? '<span class="badge reject">REJECT &middot; ' + e.reason + '</span>'
-          : '<span class="badge pass">PASS &middot; #' + rankByIdx[e.idx] + '</span>';
+        var verdict, rankCell;
+        if (e.reason) {
+          tr.className = 'is-reject';
+          verdict = '<span class="badge reject">REJECT &middot; ' + e.reason + '</span>';
+          rankCell = '&mdash;';
+        } else if (e.status === 'capped') {
+          tr.className = 'is-reject';
+          verdict = '<span class="badge" style="background:var(--bg); color:var(--muted); border:1px solid var(--line)">CAPPED &middot; &gt; per-asset</span>';
+          rankCell = '&mdash;';
+        } else {
+          verdict = '<span class="badge pass">PASS &middot; #' + e.rank + '</span>';
+          rankCell = e.rank;
+        }
         tr.innerHTML =
-          '<td class="num">' + (e.reason ? '&mdash;' : rankByIdx[e.idx]) + '</td>' +
+          '<td class="num">' + rankCell + '</td>' +
           '<td>' + s.asset + '</td>' +
           '<td>' + s.tf + '</td>' +
           '<td>' + s.side + '</td>' +
+          '<td class="num">' + s.isPf.toFixed(2) + '</td>' +
           '<td class="num">' + s.fullTrades + '</td>' +
           '<td class="num">' + fmtUsd(s.fullNet) + '</td>' +
           '<td class="num">' + s.oosSharpe.toFixed(2) + '</td>' +
@@ -774,7 +836,7 @@ mt5 --json quant show &lt;campaign-id&gt;</pre>
       });
     }
 
-    [minTrades, minPf, rankBy].forEach(function (el) {
+    [minTrades, minPf, rankBy, perAsset].forEach(function (el) {
       el.addEventListener('input', recalcSelection);
       el.addEventListener('change', recalcSelection);
     });
