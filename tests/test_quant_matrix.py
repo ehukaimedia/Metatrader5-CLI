@@ -54,7 +54,23 @@ def test_optimized_param_names_and_fixed_params_are_split():
     }
 
 
+def test_zero_width_optimization_ranges_collapse_to_fixed_params():
+    specs = ["FastPeriod=8,9,1,9", "SlowPeriod=34,30,1,40", "RunTag=stage1"]
+
+    assert matrix.normalize_params(specs) == [
+        "FastPeriod=9",
+        "SlowPeriod=34,30,1,40",
+        "RunTag=stage1",
+    ]
+    assert matrix.optimized_param_names(matrix.normalize_params(specs)) == ["SlowPeriod"]
+    assert matrix.fixed_params(matrix.normalize_params(specs)) == {
+        "FastPeriod": "9",
+        "RunTag": "stage1",
+    }
+
+
 def test_parse_params_ok_and_bad():
     assert matrix.parse_params(["Risk=1.0,0.5,0.5,3.0"]) == ["Risk=1.0,0.5,0.5,3.0"]
+    assert matrix.parse_params(["Risk=2.0,1.0,0.5,1.0"]) == ["Risk=1.0"]
     with pytest.raises(matrix.InvalidParam):
         matrix.parse_params(["Risk="])

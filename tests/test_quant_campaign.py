@@ -157,6 +157,44 @@ def test_fixed_param_campaign_runs_single_is_oos_full_without_optimize(monkeypat
     assert winner["params"]["FastPeriod"] == "12"
 
 
+def test_zero_width_ranges_run_as_fixed_param_campaign(monkeypatch, tmp_path):
+    def boom_optimize(**kw):
+        raise AssertionError("zero-width ranges must collapse before optimization")
+
+    calls = []
+    fixed_set = tmp_path / "fixed.set"
+
+    def fake_single(**kw):
+        calls.append(kw)
+        data = {
+            "run_id": f"single_{len(calls)}",
+            "stats": {"total_trades": 420, "net_profit": 1000.0, "profit_factor": 1.4,
+                      "sharpe": 1.1, "max_drawdown_pct": 4.0, "win_rate": 0.52},
+            "equity_curve": [{"balance": 10000}, {"balance": 11000}],
+        }
+        if kw.get("params"):
+            data["generated_set_file"] = str(fixed_set)
+        return {"ok": True, "data": data}
+
+    monkeypatch.setattr(campaign.ea, "optimize", boom_optimize)
+    monkeypatch.setattr(campaign.ea, "single", fake_single)
+
+    env = campaign.run(
+        expert="demo",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        from_date="2022-01-01",
+        to_date="2024-12-31",
+        split="0.70",
+        params=["FastPeriod=8,9,1,9", "SlowPeriod=34,34,1,34"],
+        results_root=tmp_path,
+    )
+
+    assert env["ok"] is True
+    assert calls[0]["params"] == {"FastPeriod": "9", "SlowPeriod": "34"}
+    assert env["data"]["ranked"][0]["params"] == {"FastPeriod": "9", "SlowPeriod": "34"}
+
+
 def test_fixed_param_campaign_rejects_is_no_winner_without_oos_full(monkeypatch, tmp_path):
     calls = []
 

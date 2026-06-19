@@ -80,14 +80,53 @@ def param_names(specs: list[str]) -> list[str]:
     return [spec.split("=", 1)[0].strip() for spec in specs if "=" in spec]
 
 
+def _range_parts(raw: str) -> list[str] | None:
+    parts = [part.strip() for part in raw.split(",")]
+    return parts if len(parts) == 4 else None
+
+
+def _same_value(left: str, right: str) -> bool:
+    try:
+        return float(left) == float(right)
+    except ValueError:
+        return left == right
+
+
+def _is_degenerate_range(parts: list[str]) -> bool:
+    """Return true when MT5 would reject a zero-width optimizer range."""
+    return _same_value(parts[1], parts[3])
+
+
+def normalize_params(specs: list[str]) -> list[str]:
+    """Collapse zero-width optimizer ranges into fixed scalar params.
+
+    MT5 refuses optimization rows where start == stop. Such rows carry no search
+    surface, so preserving the start/stop value as a fixed scalar keeps the
+    intended single value while allowing fixed-param campaign mode to run.
+    """
+    normalized: list[str] = []
+    for spec in specs:
+        if "=" not in spec:
+            normalized.append(spec)
+            continue
+        name, raw = spec.split("=", 1)
+        parts = _range_parts(raw)
+        if parts and _is_degenerate_range(parts):
+            normalized.append(f"{name.strip()}={parts[1]}")
+        else:
+            normalized.append(spec)
+    return normalized
+
+
 def optimized_param_names(specs: list[str]) -> list[str]:
-    """Extract only optimization-range names from ``NAME=value,start,step,stop`` specs."""
+    """Extract only non-degenerate optimization-range names."""
     names: list[str] = []
     for spec in specs:
         if "=" not in spec:
             continue
         name, raw = spec.split("=", 1)
-        if len([part.strip() for part in raw.split(",")]) == 4:
+        parts = _range_parts(raw)
+        if parts and not _is_degenerate_range(parts):
             names.append(name.strip())
     return names
 
@@ -99,6 +138,10 @@ def fixed_params(specs: list[str]) -> dict[str, str]:
         if "=" not in spec:
             continue
         name, raw = spec.split("=", 1)
+        parts = _range_parts(raw)
+        if parts and _is_degenerate_range(parts):
+            fixed[name.strip()] = parts[1]
+            continue
         parts = [part.strip() for part in raw.split(",")]
         if len(parts) == 1:
             fixed[name.strip()] = parts[0]
@@ -107,8 +150,9 @@ def fixed_params(specs: list[str]) -> dict[str, str]:
 
 def parse_params(specs: list[str]) -> list[str]:
     """Validate each ``NAME=value[,start,step,stop]`` spec via the .set grammar."""
+    normalized = normalize_params(list(specs))
     try:
-        ini_builder.render_set(list(specs))
+        ini_builder.render_set(normalized)
     except ValueError as exc:
         raise InvalidParam(str(exc)) from exc
-    return list(specs)
+    return normalized
