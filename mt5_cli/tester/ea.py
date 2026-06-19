@@ -71,9 +71,12 @@ def single(
     if modelling_err:
         return modelling_err
 
-    _, err = _compiled_ea_or_fail(expert)
+    found, err = _compiled_ea_or_fail(expert)
     if err:
         return err
+    if found is None:
+        return fail("EA_NOT_FOUND", f"No Expert Advisor named {expert}")
+    launcher.stage_expert(found["source"])
 
     run_id = cache.make_run_id(run_label or expert, symbol, timeframe)
     run_path = cache.run_dir(run_id, root=results_root)
@@ -180,9 +183,12 @@ def optimize(
         )
     if set_file and not Path(set_file).exists():
         return fail("SET_FILE_NOT_FOUND", f"Set file not found: {set_file}")
-    _, err = _compiled_ea_or_fail(expert)
+    found, err = _compiled_ea_or_fail(expert)
     if err:
         return err
+    if found is None:
+        return fail("EA_NOT_FOUND", f"No Expert Advisor named {expert}")
+    launcher.stage_expert(found["source"])
 
     run_id = cache.make_run_id(f"opt-{mode}-{expert}", symbol, timeframe)
     run_path = cache.run_dir(run_id, root=results_root)

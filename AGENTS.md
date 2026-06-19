@@ -135,6 +135,14 @@ out-of-sample and full) and returns a `quant.v1` envelope. Consume `data.ranked`
 exact parameter set, pass it to the tester: `mt5 tester ea stress --set-file
 <winner.set>`. The agent playbook is shipped at `mt5_cli/skills/QUANT_WORKFLOW.md`.
 
+Tester batch launches require a fresh process for the selected terminal path.
+When an operator keeps an interactive MT5 terminal open, set `MT5_TERMINAL_PATH`
+to a separate `terminal64.exe`; set `MT5_TERMINAL_PORTABLE=1` if that install
+should keep its own data directory, or set `MT5_TERMINAL_DATA_PATH` to the data
+directory paired with that install. If the selected tester terminal has no saved
+account, branch on `TESTER_ACCOUNT_NOT_SPECIFIED`; broker login still belongs in
+MT5, not in agent prompts or config files.
+
 ## Error codes you should handle
 
 | Code | Meaning | Retryable? |
@@ -150,6 +158,8 @@ exact parameter set, pass it to the tester: `mt5 tester ea stress --set-file
 | `CHART_INVALID_ZOOM` | Bad chart zoom direction, steps, or level | no — fix the call |
 | `INVALID_DELAYS` | Bad `--delays` token (not `random` or `0..600000`) | no — fix the ladder |
 | `STRESS_BASELINE_FAILED` | Stress baseline run failed (see `error.data.baseline`) | maybe — inspect the baseline |
+| `TERMINAL_ALREADY_RUNNING` | Selected Strategy Tester terminal is already open | no — close it or select another install |
+| `TESTER_ACCOUNT_NOT_SPECIFIED` | Selected Strategy Tester terminal has no saved account | after logging into MT5 |
 | `EMPTY_MATRIX` / `INVALID_SPLIT` / `INVALID_PARAM` / `INVALID_RANK_BY` / `NO_RESULTS` | Bad `quant run` inputs, or no cell produced a record | no — fix the call |
 | `MT5_INTERNAL_ERROR` | Unexpected internal error | maybe |
 

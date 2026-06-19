@@ -10,6 +10,7 @@ def _no_real_terminal_artifact_paths(monkeypatch):
     """Keep unit tests independent of a developer's installed MT5 terminal."""
     monkeypatch.setattr(ea.launcher, "prepare_report_target", lambda **kwargs: None)
     monkeypatch.setattr(ea.launcher, "stage_expert_parameters", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ea.launcher, "stage_expert", lambda *args, **kwargs: None)
 
 
 def test_single_returns_envelope_with_run_id(monkeypatch, tmp_path):
@@ -182,6 +183,43 @@ def test_single_requires_compiled(monkeypatch, tmp_path):
     assert out["error"]["code"] == "EA_NOT_COMPILED"
 
 
+def test_single_stages_compiled_ea_for_selected_terminal(monkeypatch, tmp_path):
+    source = tmp_path / "alpha.mq5"
+    source.write_text("source", encoding="utf-8")
+    source.with_suffix(".ex5").write_bytes(b"compiled")
+    staged = []
+
+    def fake_launch(*, ini_path, run_dir, timeout):
+        Path(run_dir, "report.html").write_text(
+            "<html><body><table></table></body></html>",
+            encoding="utf-8",
+        )
+        return {
+            "ok": True,
+            "data": {"exit_code": 0, "stdout": "", "stderr": "", "run_dir": str(run_dir)},
+        }
+
+    monkeypatch.setattr(ea.launcher, "run", fake_launch)
+    monkeypatch.setattr(ea.launcher, "stage_expert", lambda src: staged.append(src))
+    monkeypatch.setattr(
+        ea.discovery,
+        "get_ea",
+        lambda name: {"name": name, "source": str(source), "compiled": True},
+    )
+
+    out = ea.single(
+        expert="alpha",
+        symbol="AUDUSD",
+        timeframe="M5",
+        from_date="2024-01-01",
+        to_date="2024-06-30",
+        results_root=tmp_path / "results",
+    )
+
+    assert out["ok"] is True
+    assert staged == [str(source)]
+
+
 def test_optimize_calls_launcher_with_optimization_flag(monkeypatch, tmp_path):
     captured_inis = []
 
@@ -215,6 +253,41 @@ def test_optimize_calls_launcher_with_optimization_flag(monkeypatch, tmp_path):
 
     assert out["ok"] is True
     assert "Optimization=1" in captured_inis[0]
+
+
+def test_optimize_stages_compiled_ea_for_selected_terminal(monkeypatch, tmp_path):
+    source = tmp_path / "alpha.mq5"
+    source.write_text("source", encoding="utf-8")
+    source.with_suffix(".ex5").write_bytes(b"compiled")
+    staged = []
+
+    def fake_launch(*, ini_path, run_dir, timeout):
+        Path(run_dir, "optimization.xml").write_text("<results></results>", encoding="utf-8")
+        return {
+            "ok": True,
+            "data": {"exit_code": 0, "stdout": "", "stderr": "", "run_dir": str(run_dir)},
+        }
+
+    monkeypatch.setattr(ea.launcher, "run", fake_launch)
+    monkeypatch.setattr(ea.launcher, "stage_expert", lambda src: staged.append(src))
+    monkeypatch.setattr(
+        ea.discovery,
+        "get_ea",
+        lambda name: {"name": name, "source": str(source), "compiled": True},
+    )
+
+    out = ea.optimize(
+        expert="alpha",
+        symbol="AUDUSD",
+        timeframe="M5",
+        from_date="2024-01-01",
+        to_date="2024-06-30",
+        mode="complete",
+        results_root=tmp_path / "results",
+    )
+
+    assert out["ok"] is True
+    assert staged == [str(source)]
 
 
 def test_optimize_rejects_unknown_mode(monkeypatch, tmp_path):
