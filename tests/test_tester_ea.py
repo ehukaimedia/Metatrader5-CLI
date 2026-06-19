@@ -356,6 +356,63 @@ def test_optimize_generates_set_file_from_params(monkeypatch, tmp_path):
     assert "ExpertParameters=alpha.AUDUSD.M5.set" in captured_inis[0]
 
 
+def test_single_generates_set_file_from_params(monkeypatch, tmp_path):
+    captured_inis = []
+    captured_run_dirs = []
+
+    def fake_launch(*, ini_path, run_dir, timeout):
+        captured_inis.append(Path(ini_path).read_bytes()[2:].decode("utf-16-le"))
+        captured_run_dirs.append(Path(run_dir))
+        Path(run_dir, "report.html").write_text(
+            "<html><body><table></table></body></html>", encoding="utf-8"
+        )
+        return {
+            "ok": True,
+            "data": {"exit_code": 0, "stdout": "", "stderr": "", "run_dir": str(run_dir)},
+        }
+
+    monkeypatch.setattr(ea.launcher, "run", fake_launch)
+    monkeypatch.setattr(
+        ea.discovery,
+        "get_ea",
+        lambda name: {"name": name, "source": "x.mq5", "compiled": True},
+    )
+
+    out = ea.single(
+        expert="alpha",
+        symbol="AUDUSD",
+        timeframe="M5",
+        from_date="2024-01-01",
+        to_date="2024-06-30",
+        params=["Risk=1.0", "FastPeriod=9"],
+        results_root=tmp_path,
+    )
+
+    assert out["ok"] is True
+    set_file = captured_run_dirs[0] / "alpha.AUDUSD.M5.set"
+    assert set_file.exists()
+    assert "Risk=1.0" in set_file.read_text(encoding="utf-8")
+    assert "ExpertParameters=alpha.AUDUSD.M5.set" in captured_inis[0]
+    assert out["data"]["generated_set_file"] == str(set_file)
+
+
+def test_single_rejects_params_and_set_file_together(tmp_path):
+    existing = tmp_path / "preset.set"
+    existing.write_text("Risk=1.0\n", encoding="utf-8")
+    out = ea.single(
+        expert="alpha",
+        symbol="AUDUSD",
+        timeframe="M5",
+        from_date="2024-01-01",
+        to_date="2024-06-30",
+        params=["Risk=1.0"],
+        set_file=existing,
+        results_root=tmp_path,
+    )
+    assert out["ok"] is False
+    assert out["error"]["code"] == "MT5_INVALID_PARAMS"
+
+
 def test_optimize_rejects_params_and_set_file_together(tmp_path):
     existing = tmp_path / "preset.set"
     existing.write_text("Risk=1.0\n", encoding="utf-8")

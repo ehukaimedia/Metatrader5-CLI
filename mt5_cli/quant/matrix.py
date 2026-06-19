@@ -76,8 +76,33 @@ def is_end(split: str) -> str:
 
 
 def param_names(specs: list[str]) -> list[str]:
-    """Extract the parameter names from ``NAME=...`` specs."""
+    """Extract all parameter names from ``NAME=...`` specs."""
     return [spec.split("=", 1)[0].strip() for spec in specs if "=" in spec]
+
+
+def optimized_param_names(specs: list[str]) -> list[str]:
+    """Extract only optimization-range names from ``NAME=value,start,step,stop`` specs."""
+    names: list[str] = []
+    for spec in specs:
+        if "=" not in spec:
+            continue
+        name, raw = spec.split("=", 1)
+        if len([part.strip() for part in raw.split(",")]) == 4:
+            names.append(name.strip())
+    return names
+
+
+def fixed_params(specs: list[str]) -> dict[str, str]:
+    """Return fixed scalar params that must be carried into winner set files."""
+    fixed: dict[str, str] = {}
+    for spec in specs:
+        if "=" not in spec:
+            continue
+        name, raw = spec.split("=", 1)
+        parts = [part.strip() for part in raw.split(",")]
+        if len(parts) == 1:
+            fixed[name.strip()] = parts[0]
+    return fixed
 
 
 def parse_params(specs: list[str]) -> list[str]:

@@ -88,6 +88,106 @@ def test_winner_set_does_not_clobber_optimize_range_set(monkeypatch, tmp_path):
     assert env["data"]["ranked"][0]["set_file"].endswith("winner.demo.EURUSD.H1.set")
 
 
+def test_fixed_params_are_carried_into_winner_set(monkeypatch, tmp_path):
+    monkeypatch.setattr(campaign.ea, "optimize", _fake_opt(tmp_path))
+    monkeypatch.setattr(campaign.ea, "single", _fake_single())
+
+    env = campaign.run(
+        expert="demo",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        from_date="2022-01-01",
+        to_date="2024-12-31",
+        split="0.70",
+        params=["InpAllowTrading=true", "FastPeriod=9,5,1,21"],
+        results_root=tmp_path,
+    )
+
+    winner = env["data"]["ranked"][0]
+    winner_set = tmp_path / "opt" / "winner.demo.EURUSD.H1.set"
+    text = winner_set.read_text(encoding="utf-8")
+    assert "InpAllowTrading=true" in text
+    assert "FastPeriod=12" in text
+    assert winner["params"]["InpAllowTrading"] == "true"
+    assert winner["params"]["FastPeriod"] == "12"
+
+
+def test_fixed_param_campaign_runs_single_is_oos_full_without_optimize(monkeypatch, tmp_path):
+    def boom_optimize(**kw):
+        raise AssertionError("fixed-param campaigns must not launch optimization")
+
+    calls = []
+    fixed_set = tmp_path / "fixed.set"
+
+    def fake_single(**kw):
+        calls.append(kw)
+        data = {
+            "run_id": f"single_{len(calls)}",
+            "stats": {"total_trades": 420, "net_profit": 1000.0, "profit_factor": 1.4,
+                      "sharpe": 1.1, "max_drawdown_pct": 4.0, "win_rate": 0.52},
+            "equity_curve": [{"balance": 10000}, {"balance": 11000}],
+        }
+        if kw.get("params"):
+            data["generated_set_file"] = str(fixed_set)
+        return {"ok": True, "data": data}
+
+    monkeypatch.setattr(campaign.ea, "optimize", boom_optimize)
+    monkeypatch.setattr(campaign.ea, "single", fake_single)
+
+    env = campaign.run(
+        expert="demo",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        from_date="2022-01-01",
+        to_date="2024-12-31",
+        split="0.70",
+        params=["InpAllowTrading=true", "FastPeriod=12"],
+        results_root=tmp_path,
+    )
+
+    assert env["ok"] is True
+    assert [c["run_label"] for c in calls] == [
+        "quant-is-demo", "quant-oos-demo", "quant-full-demo"]
+    assert calls[0]["params"] == {"InpAllowTrading": "true", "FastPeriod": "12"}
+    assert calls[1]["set_file"] == str(fixed_set)
+    assert calls[2]["set_file"] == str(fixed_set)
+    assert env["data"]["child_run_ids"] == ["single_1", "single_2", "single_3"]
+    winner = env["data"]["ranked"][0]
+    assert winner["is"]["profit_factor"] == 1.4
+    assert winner["params"]["FastPeriod"] == "12"
+
+
+def test_fixed_param_campaign_rejects_is_no_winner_without_oos_full(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_single(**kw):
+        calls.append(kw)
+        return {"ok": True, "data": {
+            "run_id": "is_only",
+            "generated_set_file": str(tmp_path / "fixed.set"),
+            "stats": {"total_trades": 420, "profit_factor": 0.9},
+        }}
+
+    monkeypatch.setattr(campaign.ea, "optimize", lambda **kw: (_ for _ in ()).throw(
+        AssertionError("fixed-param campaigns must not optimize")))
+    monkeypatch.setattr(campaign.ea, "single", fake_single)
+
+    env = campaign.run(
+        expert="demo",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        from_date="2022-01-01",
+        to_date="2024-12-31",
+        split="0.70",
+        params=["FastPeriod=12"],
+        results_root=tmp_path,
+    )
+
+    assert env["data"]["ranked"] == []
+    assert env["data"]["rejected"][0]["reason"] == "NO_WINNER"
+    assert len(calls) == 1
+
+
 def test_empty_matrix_returns_code_and_no_launch(monkeypatch, tmp_path):
     monkeypatch.setattr(campaign.ea, "optimize", lambda **k: (_ for _ in ()).throw(AssertionError("no launch")))
     env = campaign.run(expert="demo", symbols=[], timeframes=["H1"], from_date="2022-01-01",
@@ -143,6 +243,29 @@ def test_no_winner_when_no_pass_clears_min_pf(monkeypatch, tmp_path):
     assert "hint" in env["data"] and "--min-is-trades" in env["data"]["hint"]
     reloaded = store.get_campaign(env["data"]["campaign_id"], root=tmp_path)
     assert "--min-is-trades" in reloaded["data"]["hint"]
+
+
+def test_all_zero_trade_optimization_is_no_trades_not_no_winner(monkeypatch, tmp_path):
+    def fake_optimize(**kw):
+        return {"ok": True, "data": {"run_dir": str(tmp_path / "opt"),
+                "optimization": [{"FastPeriod": "9", "Profit Factor": None, "Trades": 0}]}}
+
+    monkeypatch.setattr(campaign.ea, "optimize", fake_optimize)
+    monkeypatch.setattr(campaign.ea, "single", lambda **k: {"ok": True, "data": {}})
+
+    env = campaign.run(
+        expert="demo",
+        symbols=["EURUSD"],
+        timeframes=["H1"],
+        from_date="2022-01-01",
+        to_date="2024-12-31",
+        split="0.70",
+        params=["FastPeriod=9,5,1,21"],
+        results_root=tmp_path,
+    )
+
+    assert env["data"]["rejected"][0]["reason"] == "NO_TRADES"
+    assert "hint" not in env["data"]
 
 
 def test_hint_absent_when_rejects_are_not_all_no_winner(monkeypatch, tmp_path):

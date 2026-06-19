@@ -44,6 +44,16 @@ def test_param_names_extracted():
     assert matrix.param_names(["FastPeriod=9,5,1,21", "Risk=1.0"]) == ["FastPeriod", "Risk"]
 
 
+def test_optimized_param_names_and_fixed_params_are_split():
+    specs = ["InpAllowTrading=true", "FastPeriod=9,5,1,21", "RunTag=stage1"]
+
+    assert matrix.optimized_param_names(specs) == ["FastPeriod"]
+    assert matrix.fixed_params(specs) == {
+        "InpAllowTrading": "true",
+        "RunTag": "stage1",
+    }
+
+
 def test_parse_params_ok_and_bad():
     assert matrix.parse_params(["Risk=1.0,0.5,0.5,3.0"]) == ["Risk=1.0,0.5,0.5,3.0"]
     with pytest.raises(matrix.InvalidParam):

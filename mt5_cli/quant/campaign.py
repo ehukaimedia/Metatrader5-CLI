@@ -32,8 +32,19 @@ def _metrics(env: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _clears_is_gates(metrics: dict[str, Any], *, min_pf: float, min_is_trades: int) -> bool:
+    pf = metrics.get("profit_factor")
+    trades = metrics.get("trades")
+    if not isinstance(pf, (int, float)) or pf < min_pf:
+        return False
+    if min_is_trades <= 0:
+        return True
+    return isinstance(trades, (int, float)) and trades >= min_is_trades
+
+
 def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str,
               split_day: str, is_end_day: str, params: list[str], param_names: list[str],
+              fixed_params: dict[str, str],
               mode: str, min_pf: float, min_is_trades: int, modelling: str,
               results_root: Path | str, timeout: int) -> dict[str, Any]:
     base: dict[str, Any] = {"symbol": symbol, "timeframe": tf}
@@ -47,6 +58,43 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
                 child_runs.append(rid)
         return env
 
+    if not param_names:
+        is_env = _track(ea.single(expert=expert, symbol=symbol, timeframe=tf,
+                                  from_date=from_date, to_date=is_end_day,
+                                  modelling=modelling, params=fixed_params or None,
+                                  run_label=f"quant-is-{expert}",
+                                  results_root=results_root, timeout=timeout))
+        if not is_env["ok"]:
+            return {**base, "reason": "CELL_FAILED", "envelope": is_env,
+                    "child_runs": child_runs}
+        is_metrics = _metrics(is_env)
+        if (is_metrics.get("trades") or 0) == 0:
+            return {**base, "reason": "NO_TRADES", "child_runs": child_runs,
+                    "note": "fixed-parameter in-sample run produced zero trades"}
+        if not _clears_is_gates(is_metrics, min_pf=min_pf, min_is_trades=min_is_trades):
+            return {**base, "reason": "NO_WINNER", "child_runs": child_runs}
+
+        set_path = is_env["data"].get("generated_set_file") or is_env["data"].get("set_file")
+        oos = _track(ea.single(expert=expert, symbol=symbol, timeframe=tf,
+                               from_date=split_day, to_date=to_date,
+                               set_file=set_path, run_label=f"quant-oos-{expert}",
+                               results_root=results_root, timeout=timeout))
+        if not oos["ok"]:
+            return {**base, "reason": "CELL_FAILED", "envelope": oos,
+                    "child_runs": child_runs}
+        full = _track(ea.single(expert=expert, symbol=symbol, timeframe=tf,
+                                from_date=from_date, to_date=to_date,
+                                set_file=set_path, run_label=f"quant-full-{expert}",
+                                results_root=results_root, timeout=timeout))
+        if not full["ok"]:
+            return {**base, "reason": "CELL_FAILED", "envelope": full,
+                    "child_runs": child_runs}
+
+        return {**base, "side": None, "set_file": set_path, "run_id": full["data"].get("run_id"),
+                "params": fixed_params, "is": is_metrics, "oos": _metrics(oos),
+                "full": _metrics(full), "equity_curve": full["data"].get("equity_curve", []),
+                "child_runs": child_runs}
+
     opt = _track(ea.optimize(expert=expert, symbol=symbol, timeframe=tf, from_date=from_date,
                              to_date=is_end_day, mode=mode, params=params, modelling=modelling,
                              results_root=results_root, timeout=timeout))
@@ -54,6 +102,9 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
         return {**base, "reason": "CELL_FAILED", "envelope": opt, "child_runs": child_runs}
 
     rows = passes.read_rows(opt["data"].get("optimization") or [], param_names=param_names)
+    if rows and all((row.get("is", {}).get("trades") or 0) == 0 for row in rows):
+        return {**base, "reason": "NO_TRADES", "child_runs": child_runs,
+                "note": "optimization produced zero in-sample trades across every pass"}
     winner = selection.pick_winner(rows, min_pf=min_pf, min_is_trades=min_is_trades)
     if winner is None:
         return {**base, "reason": "NO_WINNER", "child_runs": child_runs}
@@ -68,8 +119,9 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
     # and that run's tester.ini references it; reusing the same name would overwrite
     # the optimize child's artifact with single-pass values that no longer match the
     # search it ran. The `winner.` prefix keeps both intact, side by side.
+    winner_params = {**fixed_params, **winner["params"]}
     set_path = Path(opt["data"]["run_dir"]) / f"winner.{expert}.{symbol}.{tf}.set"
-    ini_builder.write_set(set_path, [f"{k}={v}" for k, v in winner["params"].items()])
+    ini_builder.write_set(set_path, [f"{k}={v}" for k, v in winner_params.items()])
 
     # Phase-specific run labels so OOS and FULL never collide on a second-resolution
     # run id (the same hazard stress() avoids by folding a token into the label).
@@ -85,7 +137,7 @@ def _run_cell(*, expert: str, symbol: str, tf: str, from_date: str, to_date: str
         return {**base, "reason": "CELL_FAILED", "envelope": full, "child_runs": child_runs}
 
     return {**base, "side": None, "set_file": str(set_path), "run_id": full["data"].get("run_id"),
-            "is": winner["is"], "oos": _metrics(oos), "full": _metrics(full),
+            "params": winner_params, "is": winner["is"], "oos": _metrics(oos), "full": _metrics(full),
             "equity_curve": full["data"].get("equity_curve", []), "child_runs": child_runs}
 
 
@@ -129,11 +181,12 @@ def run(*, expert: str, symbols: list[str], timeframes: list[str], from_date: st
                    "from": from_date, "to": to_date, "split": split_day,
                    "cells": len(cells), "planned_launches": len(cells) * 3})
 
-    pnames = matrix.param_names(param_list)
+    pnames = matrix.optimized_param_names(param_list)
+    fixed = matrix.fixed_params(param_list)
     all_cells: list[dict[str, Any]] = [
         _run_cell(expert=expert, symbol=symbol, tf=tf, from_date=from_date, to_date=to_date,
                   split_day=split_day, is_end_day=is_end_day, params=param_list,
-                  param_names=pnames, mode=mode, min_pf=min_pf,
+                  param_names=pnames, fixed_params=fixed, mode=mode, min_pf=min_pf,
                   min_is_trades=eff_min_is_trades, modelling=modelling,
                   results_root=results_root, timeout=timeout)
         for symbol, tf in cells

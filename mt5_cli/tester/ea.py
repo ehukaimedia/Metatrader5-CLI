@@ -57,6 +57,7 @@ def single(
     delay_ms: int = 0,
     run_label: str | None = None,
     set_file: Path | str | None = None,
+    params: list[str] | dict[str, str] | None = None,
     results_root: Path | str = "results",
     timeout: int = 600,
 ) -> dict:
@@ -71,6 +72,13 @@ def single(
     if modelling_err:
         return modelling_err
 
+    if params and set_file:
+        return fail(
+            "MT5_INVALID_PARAMS",
+            "Pass either params or set_file, not both.",
+        )
+    if set_file and not Path(set_file).exists():
+        return fail("SET_FILE_NOT_FOUND", f"Set file not found: {set_file}")
     found, err = _compiled_ea_or_fail(expert)
     if err:
         return err
@@ -91,8 +99,17 @@ def single(
     )
     if prepared_report is not None:
         report_ref, terminal_report_path = prepared_report
-    if set_file:
-        launcher.stage_expert_parameters(set_file)
+    generated_set_path: Path | None = None
+    effective_set_file = set_file
+    if params:
+        generated_set_path = run_path / f"{expert}.{symbol}.{timeframe}.set"
+        try:
+            ini_builder.write_set(generated_set_path, params)
+        except ValueError as exc:
+            return fail("MT5_INVALID_PARAMS", str(exc))
+        effective_set_file = generated_set_path
+    if effective_set_file:
+        launcher.stage_expert_parameters(effective_set_file)
 
     ini_text = ini_builder.build_ea_ini(
         expert=expert,
@@ -107,7 +124,7 @@ def single(
         visual=visual,
         execution_mode=delay_ms,
         report_path=report_ref,
-        set_file=set_file,
+        set_file=effective_set_file,
         shutdown_terminal=not visual,
     )
     ini_builder.write_ini(ini_path, ini_text)
@@ -147,6 +164,8 @@ def single(
             "leverage": leverage,
             "visual": visual,
             "delay_ms": delay_ms,
+            "set_file": str(effective_set_file) if effective_set_file else None,
+            "generated_set_file": str(generated_set_path) if generated_set_path else None,
             "run_dir": str(run_path),
         },
     )
