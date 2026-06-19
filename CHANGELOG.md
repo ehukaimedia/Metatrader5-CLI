@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Strategy Tester launches now scope the `TERMINAL_ALREADY_RUNNING` guard to the
+  selected `MT5_TERMINAL_PATH`, support `MT5_TERMINAL_PORTABLE=1`, stage local EA
+  `.mq5`/`.ex5` files into that terminal's `MQL5/Experts`, require an explicit
+  data dir instead of guessing when a selected terminal cannot be matched, and
+  return `TESTER_ACCOUNT_NOT_SPECIFIED` when the selected tester terminal has no
+  saved account.
 - **Breaking:** `mt5 tester ea stress` replaces the `--delays-ms` flag (and the
   `tester.ea.stress(delays_ms=...)` library argument) with `--delays` /
   `delays=[...]`. The old flag recorded a `stress_delay_ms` field on an

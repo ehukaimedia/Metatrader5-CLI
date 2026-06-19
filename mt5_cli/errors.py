@@ -83,6 +83,7 @@ ERROR_CODES: dict[str, str] = {
     "UNKNOWN_TEMPLATE": "Unknown scaffold template.",
     # --- Strategy Tester ---
     "TESTER_FAILED": "The Strategy Tester run failed.",
+    "TESTER_ACCOUNT_NOT_SPECIFIED": "The selected Strategy Tester terminal has no saved account.",
     "TESTER_TIMEOUT": "The tester run timed out.",
     "TESTER_PARSE_ERROR": "Could not parse the tester report.",
     "TESTER_REPORT_MISSING": "The expected tester report was not produced.",
@@ -100,7 +101,7 @@ ERROR_CODES: dict[str, str] = {
     "INVALID_RANK_BY": "--rank-by must be one of full_net, oos_sharpe, oos_pf.",
     "NO_RESULTS": "No cell produced a ranked or rejected record.",
     # --- Terminal discovery ---
-    "TERMINAL_ALREADY_RUNNING": "terminal64.exe is already running; close it for a batch launch.",
+    "TERMINAL_ALREADY_RUNNING": "The selected terminal64.exe is already running; close it for a batch launch.",
     "TERMINAL_NOT_FOUND": "terminal64.exe could not be located.",
     "TERMINAL_DATA_DIR_NOT_FOUND": "The terminal data directory could not be resolved.",
     # --- Alerts ---
@@ -127,7 +128,6 @@ RETRYABLE: frozenset[str] = frozenset({
     "MT5_MARKET_BOOK_SUBSCRIBE_FAILED",
     "TESTER_TIMEOUT",
     "MQL5_COMPILE_TIMEOUT",
-    "TERMINAL_ALREADY_RUNNING",
 })
 
 

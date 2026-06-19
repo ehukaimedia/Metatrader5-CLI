@@ -13,6 +13,18 @@ _CANDIDATE_PATHS = [
 ]
 
 
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalized_path_text(value: Path | str) -> str:
+    try:
+        path = Path(value).resolve()
+    except OSError:
+        path = Path(value).absolute()
+    return str(path).rstrip("\\/").lower()
+
+
 def locate_terminal() -> Path | None:
     """Find terminal64.exe from env first, then common Windows locations."""
     env = os.environ.get("MT5_TERMINAL_PATH")
@@ -27,15 +39,55 @@ def locate_terminal() -> Path | None:
     return None
 
 
-def is_terminal_running() -> bool:
-    """Return True when a terminal64.exe process already exists.
+def is_terminal_running(terminal: Path | None = None) -> bool:
+    """Return True when the selected terminal64.exe process already exists.
 
     MT5 /config tester mode is a startup contract. When the same terminal
     is already open, Windows wakes the existing instance and the [Tester]
-    block may not be applied.
+    block may not be applied. If a terminal path is supplied, only that exact
+    executable is considered running so a separate MT5 install can run batch
+    tests while the interactive terminal remains open.
     """
     if os.name != "nt":
         return False
+    selected = None
+    if terminal is not None:
+        try:
+            selected = Path(terminal).resolve()
+        except OSError:
+            selected = Path(terminal).absolute()
+    if selected is not None:
+        try:
+            proc = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    (
+                        "Get-CimInstance Win32_Process "
+                        "-Filter \"Name = 'terminal64.exe'\" | "
+                        "Select-Object -ExpandProperty ExecutablePath"
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except Exception:  # noqa: BLE001
+            return True
+        if proc.returncode != 0:
+            return True
+        for line in (proc.stdout or "").splitlines():
+            if not line.strip():
+                continue
+            try:
+                running = Path(line.strip()).resolve()
+            except OSError:
+                running = Path(line.strip()).absolute()
+            if running == selected:
+                return True
+        return False
+
     try:
         proc = subprocess.run(
             [
@@ -51,7 +103,9 @@ def is_terminal_running() -> bool:
             timeout=5,
         )
     except Exception:  # noqa: BLE001
-        return False
+        return True
+    if proc.returncode != 0:
+        return True
     return "terminal64.exe" in (proc.stdout or "").lower()
 
 
@@ -68,16 +122,23 @@ def locate_terminal_data_dir(terminal: Path | None = None) -> Path | None:
         if data_dir.exists():
             return data_dir
 
+    explicit_terminal = terminal is not None or bool(os.environ.get("MT5_TERMINAL_PATH"))
     terminal = terminal or locate_terminal()
+    if terminal is not None and _env_truthy("MT5_TERMINAL_PORTABLE"):
+        return Path(terminal).parent
+
     origin_target = None
     if terminal is not None:
-        origin_target = str(Path(terminal).parent).rstrip("\\/").lower()
+        origin_target = _normalized_path_text(Path(terminal).parent)
 
     root = Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
     if not root.exists():
         return None
 
-    candidates = [p for p in root.iterdir() if p.is_dir()]
+    try:
+        candidates = [p for p in root.iterdir() if p.is_dir()]
+    except OSError:
+        return None
     if origin_target is not None:
         for candidate in candidates:
             origin = candidate / "origin.txt"
@@ -87,12 +148,17 @@ def locate_terminal_data_dir(terminal: Path | None = None) -> Path | None:
                 text = origin.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-            if text.strip().rstrip("\\/").lower() == origin_target:
+            if _normalized_path_text(text.strip()) == origin_target:
                 return candidate
 
+    if explicit_terminal:
+        return None
     if not candidates:
         return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    try:
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return None
 
 
 def prepare_report_target(
@@ -149,6 +215,36 @@ def stage_expert_parameters(
     return target
 
 
+def stage_expert(
+    source_file: Path | str,
+    *,
+    terminal_data_dir: Path | None = None,
+) -> Path | None:
+    """Copy an EA `.mq5` and sibling `.ex5` into MQL5/Experts for tester mode."""
+    source = Path(source_file)
+    if not source.exists():
+        return None
+    data_dir = terminal_data_dir or locate_terminal_data_dir()
+    if data_dir is None:
+        return None
+    target_dir = Path(data_dir) / "MQL5" / "Experts"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied: Path | None = None
+    for candidate in (source.with_suffix(".mq5"), source.with_suffix(".ex5")):
+        if not candidate.exists():
+            continue
+        target = target_dir / candidate.name
+        try:
+            if candidate.resolve() == target.resolve():
+                copied = target
+                continue
+        except OSError:
+            pass
+        shutil.copy2(candidate, target)
+        copied = target
+    return copied
+
+
 def wait_for_artifact(path: Path | str, timeout: int, interval: float = 1.0) -> bool:
     """Wait for MT5 to finish writing an expected report artifact."""
     target = Path(path)
@@ -167,6 +263,40 @@ def wait_for_artifact(path: Path | str, timeout: int, interval: float = 1.0) -> 
                 last_size = size
         time.sleep(interval)
     return target.exists() and target.stat().st_size > 0
+
+
+def _terminal_log_tail(terminal: Path, max_chars: int = 4000) -> str:
+    try:
+        data_dir = locate_terminal_data_dir(terminal)
+    except OSError:
+        return ""
+    if data_dir is None:
+        return ""
+    logs_dir = Path(data_dir) / "logs"
+    try:
+        logs = sorted(
+            (path for path in logs_dir.glob("*.log") if path.is_file()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return ""
+    if not logs:
+        return ""
+    try:
+        raw = logs[0].read_bytes()
+    except OSError:
+        return ""
+    sample = raw[:200]
+    if sample.count(b"\x00") > max(10, len(sample) // 4):
+        text = raw.decode("utf-16-le", errors="ignore")
+    else:
+        text = raw.decode("utf-8", errors="ignore")
+    return text[-max_chars:]
+
+
+def _has_account_not_specified_log(log_text: str) -> bool:
+    return "tester not started because the account is not specified" in log_text.lower()
 
 
 def run(
@@ -190,16 +320,16 @@ def run(
             "TERMINAL_NOT_FOUND",
             "Could not locate terminal64.exe. Set MT5_TERMINAL_PATH.",
         )
-    if not allow_existing_terminal and is_terminal_running():
+    if not allow_existing_terminal and is_terminal_running(terminal):
         return fail(
             "TERMINAL_ALREADY_RUNNING",
-            "MT5 terminal64.exe is already running. Close the terminal before "
-            "running Strategy Tester batch mode, or use a separate terminal "
-            "installation via MT5_TERMINAL_PATH.",
+            f"MT5 terminal64.exe is already running at {terminal}. Close that "
+            "terminal before running Strategy Tester batch mode, or use a "
+            "separate terminal installation via MT5_TERMINAL_PATH.",
         )
 
     cmd = [str(terminal), f"/config:{ini_path}"]
-    if portable:
+    if portable or _env_truthy("MT5_TERMINAL_PORTABLE"):
         cmd.append("/portable")
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -209,6 +339,20 @@ def run(
     stdout = proc.stdout[-4000:] if proc.stdout else ""
     stderr = proc.stderr[-4000:] if proc.stderr else ""
     if proc.returncode != 0:
+        log_tail = _terminal_log_tail(terminal)
+        if _has_account_not_specified_log(log_tail):
+            return fail(
+                "TESTER_ACCOUNT_NOT_SPECIFIED",
+                "MT5 Strategy Tester account is not specified. Log into the "
+                "selected MT5 terminal once, or use a terminal data directory "
+                "that already has a saved demo account.",
+                data={
+                    "exit_code": proc.returncode,
+                    "terminal": str(terminal),
+                    "run_dir": str(run_dir),
+                    "diagnostic": "tester not started because the account is not specified",
+                },
+            )
         detail = stderr or stdout or f"terminal64 exited with code {proc.returncode}"
         return fail(
             "TESTER_FAILED",

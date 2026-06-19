@@ -248,10 +248,14 @@ user's MQL5 source files.
 The tester commands wrap MT5's native Strategy Tester. This is not a separate
 Python backtester and not a fully headless server API.
 
-EA tester runs use MT5's `/config` startup contract. The terminal must be
-available for a fresh batch-mode launch; if `terminal64.exe` is already running,
-the CLI returns `TERMINAL_ALREADY_RUNNING` rather than running against stale UI
-state.
+EA tester runs use MT5's `/config` startup contract. The selected terminal must
+be available for a fresh batch-mode launch; if that exact `terminal64.exe` is
+already running, the CLI returns `TERMINAL_ALREADY_RUNNING` rather than running
+against stale UI state. You can keep an interactive MT5 terminal open by pointing
+batch tests at a separate install with `MT5_TERMINAL_PATH`; set
+`MT5_TERMINAL_PORTABLE=1` when that install should use its own `/portable` data
+directory, or set `MT5_TERMINAL_DATA_PATH` to an existing MT5 data directory for
+that install.
 
 ```bash
 mt5 --json tester ea single \
@@ -365,8 +369,12 @@ or `mt5 --json describe` for a machine-readable catalog of every command.
 - **`MT5_CONNECTION_ERROR` / "Could not connect to MT5":** make sure the
   MetaTrader 5 terminal is running and logged in. The CLI attaches to the
   already-open terminal; it does not launch one for data commands.
-- **`TERMINAL_ALREADY_RUNNING` (tester):** an EA tester run needs a fresh
-  batch-mode launch — close the running `terminal64.exe` first.
+- **`TERMINAL_ALREADY_RUNNING` (tester):** the selected Strategy Tester terminal
+  is already open. Close that terminal, or point `MT5_TERMINAL_PATH` at a
+  separate install for batch runs.
+- **`TESTER_ACCOUNT_NOT_SPECIFIED` (tester):** the selected Strategy Tester
+  terminal has no saved MT5 account. Log into that terminal once, or use a data
+  directory that already has a saved demo account.
 - **`mt5 ea list` finds nothing:** EAs/indicators are discovered from `./ea` or
   `./indicators` in the current directory, then
   `~/.local/share/metatrader5-cli/...`. Run from your trading project, or place
